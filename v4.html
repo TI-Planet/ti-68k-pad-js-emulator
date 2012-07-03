@@ -49,6 +49,8 @@ var screen_height = 128;
 var keystatus = new Array(80); // status of each key is at ROW * 8 + COLUMN
 var keymasklow = 0xFF; // which key rows are selected to read (from 600019)
 var keymaskhigh = 0xFF;
+var frames_counted = 0;
+var total_time = 0;
 
 function to_hex(number, digits)
 {
@@ -71,18 +73,6 @@ function make_unhandled(i)
 		unhandled_count++;
 	};
 };
-
-function start_timer(name)
-{
-	timername = name;
-	timertime = (new Date).getTime();
-}
-
-function stop_timer()
-{
-	var done = (new Date).getTime();
-	console.log("Timer for " + timername + " took " + (done - timertime));
-}
 
 // brief display of the system status
 function print_status()
@@ -1020,7 +1010,7 @@ var totalframes = 0;
 
 function emu_main_loop()
 {
-	//start_timer("main loop");
+	var starttime = (new Date).getTime();
 	var started = false;
 	var prev_pc = 0;
 	
@@ -1160,7 +1150,18 @@ function emu_main_loop()
 	}
 	
 	draw_screen();
-	//stop_timer();
+	
+	var endtime = (new Date).getTime();
+	
+	total_time += (endtime - starttime);
+	frames_counted++;
+	
+	if (frames_counted == 1000)
+	{
+		document.title = "Average milliseconds for the last 1000 frames is " + (total_time/1000);
+		total_time = frames_counted = 0;
+	}
+	
 	if (unhandled_count >= 10 || overall <= 0) clearInterval(interval);
 }
 
