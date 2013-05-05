@@ -2,7 +2,7 @@
 <html>
 <head>
 <title>
-TI-92 Plus emulator (alpha version 8)
+TI-92 Plus emulator (alpha version 9)
 </title>
 
 <script src="v4rom.js"></script>
@@ -38,7 +38,7 @@ var unhandled_count = 0; // number of unhandled instructions encountered
 var interval = 0; // interval ID of main timer
 var tracecount = 0; // number of instructions to trace in console
 var vectorprotect = false;
-var overall = 15000;
+var overall = 2500;
 var osc2_counter = 0;
 var timer_min = 0xB2;
 var timer_current = 0;
@@ -51,6 +51,15 @@ var keymaskhigh = 0xFF;
 var frames_counted = 0;
 var total_time = 0;
 var newromready = false;
+var newfileready = false;
+var link_incoming_queue = new Array();
+var link_outgoing_queue = new Array();
+var link_config = 1;
+var transmit_finished = false;
+var stopped = false;
+var wakemask = 0;
+var interrupt_control = 0x1B;
+var interrupt_rate = 0x200;
 
 function to_hex(number, digits)
 {
@@ -176,7 +185,7 @@ function addb(x, y)
 	if (result & 0x80) sr += 8; // negative flag
 	if (result != maskedresult) sr += 1;
 	if (y < 0x80 && x < 0x80 && maskedresult >= 0x80) sr += 2; // overflow flag
-	if (y >= 0x00 && x >= 0x900 && maskedresult < 0x80) sr += 2; // overflow flag
+	if (y >= 0x80 && x >= 0x80 && maskedresult < 0x80) sr += 2; // overflow flag
 	return maskedresult;
 }
 
@@ -228,7 +237,7 @@ function abcd(x,y)
 		sr |= 0x11; // carry out into both X and C
 	}
 	var result = highsum + lowsum;
-	if (result != 0) sr &= 0xFFBF; // zero flag
+	if (result != 0) sr &= 0xFFFB; // zero flag
 	return result;
 }
 
@@ -245,7 +254,7 @@ function sbcd(dst,src)
 		result = result + 100;
 		sr |= 0x11; // set carry and extend if we had a borrow;
 	}
-	if (finalresult != 0) sr &= 0xFFBF; // clear zero flag
+	if (finalresult != 0) sr &= 0xFFFB; // clear zero flag
 	var lowdigit = result % 10;
 	var highdigit = (result - lowdigit) / 10;
 	var finalresult = highdigit * 16 + lowdigit;
@@ -319,7 +328,7 @@ function mulu(x, y)
 	y = y & 0xFFFF;
 	product = x * y;
 	sr &= 0xFFF0; // clear all user flags but X
-	if (product >= 0x8000000) sr |= 8; // negative flag
+	if (product >= 0x80000000) sr |= 8; // negative flag
 	if (product == 0) sr |= 4; // zero flag
 	return product;
 }
@@ -334,7 +343,7 @@ function divu(divisor, dividend)
 	if (quotient == 0) sr |= 4; // zero flag
 	
 	if (quotient >= 0x10000) {
-		if (quotient >= 0x8000000) sr |= 8; // negative
+		if (quotient >= 0x80000000) sr |= 8; // negative
 		sr |= 2; // overflow
 		return dividend;
 	}
@@ -361,7 +370,7 @@ function divs(divisor, dividend)
 	if (quotient == 0) sr |= 4; // zero flag
 	
 	if (quotient >= 0x8000 || quotient < -32768) {
-		if (quotient >= 0x8000000) sr |= 8; // negative
+		if (quotient >= 0x80000000) sr |= 8; // negative
 		sr |= 2; // overflow
 		return dividend;
 	}
@@ -389,12 +398,12 @@ function lsl(x, shift, size)
 	while (shift--)
 	{
 		x = x + x;
-		if (x > overflow) {
+		if (x >= overflow) {
 			x -= overflow;
 			if (shift == 0) sr |= 0x11; // set carry and extend if last bit shifted out is 1
 		}
 	}
-	if (x + x > overflow) sr |= 8 // negative flag
+	if (x + x >= overflow) sr |= 8 // negative flag
 	if (x == 0) sr |= 4; // zero flag
 	return x;	
 }
@@ -406,18 +415,19 @@ function asl(x, shift, size)
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
 	if (size == 2) overflow = 0x100000000;
-	sr &= 0xFFE0; // initially clear all user condition flags
+	sr &= 0xFFE1; // initially clear all user condition flags but carry
+	if (shift > 0) sr &= 0xFFE0; // clear carry if nonzero shift
 	while (shift--)
 	{
 		old = x;
 		x = x + x;
-		if (x > overflow) {
+		if (x >= overflow) {
 			x -= overflow;
 			if (shift == 0) sr |= 0x11; // set carry and extend if last bit shifted out is 1
 		}
 		if ((x & (overflow / 2)) != (old & (overflow / 2))) sr |= 2; // set overflow flag if high bit changed
 	}
-	if (x + x > overflow) sr |= 8 // negative flag
+	if (x + x >= overflow) sr |= 8 // negative flag
 	if (x == 0) sr |= 4; // zero flag
 	return x;	
 }
@@ -435,7 +445,7 @@ function lsr(x, shift, size)
 		if ((shift == 0) && (x & 1)) sr |= 0x11; // set carry and extend if last bit shifted out is 1
 		x >>>= 1;
 	}
-	if (x + x > overflow) sr |= 8 // negative flag
+	if (x + x >= overflow) sr |= 8 // negative flag
 	if (x == 0) sr |= 4; // zero flag
 	return x;	
 }
@@ -447,14 +457,15 @@ function asr(x, shift, size)
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
 	if (size == 2) overflow = 0x100000000;
-	sr &= 0xFFE0; // initially clear all user condition flags
+	sr &= 0xFFF0; // initially clear all user condition flags but X
+	if (shift > 0) sr &= 0xFFEF; // clear X if nonzero shift count
 	while (shift--)
 	{
 		if ((shift == 0) && (x & 1)) sr |= 0x11; // set carry and extend if last bit shifted out is 1
 		if (x & (overflow / 2)) x += overflow;
 		x = Math.floor(x / 2);
 	}
-	if (x + x > overflow) sr |= 8 // negative flag
+	if (x + x >= overflow) sr |= 8 // negative flag
 	if (x == 0) sr |= 4; // zero flag
 	return x;	
 }
@@ -473,7 +484,7 @@ function ror(x, shift, size)
 		x >>>= 1;
 		if (out) x = x + overflow / 2;
 	}
-	if (x + x > overflow) sr |= 0x9 // negative flag and carry flag
+	if (x + x >= overflow) sr |= 0x9 // negative flag and carry flag
 	if (x == 0) sr |= 4; // zero flag
 	return x;	
 }
@@ -491,7 +502,7 @@ function rol(x, shift, size)
 		x = x + x;
 		if (x >= overflow) x = x + 1 - overflow;
 	}
-	if (x + x > overflow) sr |= 0x8; // negative flag
+	if (x + x >= overflow) sr |= 0x8; // negative flag
 	if (x & 1) sr |= 1; // carry flag
 	if (x == 0) sr |= 4; // zero flag
 	return x;	
@@ -510,7 +521,7 @@ function roxr(x, shift, size)
 		sr = sr & 0xFFE0; // clear all user condition flags including X
 		if (out) sr += 0x10; // set X if bit shifted out was set
 	}
-	if (x + x > overflow) sr |= 0x9 // negative flag and carry flag
+	if (x + x >= overflow) sr |= 0x9 // negative flag and carry flag
 	if (x == 0) sr |= 4; // zero flag
 	if (sr & 0x10) sr |= 1; // carry flag gets a copy of the X flag
 	return x;	
@@ -531,7 +542,7 @@ function roxl(x, shift, size)
 			sr += 0x10; // set X if bit was shifted out
 		}
 	}
-	if (x + x > overflow) sr |= 0x8; // negative flag
+	if (x + x >= overflow) sr |= 0x8; // negative flag
 	if (sr & 0x10) sr |= 1; // carry flag gets a copy of the X flag
 	if (x == 0) sr |= 4; // zero flag
 	return x;	
@@ -1119,7 +1130,7 @@ function build_operation(name, size, source, dest)
 	{
 		code += "if(r<0)r+=0x100000000;"
 		if (size == 0) code += "r&=255;"
-		if (size == 0) code += "r&=65535;"
+		if (size == 1) code += "r&=65535;"
 		code += set_condition_flags_data(size, "r")
 	}
 	return code;
@@ -1360,7 +1371,8 @@ function build_immediate(name, mask, operation)
 						code += amode_read(mode, reg, size, false)
 						if (operation != "")
 						{
-							code += operation
+							//if (name == "ANDI") code += "if (m==0xE00000) tracecount=20;"; 
+							code += operation;
 							code += set_condition_flags_data(size, "r")
 						}
 						else
@@ -1792,11 +1804,8 @@ function read_hreg(reg)
 {
 	if (reg == 0x600000) return 0x84;
 	if (reg == 0x600001) return vectorprotect ? 4 : 0;
-	if (reg == 0x60000c) return 4;
-	if (reg == 0x60000d) return 0x40;
 	if (reg == 0x60000e) return 0x10;
-	if (reg == 0x60000f) return 0;
-	if (reg == 0x600015) return 0x1B; // default value for interrupt / display control
+	if (reg == 0x600015) return interrupt_control; // default value for interrupt / display control
 	if (reg == 0x600017) return timer_current; // programmable timer
 	if (reg == 0x600019) return key_mask; // which keys are readable
 	if (reg == 0x60001a) return 0xFF; // ON key read - treat as not pressed
@@ -1818,6 +1827,32 @@ function read_hreg(reg)
 		}
 		return result;
 	}
+	if (reg == 0x60000c)
+	{
+		//console.log("read link configuation: " + to_hex(link_config, 2));
+		return link_config;
+	}
+	if (reg == 0x60000f)
+	{
+		if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number")
+		{
+			//console.log("reading link buffer: " + to_hex(link_incoming_queue[0], 2));
+			return link_incoming_queue.shift();
+		}
+		else
+		{
+			//console.log("tried to read link buffer, returned 0 because no data");
+			return 0;
+		}
+	}
+	if (reg == 0x60000d)
+	{
+		var status = 2;		
+		if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number") status |= 0x30;
+		else if (link_config & 2) status |= 0x50;
+		//console.log("read link status: " + to_hex(status, 2));
+		return status;
+	}
 	if (reg == 0x60001d) return 1; // contrast setting
 	return 0;
 }
@@ -1831,6 +1866,43 @@ function write_hreg(reg, value)
 	if (reg == 0x600018) keymaskhigh = value;
 	if (reg == 0x600019) keymasklow = value;
 	if (reg == 0x600017) { timer_current = value; timer_min = value;} // programmable timer
+	if (reg == 0x60000c)
+	{
+		link_config = value;
+		if (value & 2 == 0) transmit_finished = false;
+		//console.log("writing link configuation: " + to_hex(link_config, 2));
+	}
+	if (reg == 0x60000f)
+	{
+		link_outgoing_queue.push(value);
+		//console.log("writing to link buffer: " + to_hex(value, 2));
+		transmit_finished = true;
+	}
+	if (reg == 0x600005)
+	{
+		wakemask = value;
+		///throw "STOP";
+	}
+	if (reg == 0x600015)
+	{
+		interrupt_control = value;
+		switch ((interrupt_control >> 4) & 0x3)
+		{	
+			case 0:
+				interrupt_rate = 0x20;
+				break;
+			case 1:
+				interrupt_rate = 0x200;
+				break;
+			case 2:
+				interrupt_rate = 0x1000;
+				break;
+			case 3:
+				interrupt_rate = 0x40000;
+				break;
+		}
+		console.log("writing interrupt_control: " + to_hex(interrupt_control, 2));
+	}
 }
 
 // read from memory, size 0 for byte, 1 for word, 2 for long
@@ -2199,6 +2271,7 @@ function handle_keys(event)
 		case 190: keystatus[78] = value; break; // . (decimal point)
 		case 13: keystatus[73] = value; break; // ENTER
 		case 120: keystatus[52] = value; break; // F9 is treated as F1
+		case 121: keystatus[2] = value; break; // F10 is treated as SHIFT
 		case 48: keystatus[77] = value; break; // 0
 		case 49: keystatus[13] = value; break; // 1
 		case 50: keystatus[14] = value; break; // 2
@@ -2243,20 +2316,9 @@ function handle_keys(event)
 
 function initialize_calculator()
 {
-	for (var b = 0; b < 131072; b++)
-		ram[b] = 0;
-		
-	for (var p = 0; p < calcscreen.length; calcscreen[p++] = 0x50);
-		
-	// start here to skip the boot code (which is missing in TIB based images)
-
-	for (var i = 0; i < 128; i++) ram[i] = rom[i + 0x12088 / 2];
+	reset_calculator();
 	
-	//pc = 0x412188;
-	//pc = 0x4122d6; // soft reset
-	//sr = 0x2700;
-	
-	reset(); // run code from v3sav to skip ahead
+	reset(); // run code from v4sav to skip ahead
 }
 
 function reset_calculator()
@@ -2272,15 +2334,32 @@ function reset_calculator()
 	
 	pc = 0x412188;
 	sr = 0x2700;
+	
+	link_incoming_queue = new Array();
+	link_outgoing_queue = new Array();
 }
 
 function fire_cpu_exception(e)
 {
+	if (stopped)
+	{
+		// these always resume
+		if (e == 31 || e == 30) stopped = false;
+		// these only resume if the right bit is set
+		if (e >= 25 && e <= 29 && (wakemask & (1 << e - 25))) stopped = false;
+	}
+	if (stopped) return;
+
 	// skip auto interrupt if current level too high
-	if (e >= 25 && e <= 30) {
+	if (e >= 25 && e <= 30) 
+	{
 		var interrupt_level = e - 24;
 		var current_level = (sr & 0x700) >> 8;
-		if (current_level >= interrupt_level) return;
+		if (current_level >= interrupt_level) 
+		{
+			//if (interrupt_level == 1) console.log("skipped INT1");
+			return;
+		}
 	}
 	
 	var oldsr = sr;
@@ -2314,6 +2393,7 @@ function emu_main_loop()
 	// The LCD refreshes every 8192 OSC2 cycles (by default)
 	for (var outer = 0; outer < (256 - screen_height) * 2 && unhandled_count < 10; outer++)
 	{
+		if (!stopped)
 		// Assume we can run 2 instructions per OSC2 cycle, so 64 instructions between programmable interrupt counts (every 32 cycles).
 		// We get about 744khz OSC2 rate here, which comes out to around 1.49 million instructions per second, 
 		// which is fairly reasonable depending on your instruction mix.
@@ -2409,6 +2489,20 @@ function emu_main_loop()
 			if (a6 < 0 || a6 >= 0x100000000) { console.log("a6 " + a6); a6 = 0; tracecount = 2; }
 			if (a7 < 0 || a7 >= 0x100000000) { console.log("a7 " + a7); a7 = 0; tracecount = 2; }*/
 			
+			// if (pc == 0x415cdc) tracecount = 25; // memory corruption after link
+			//if (pc == 0x413f4a) tracecount = 25; // silent link failure
+			//if (pc == 0x413e5e) tracecount = 25; // silent link failure, at TranslatePack
+			//if (pc == 0x413c7a) tracecount = 5; // monitoring packet length pedrom 0.72
+			//if (pc == 0x41f9dc) tracecount = 520; // _tt_Decompress
+			
+			//if (pc == 0x41fb46) console.log("storing D0=" + to_hex(d0 & 255, 4) +" to " + to_hex(a4,9))
+			//if (pc == 0x41fbe0) console.log("storing D4=" + to_hex(d4 & 255, 4) +" to " + to_hex(a4,9))
+			//if (pc == 0x41fabe) console.log("storing D3=" + to_hex(d3 & 255, 4) +" to " + to_hex(a2,9))
+			//if (pc == 0x41fbae) console.log("storing D5=" + to_hex(d5 & 255, 4) +" to " + to_hex(a2,9))
+			
+			
+			if (pc == 0x4122e8) tracecount = 30; // pedrom hw version detection
+			
 			try {					
 				var opcode = rw(pc);
 				/*if (tracecount > 0) {
@@ -2423,7 +2517,13 @@ function emu_main_loop()
 
 				t[opcode]();
 			} catch (e) {
-				if (isNaN(e) || e < 0 || e > 255 || e != Math.floor(e))
+				if (e == "STOP")
+				{
+					stopped = true;
+					//console.log("stopped at " + to_hex(pc,9) + " SR = " + to_hex(sr,5));
+					break;
+				}
+				else if (isNaN(e) || e < 0 || e > 255 || e != Math.floor(e))
 				{
 					// this is a real javascript exception
 					console.log("real javascript exception " + e);
@@ -2435,7 +2535,6 @@ function emu_main_loop()
 				{
 					// this is a processor exception
 					if (e < 25) console.log("processor exception " + to_hex(e, 2) + " occured at PC=" + to_hex(pc, 8));
-					if (e == 3) clearInterval(interval);
 					if (e == 10 || e == 11) pc -= 2;
 					fire_cpu_exception(e);
 				}
@@ -2444,27 +2543,74 @@ function emu_main_loop()
 			//if ((pc < 0x1000) && (prev_pc >= 0x1000)) console.log("we jumped into a low PC " + to_hex(pc,8) + " from " + to_hex(prev_pc, 8));
 		}
 		
-		osc2_counter += 32;
-		
-		if (osc2_counter >= 0x1000000) osc2_counter -= 0x1000000;
-		
-		// Trigger level 1 interrupt
-		if ((osc2_counter & 0x7FF) == 0)
-			fire_cpu_exception(25);
-			
-		// Programmable timer
-		if ((osc2_counter & 0x1FF) == 0)
+		// check if osc2 enabled
+		if (interrupt_control & 2)
 		{
-			if (timer_current == 0)
-				timer_current = timer_min;
-			else
-				timer_current++;
-			if (timer_current == 256)
+			osc2_counter += 32;
+			
+			if (osc2_counter >= 0x1000000) osc2_counter -= 0x1000000;
+			
+			// check master interrupt control
+			if ((interrupt_control & 0x80) == 0)
 			{
-				timer_current = 0;
-				fire_cpu_exception(29);
+				// Trigger level 1 interrupt
+				if ((osc2_counter & 0x7FF) == 0)
+					fire_cpu_exception(25);
+					
+				// Trigger level 3 interrupt
+				if ((osc2_counter & 0x7FFFF) == 0 && (interrupt_control & 4))
+					fire_cpu_exception(27);
+					
+				// Programmable timer
+				if (((osc2_counter % interrupt_rate) == 0) && (interrupt_control & 8))
+				{
+					if (timer_current == 0)
+						timer_current = timer_min;
+					else
+						timer_current++;
+					if (timer_current >= 256)
+					{
+						timer_current = 0;
+						fire_cpu_exception(29);
+					}
+				}	
+			}	
+		}
+		
+		// link interrupts
+		if (((link_config & 5) && link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number") ||
+			(link_config & 6))
+		{
+			fire_cpu_exception(28);
+		}
+		
+		if (link_incoming_queue.length > 0)
+		{
+			if (link_incoming_queue[0] == 'WAIT_OK')
+			{
+				for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
+				{
+					if (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x56 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0 )
+					{
+						link_outgoing_queue = link_outgoing_queue.splice(0, x+4);
+						link_incoming_queue.shift();
+						console.log("finished waiting for OK");
+					}
+				}
 			}
-		}			
+			else if (link_incoming_queue[0] == 'WAIT_CTS')
+			{
+				for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
+				{
+					if (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 9 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0 )
+					{
+						link_outgoing_queue = link_outgoing_queue.splice(0, x+4);
+						link_incoming_queue.shift();
+						console.log("finished waiting for CTS");
+					}
+				}
+			}
+		}
 	}
 	
 	draw_screen();
@@ -2521,60 +2667,130 @@ function emu_main_loop()
 			}
 			while (rom.length < 0x100000) rom.push(0xFFFF);
 			reset_calculator();
-			overall = 15000; tracecount = 50;
+			overall = 150; tracecount = 50;
 		}
 	}
+	
+	if (newfileready)
+	{
+		var inputfile = newfileready.result
+		newfileready = false;
+		var buf = new Uint8Array(inputfile);
+		
+		link_incoming_queue.push(8, 6); // standard variable header
+
+		var varname = new Array();
+		varname.push(0x6d,0x61,0x69,0x6e,0x5c); // "main/"
+		for (var x = 0x40; x < 0x48; x++)
+		{
+			if (buf[x] == 0) break;
+			varname.push(buf[x]);
+		}
+		var header_len = varname.length + 6;
+		var data_len = buf[0x57] + buf[0x56] * 256; // data length is big endian in file
+		var data_len_full = data_len + 2;		
+		
+		link_incoming_queue.push(header_len, 0); // header length, little endian to calc
+		link_incoming_queue.push(data_len_full % 256, data_len_full >>> 8, 0, 0); // data length, little endian to calc	
+		link_incoming_queue.push(buf[0x48]); // variable type
+		link_incoming_queue.push(varname.length);
+		
+		var header_checksum = varname.length + buf[0x48] + (data_len_full >>> 8) + (data_len_full % 256);
+		for (var x = 0; x < varname.length; x++)
+		{
+			link_incoming_queue.push(varname[x]);
+			header_checksum += varname[x];
+		}
+		
+		link_incoming_queue.push(header_checksum % 256, header_checksum >>> 8); // header checksum, little endian to calc
+		
+		link_incoming_queue.push('WAIT_OK', 'WAIT_CTS', 8, 0x56, 0, 0); // ACK packet (for calc's CTS)
+		
+		var data_section_len = data_len + 6;
+		link_incoming_queue.push(8, 0x15);
+		link_incoming_queue.push(data_section_len % 256, data_section_len >>> 8); // length, little endian to calc
+		link_incoming_queue.push(0, 0, 0, 0);
+		link_incoming_queue.push(data_len >>> 8, data_len % 256); // length, this time big endian
+			
+		var data_checksum = (data_len % 256) + (data_len >>> 8);
+		for (var x = 0x58; x < 0x58 + data_len; x++)
+		{
+			link_incoming_queue.push(buf[x]);
+			data_checksum += buf[x];
+		}
+		link_incoming_queue.push(data_checksum % 256, (data_checksum >>> 8) % 256); // data checksum, little endian to calc
+		
+		link_incoming_queue.push('WAIT_OK', 8, 0x92, 0, 0, 'WAIT_OK');
+		
+		console.log("finished processing variable");
+	}	
 }
 
 function loadrom()
 {
 	var infile = document.getElementById("romfile").files[0];
-	if (infile.size >= 1024 && infile.size <= 0x200000)
+	console.log("starting to read file " + infile.name);
+	var extension = infile.name.toLowerCase().substr(-4) 
+	if (infile.size == 0x200000 && extension == ".rom")
 	{
-		console.log("Starting to load ROM, size = " + infile.size);
+		console.log("Loading as plain ROM");
 		var reader = new FileReader();
 		reader.onload = function() { newromready = reader; unhandled_count = 0; };
 		reader.readAsArrayBuffer(infile);
 	}
+	if (infile.size >= 1024 && infile.size < 0x200000 && (extension == ".tib" || extension == ".9xu"))
+	{
+		console.log("Starting to load as TIB / 9XU");
+		var reader = new FileReader();
+		reader.onload = function() { newromready = reader; unhandled_count = 0; };
+		reader.readAsArrayBuffer(infile);
+	}
+	if (infile.size >= 80 && infile.size < 70000 && ".9xz.9xy.9xs.89z.89y.89s".indexOf(extension) != -1)
+	{
+		console.log("Starting to load as variable");
+		var reader = new FileReader();
+		reader.onload = function() { newfileready = reader; unhandled_count = 0; };
+		reader.readAsArrayBuffer(infile);
+	}
 }
-
 </script>
 
 </head>
 <body onload="initemu()">
 
-<a href="v10.html">This is an old version of the emulator -- follow this link for a more recent version.</a>
+<a href="v11.html">This is an old version of the emulator -- follow this link for a more recent version.</a>
 
-<h1>Javascript TI-92 Plus emulator (alpha version 8) by Patrick Davidson</h1>
+<h3>Javascript TI-92 Plus emulator (alpha version 9) by Patrick Davidson</h3>
 
 <p style="position:relative">
 
 <img src="Ti-92plus.jpg" usemap="#map" ismap>
 
-<map name="map" id="map" />
+<map name="map" id="map"></map>
 
 <canvas id="screen" width="480" height="256" style="position:absolute;top:50px;left:209px">
 This emulator requires a browser with canvas support and Javascript enabled.</canvas>
 
 </p>
 <form>
-<p> <input type="file" onchange="loadrom()" id="romfile"> Click browse to load a new ROM image (in TIB, 9XU, or plain ROM format) and reset the calculator.  Note that the emulator does not verify if what you
-selected is a real ROM image -- trying to use some other file as a ROM may have strange effects.</p>
-</form>
+<p> <input type="file" onchange="loadrom()" id="romfile"> Choose a ROM image (in TIB, 9XU, or plain ROM format) to load the new ROM and reset the calculator.  Choose a 9XY or 9XZ file to upload a new variable to
+the calculator (you must be on the home screen to do this).  Note that while the pre-loaded programs are quite
+compatible with this emulator, compability with other programs is limited in this version.</p>
 
 <p>By default, the emulated calculator uses the open-source PedroM instead of the official TI system software.  The PedroM source along with conversion scripts is available <a href=".">here</a>.  
-In addition to clicking on the emulator iteslf, most keys are also mapped to computer keybaords.  Use the backslash (\) key to activate the LOCK (hand) key on the emulated calculator, use backquote (`) for 2nd,
+In addition to clicking on the emulator itself, most keys are also mapped to computer keyboards.  Use the backslash (\) key to activate the LOCK (hand) key on the emulated calculator, use backquote (`) for 2nd,
+use F10 for SHIFT, 
 and use F9 for F1.  Use the numeric keypad for the + - * / symbols but the regular number keys to enter numbers.  The - on the numeric keypad is the plain - key; use the semicolon (;) key for the (-) key.  
 All other keys either have the obvious mapping or not mapped to any computer key.  This emulator does not have support transferring files but is pre-loaded with a few of my games.
-To run them just type a game name (monster, mercury, platinum, phoenix, smiley) and press enter.  As of alpha version 2, all of these games should be
-playable.</p>
+To run them just type a game name (monster, mercury, platinum, phoenix, smiley) and press enter.</p>
 
 <p>If you encounter serious problems with this emulator, such as it erases 100% of the data on your hard disk, please
 report to me by e-mail to <a href="eeulplek@hotmail.com">eeulplek@hotmail.com</a> or on IRC.  However, please note that
-this is an alpha version so minor problems (such as erasing only 55% of your data) are to be expected and thus are
+this is an alpha version so minor problems (such as erasing only 53% of your data) are to be expected and thus are
 not worth reporting.</p>
 
-<p>Thanks to Patrick Pelissier for having written Pedrom -- this emulator would never have been written without his open source ROM available to include with it.  Also thanks to Lionel Debroux for his many useful comments on the emulator  -- but note that I haven't 
+<p>Thanks to Patrick Pelissier for having written Pedrom -- this emulator would never have been written without his open source ROM available to include with it.  Also thanks to Lionel Debroux for his many suggestions to improve this emulator  -- but note that I haven't 
 made use of all of them yet, so don't blame him if you find any bugs!</p>
+</form>
 </body>
 </html>
