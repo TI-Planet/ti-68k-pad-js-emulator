@@ -2,7 +2,7 @@
 <html>
 <head>
 <title>
-TI-92 Plus emulator (alpha version 10)
+TI-92 Plus emulator (beta version 11)
 </title>
 
 <script src="v4rom.js"></script>
@@ -38,7 +38,7 @@ var calcscreen = new Array(240 * 128 * 3); // stores three frames of pixel data 
 var frame = 0;
 var unhandled_count = 0; // number of unhandled instructions encountered
 var interval = 0; // interval ID of main timer
-var tracecount = 0; // number of instructions to trace in console
+var tracecount = 20; // number of instructions to trace in console
 var vectorprotect = false;
 var overall = 2500;
 var osc2_counter = 0;
@@ -1039,6 +1039,8 @@ function build_addsubq()
 						{
 							// for address registers we don't set condition codes and thus can use a much simpler operation
 							code += "var r=s+" + offset + ";"
+							if (offset < 0) code += "if(r<0)r+=4294967296;"
+							if (offset > 0) code += "if(r>4294967295)pc+=4294967296;"
 						}
 						else
 						{
@@ -1097,7 +1099,7 @@ function build_conditionals(condition, name, bits)
 			}
 			code += "{"
 			code +=  "pc+=ewl(o);"
-			code +=  "if(pc>4294297295)pc-=4294967296;"
+			code +=  "if(pc>4294967295)pc-=4294967296;"
 			code +=  "}else pc+= 2;"
 		}
 		else
@@ -1485,10 +1487,10 @@ function build_not_neg()
 					opcode = 0x4400 + (size << 6) + (srcmode << 3) + srcreg;
 					iname = "NEG" + size_name(size) + " " + amode_name(srcmode, srcreg)
 					code = amode_read(srcmode, srcreg, size, false)
-					code +=  "	sr &= 0xFFE0;"
-					if (size == 0) code += "var r=256-s;if(r>127)sr|=8;"
-					if (size == 1) code += "var r=65536-s;if(r>=65535)sr|=8;"
-					if (size == 2) code += "var r=0x100000000-s;if(r>0xffffffff)r=0;if(r>0x7fffffff)sr|=8;"
+					code += "sr &= 0xFFE0;"
+					if (size == 0) code += "var r=s==0?0:256-s;if(r>127)sr|=8;"
+					if (size == 1) code += "var r=s==0?0:65536-s;if(r>=32767)sr|=8;"
+					if (size == 2) code += "var r=s==0?0:0x100000000-s;if(r>0x7fffffff)sr|=8;"
 					code += "if(r==0)sr|=4;else sr|=17;" // set zero flag for zero, extend and carry otherwise
 					code += amode_write(srcmode, srcreg, size, "r")
 					insert_inst(opcode, code, iname)
@@ -1838,7 +1840,7 @@ for (var reg = 0; reg < 8; reg++)
 {		
 	insert_inst(0x4E60 + reg, "if(sr&0x2000==0)throw 8;a8=a" + reg, "MOVE A" + reg + ",USP")
 	insert_inst(0x4E68 + reg, "if(sr&0x2000==0)throw 8;a" + reg +"=a8", "MOVE USP,A" + reg)
-	insert_inst(0x4880 + reg, "d" + reg + "=ebw(d" + reg + ")", "EXT.W D" + reg)
+	insert_inst(0x4880 + reg, "d" + reg + "=((d" + reg + ">>>16)*65536)+ebw(d" + reg + ")", "EXT.W D" + reg)
 	insert_inst(0x48C0 + reg, "d" + reg + "=ewl(d" + reg + ")", "EXT.L D" + reg)
 	var linkcode = "a7-=4; wl(a7,a" + reg + "); var o=rw(pc); pc+=2; a" + reg + "=a7; a7+=(o<0x8000?o:o-0x10000);"
 	insert_inst(0x4e50 + reg, linkcode, "LINK #nnnn,A" + reg)
@@ -2529,22 +2531,29 @@ function emu_main_loop()
 			
 			//if (pc == 0x416f54) tracecount = 5; // reading out of ragne data from memory
 			
-			/*if (d0 < 0 || d0 >= 0x100000000) { console.log("D0 " + d0); d0 = 0; tracecount = 2; }
-			if (d1 < 0 || d1 >= 0x100000000) { console.log("D1 " + d1); d1 = 0; tracecount = 2; }
+			//if (pc == 0x3963c) tracecount = 20; // TI-Chess A1 corruption, due to SUBQ underflow to address register
+			//if (pc == 0x534ba) tracecount = 10; // krypton init
+			//if (pc == 0x534bc) tracecount = 200; // krypton init
+			//if (pc == 0x53538) tracecount = 300; // krypton init
+			//if (pc == 0x5360c) tracecount = 10; // krypton init
+			
+			/*if (d0 < 0 || d0 >= 0x100000000) { console.log("D0 " + d0 + " prev_pc " + to_hex(prev_pc, 9)); d0 = 0; tracecount = 2; }
+			if (d1 < 0 || d1 >= 0x100000000) { console.log("D1 " + d1 + " prev_pc " + to_hex(prev_pc, 9)); d1 = 0; tracecount = 2; }
 			if (d2 < 0 || d2 >= 0x100000000) { console.log("D2 " + d2 + " prev_pc " + to_hex(prev_pc, 9)); d2 = 0; tracecount = 2; }
-			if (d3 < 0 || d3 >= 0x100000000) { console.log("D3 " + d3); d3 = 0; tracecount = 2; }
+			if (d3 < 0 || d3 >= 0x100000000) { console.log("D3 " + d3 + " prev_pc " + to_hex(prev_pc, 9)); d3 = 0; tracecount = 2; }
 			if (a0 < 0 || a0 >= 0x100000000) { console.log("a0 " + a0 + " prev_pc " + to_hex(prev_pc, 9)); a0 = 0; tracecount = 2; }
-			if (a1 < 0 || a1 >= 0x100000000) { console.log("a1 " + a1); a1 = 0; tracecount = 2; }
-			if (a2 < 0 || a2 >= 0x100000000) { console.log("a2 " + a2); a2 = 0; tracecount = 2; }
-			if (a3 < 0 || a3 >= 0x100000000) { console.log("a3 " + a3); a3 = 0; tracecount = 2; }
-			if (d4 < 0 || d4 >= 0x100000000) { console.log("D4 " + d4); d4 = 0; tracecount = 2; }
-			if (d5 < 0 || d5 >= 0x100000000) { console.log("D5 " + d5); d5 = 0; tracecount = 2; }
+			if (a1 < 0 || a1 >= 0x100000000) { console.log("a1 " + a1 + " prev_pc " + to_hex(prev_pc, 9)); a1 = 0; tracecount = 2; }
+			if (a2 < 0 || a2 >= 0x100000000) { console.log("a2 " + a2 + " prev_pc " + to_hex(prev_pc, 9)); a2 = 0; tracecount = 2; }
+			if (a3 < 0 || a3 >= 0x100000000) { console.log("a3 " + a3 + " prev_pc " + to_hex(prev_pc, 9)); a3 = 0; tracecount = 2; }
+			if (d4 < 0 || d4 >= 0x100000000) { console.log("D4 " + d4 + " prev_pc " + to_hex(prev_pc, 9)); d4 = 0; tracecount = 2; }
+			if (d5 < 0 || d5 >= 0x100000000) { console.log("D5 " + d5 + " prev_pc " + to_hex(prev_pc, 9)); d5 = 0; tracecount = 2; }
 			if (d6 < 0 || d6 >= 0x100000000) { console.log("D6 " + d6 + " prev_pc " + to_hex(prev_pc, 9)); d6 = 0; tracecount = 2; }
-			if (d7 < 0 || d7 >= 0x100000000) { console.log("D7 " + d6); d7 = 0; tracecount = 2; }
+			if (d7 < 0 || d7 >= 0x100000000) { console.log("D7 " + d7 + " prev_pc " + to_hex(prev_pc, 9)); d7 = 0; tracecount = 2; }
 			if (a4 < 0 || a4 >= 0x100000000) { console.log("a4 " + a4 + " prev_pc " + to_hex(prev_pc, 9)); a4 = 0; tracecount = 2; }
-			if (a5 < 0 || a5 >= 0x100000000) { console.log("a5 " + a5); a5 = 0; tracecount = 2; }
-			if (a6 < 0 || a6 >= 0x100000000) { console.log("a6 " + a6); a6 = 0; tracecount = 2; }
-			if (a7 < 0 || a7 >= 0x100000000) { console.log("a7 " + a7); a7 = 0; tracecount = 2; }*/
+			if (a5 < 0 || a5 >= 0x100000000) { console.log("a5 " + a5 + " prev_pc " + to_hex(prev_pc, 9)); a5 = 0; tracecount = 2; }
+			if (a6 < 0 || a6 >= 0x100000000) { console.log("a6 " + a6 + " prev_pc " + to_hex(prev_pc, 9)); a6 = 0; tracecount = 2; }
+			if (a7 < 0 || a7 >= 0x100000000) { console.log("a7 " + a7 + " prev_pc " + to_hex(prev_pc, 9)); a7 = 0; tracecount = 2; }
+			if (pc < 0 || pc >= 0x100000000) { console.log("pc " + pc + " prev_pc " + to_hex(prev_pc, 9)); pc = 0; tracecount = 2; }*/
 			
 			// if (pc == 0x415cdc) tracecount = 25; // memory corruption after link
 			//if (pc == 0x413f4a) tracecount = 25; // silent link failure
@@ -2823,10 +2832,7 @@ function loadrom()
 
 </head>
 <body onload="initemu()">
-
-<a href="v11.html">This is an old version of the emulator -- follow this link for a more recent version.</a>
-
-<h3>Javascript TI-92 Plus emulator (alpha version 10) by Patrick Davidson</h3>
+<h3>Javascript TI-92 Plus emulator (beta version 11) by Patrick Davidson</h3>
 
 <p style="position:relative">
 
@@ -2847,12 +2853,12 @@ compatible with this emulator, compability with other programs is limited in thi
 In addition to clicking on the emulator itself, most keys are also mapped to computer keyboards.  Use the backslash (\) key to activate the LOCK (hand) key on the emulated calculator, use backquote (`) for 2nd,
 use F10 for SHIFT, 
 and use F9 for F1.  Use the numeric keypad for the + - * / symbols but the regular number keys to enter numbers.  The - on the numeric keypad is the plain - key; use the semicolon (;) key for the (-) key.  
-All other keys either have the obvious mapping or not mapped to any computer key.  This emulator does not have support transferring files but is pre-loaded with a few of my games.
+All other keys either have the obvious mapping or not mapped to any computer key.  This emulator is pre-loaded with a few of my games.
 To run them just type a game name (monster, mercury, platinum, phoenix, smiley) and press enter.</p>
 
 <p>If you encounter serious problems with this emulator, such as it erases 100% of the data on your hard disk, please
 report to me by e-mail to <a href="eeulplek@hotmail.com">eeulplek@hotmail.com</a> or on IRC.  However, please note that
-this is an alpha version so minor problems (such as erasing only 51% of your data) are to be expected and thus are
+this is a beta version so minor problems (such as erasing only 49% of your data) are to be expected and thus are
 not worth reporting.</p>
 
 <p>Thanks to Patrick Pelissier for having written Pedrom -- this emulator would never have been written without his open source ROM available to include with it.  Also thanks to Lionel Debroux for his many suggestions to improve this emulator  -- but note that I haven't 
