@@ -2,7 +2,7 @@
 <html>
 <head>
 <title>
-TI-92 Plus emulator (alpha version 9)
+TI-92 Plus emulator (alpha version 10)
 </title>
 
 <script src="v4rom.js"></script>
@@ -10,6 +10,7 @@ TI-92 Plus emulator (alpha version 9)
 
 <script type="text/javascript">
 
+var a0 = 0; // address registers, treat as 32 bit ints (A8 = the currently unused address register)
 var a0 = 0; // address registers, treat as 32 bit ints (A8 = the currently unused address register)
 var a1 = 0;
 var a2 = 0;
@@ -30,6 +31,7 @@ var d7 = 0;
 var sr = 0; // status register, treat as 16 bit int
 var pc = 0; // program counter, treat as 32 bit int
 var ram = new Array(131072); // 256K of RAM, treat as array of words
+var ramflag = new Array(131072);
 var t = new Array(65536);
 var n = new Array(65536);
 var calcscreen = new Array(240 * 128 * 3); // stores three frames of pixel data for averaging
@@ -136,14 +138,33 @@ function subw(subtrahend, minuend)
 	subtrahend &= 0xFFFF;
 	minuend &= 0xFFFF;
 	var complement = 0x10000 - subtrahend;
-	var result = addw(complement, minuend)
-	if (subtrahend > minuend)
-		sr |= 1;
-	else
-		sr &= 0xFFFE;
-	//if (pc == 0x24f48) console.log(" subtracting " + to_hex(subtrahend, 4) + " from " + to_hex(minuend, 4) + " giving " + to_hex(result, 4) + " with SR " + to_hex(sr, 4));
-	//if (pc == 0x24f48) console.log(" subtracting " + subtrahend + " from " + minuend + " giving " + result + " with SR " + to_hex(sr, 4));
-	return result;
+	var result = complement + minuend;
+	var maskedresult = result >= 0x10000 ? result - 0x10000 : result;
+	sr = sr & 0xFFE0;
+	if (maskedresult == 0) sr += 4; // zero flag
+	if (result & 0x8000) sr += 8; // negative flag
+	if (maskedresult < 0) maskedresult += 0x100000000;
+	if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) sr += 2; // overflow flag
+	if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) sr += 2; // overflow flag
+	if (subtrahend > minuend) sr += 0x11; // carry and overflow
+	return maskedresult;
+}
+
+function cmpw(subtrahend, minuend)
+{
+	subtrahend &= 0xFFFF;
+	minuend &= 0xFFFF;
+	var complement = 0x10000 - subtrahend;
+	var result = complement + minuend;
+	var maskedresult = result >= 0x10000 ? result - 0x10000 : result;
+	sr = sr & 0xFFF0;
+	if (maskedresult == 0) sr += 4; // zero flag
+	if (result & 0x8000) sr += 8; // negative flag
+	if (maskedresult < 0) maskedresult += 0x100000000;
+	if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) sr += 2; // overflow flag
+	if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) sr += 2; // overflow flag
+	if (subtrahend > minuend) sr += 1; // carry and overflow
+	return maskedresult;
 }
 
 function addw(x, y)
@@ -152,10 +173,10 @@ function addw(x, y)
 	y &= 0xFFFF;
 	var result = x + y;
 	var maskedresult = result & 0xFFFF;
-	sr = sr & 0xFFF0;
+	sr = sr & 0xFFE0;
 	if (maskedresult == 0) sr += 4; // zero flag
 	if (result & 0x8000) sr += 8; // negative flag
-	if (result != maskedresult) sr += 1;
+	if (result != maskedresult) sr += 0x11; // carry and overflow
 	if (y < 0x8000 && x < 0x8000 && maskedresult >= 0x8000) sr += 2; // overflow flag
 	if (y >= 0x8000 && x >= 0x8000 && maskedresult < 0x8000) sr += 2; // overflow flag
 	return maskedresult;
@@ -166,12 +187,33 @@ function subb(subtrahend, minuend)
 	subtrahend &= 0xFF;
 	minuend &= 0xFF;
 	var complement = 0x100 - subtrahend;
-	var result = addb(complement, minuend)
-	if (subtrahend > minuend)
-		sr |= 1;
-	else
-		sr &= 0xFFFE;
-	return result;
+	var result = complement + minuend;
+	var maskedresult = result >= 0x100 ? result - 0x100 : result;
+	sr = sr & 0xFFE0;
+	if (maskedresult == 0) sr += 4; // zero flag
+	if (result & 0x80) sr += 8; // negative flag
+	if (maskedresult < 0) maskedresult += 0x100000000;
+	if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) sr += 2; // overflow flag
+	if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) sr += 2; // overflow flag
+	if (subtrahend > minuend) sr += 0x11; // carry and overflow
+	return maskedresult;
+}
+
+function cmpb(subtrahend, minuend)
+{	
+	subtrahend &= 0xFF;
+	minuend &= 0xFF;
+	var complement = 0x100 - subtrahend;
+	var result = complement + minuend;
+	var maskedresult = result >= 0x100 ? result - 0x100 : result;
+	sr = sr & 0xFFF0;
+	if (maskedresult == 0) sr += 4; // zero flag
+	if (result & 0x80) sr += 8; // negative flag
+	if (maskedresult < 0) maskedresult += 0x100000000;
+	if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) sr += 2; // overflow flag
+	if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) sr += 2; // overflow flag
+	if (subtrahend > minuend) sr += 1; // carry and overflow
+	return maskedresult;
 }
 
 function addb(x, y)
@@ -180,10 +222,10 @@ function addb(x, y)
 	y &= 0xFF;
 	var result = x + y;
 	var maskedresult = result & 0xFF;
-	sr = sr & 0xFFF0;
+	sr = sr & 0xFFE0;
 	if (maskedresult == 0) sr += 4; // zero flag
 	if (result & 0x80) sr += 8; // negative flag
-	if (result != maskedresult) sr += 1;
+	if (result != maskedresult) sr += 0x11; // carry and overflow
 	if (y < 0x80 && x < 0x80 && maskedresult >= 0x80) sr += 2; // overflow flag
 	if (y >= 0x80 && x >= 0x80 && maskedresult < 0x80) sr += 2; // overflow flag
 	return maskedresult;
@@ -191,31 +233,45 @@ function addb(x, y)
 
 function subl(subtrahend, minuend)
 {
-	//if (pc == 0x1350a) console.log("here we go!");
 	var complement = 0x100000000 - subtrahend;
-	var result = addl(complement, minuend)
-	if (subtrahend > minuend)
-		sr |= 1;
-	else
-		sr &= 0xFFFE;
-	return result;
+	var result = complement + minuend;
+	var maskedresult = result >= 0x100000000 ? result - 0x100000000 : result;
+	sr = sr & 0xFFE0;
+	if (maskedresult == 0) sr += 4; // zero flag
+	if (result & 0x80000000) sr += 8; // negative flag
+	if (maskedresult < 0) maskedresult += 0x100000000;
+	if (complement < 0x80000000 && minuend < 0x80000000 && maskedresult >= 0x80000000) sr += 2; // overflow flag
+	if (complement >= 0x80000000 && minuend >= 0x80000000 && maskedresult < 0x80000000) sr += 2; // overflow flag
+	if (subtrahend > minuend) sr += 0x11; // carry and overflow
+	return maskedresult;
+}
+
+function cmpl(subtrahend, minuend)
+{
+	var complement = 0x100000000 - subtrahend;
+	var result = complement + minuend;
+	var maskedresult = result >= 0x100000000 ? result - 0x100000000 : result;
+	sr = sr & 0xFFF0;
+	if (maskedresult == 0) sr += 4; // zero flag
+	if (result & 0x80000000) sr += 8; // negative flag
+	if (maskedresult < 0) maskedresult += 0x100000000;
+	if (complement < 0x80000000 && minuend < 0x80000000 && maskedresult >= 0x80000000) sr += 2; // overflow flag
+	if (complement >= 0x80000000 && minuend >= 0x80000000 && maskedresult < 0x80000000) sr += 2; // overflow flag
+	if (subtrahend > minuend) sr += 1; // carry and overflow
+	return maskedresult;
 }
 
 function addl(x, y)
 {
-	//if (pc == 0x1350a) console.log("adding " + x + " (" + to_hex(x, 9) + ") and " + y + " (" + to_hex(y, 9) + ")");
 	var result = x + y;
-	//if (pc == 0x1350a) console.log("first result " + to_hex(result, 9));
 	var maskedresult = result >= 0x100000000 ? result - 0x100000000 : result;
-	//if (pc == 0x1350a) console.log("masked result " + to_hex(maskedresult, 9));
-	sr = sr & 0xFFF0;
+	sr = sr & 0xFFE0;
 	if (maskedresult == 0) sr += 4; // zero flag
 	if (result & 0x80000000) sr += 8; // negative flag
-	if (result != maskedresult) sr += 1;
+	if (result != maskedresult) sr += 0x11; // carry and overflow
 	if (maskedresult < 0) maskedresult += 0x100000000;
 	if (x < 0x80000000 && y < 0x80000000 && maskedresult >= 0x80000000) sr += 2; // overflow flag
 	if (x >= 0x80000000 && y >= 0x80000000 && maskedresult < 0x80000000) sr += 2; // overflow flag
-	//if (pc == 0x1350a) console.log("new sr is " + to_hex(sr, 4));
 	return maskedresult;
 }
 
@@ -1264,9 +1320,9 @@ function build_cmp()
 						code += "m=d" + firstreg + ";"
 						if (size == 1) code += "m=m&0xFFFF;"
 						if (size == 0) code += "m=m&0xFF;"
-						if (size == 0) code += "subb(s,m);"
-						if (size == 1) code += "subw(s,m);"
-						if (size == 2) code += "subl(s,m);"
+						if (size == 0) code += "cmpb(s,m);"
+						if (size == 1) code += "cmpw(s,m);"
+						if (size == 2) code += "cmpl(s,m);"
 						insert_inst(opcode, code, iname)
 					}
 }
@@ -1292,7 +1348,7 @@ function build_adest()
 						iname = "CMPA" + size_name(size) + " " + amode_name(srcmode, srcreg) + ",A" + areg
 						code = amode_read(srcmode, srcreg, size, true)
 						if (size == 1) code += "s=ewl(s);"
-						code += "subl(s,a" + areg + ");"
+						code += "cmpl(s,a" + areg + ");"
 						insert_inst(opcode, code, iname)
 						
 						opcode = 0xD0C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
@@ -1570,9 +1626,9 @@ function build_cmpm()
 				var code = amode_read(MODE_AREG_POSTINC, src, size, true)
 				code += "var u=s;"
 				code += amode_read(MODE_AREG_POSTINC, dest, size, true)
-				if (size == 0) code += "subb(u,s);"
-				if (size == 1) code += "subw(u,s);"
-				if (size == 2) code += "subl(u,s);"
+				if (size == 0) code += "cmpb(u,s);"
+				if (size == 1) code += "cmpw(u,s);"
+				if (size == 2) code += "cmpl(u,s);"
 				insert_inst(opcode, code, iname)
 			}
 }
@@ -1925,7 +1981,7 @@ function rw(address)
 {
 	address = address & 0xFFFFFF;
 	if (address < 0x200000)
-		return ram[address / 2];
+		return ram[(address & 0x3FFFF) / 2];
 	else if (address < 0x400000)
 		return 0x1400;
 	else if (address < 0x600000)
@@ -1938,6 +1994,7 @@ function rb(address)
 	address = address & 0xFFFFFF;
 	if (address < 0x200000)
 	{
+		address &= 0x3FFFF;
 		if (address % 2 == 0)
 			return ram[address / 2] >>> 8;
 		else
@@ -1977,7 +2034,7 @@ function ww(address, value)
 	address = address & 0xFFFFFF;
 	if ((address % 2) != 0) throw 3; // address error
 	if (address < 0x200000) {
-		ram[address / 2] = value;
+		ram[(address & 0x3FFFF) / 2] = value;
 	} else if (address >= 0x600000) {
 		write_hreg(address, (value >> 8) & 0xFF);
 		write_hreg(address + 1, value & 0xFF);
@@ -1992,6 +2049,7 @@ function wb(address, value)
 	address = address & 0xFFFFFF;
 	if (address < 0x200000)
 	{
+		address &= 0x3FFFF;
 		if (address % 2 == 0)
 			ram[address / 2] = (ram[address / 2] & 0xFF) + (value * 256);
 		else
@@ -2357,7 +2415,6 @@ function fire_cpu_exception(e)
 		var current_level = (sr & 0x700) >> 8;
 		if (current_level >= interrupt_level) 
 		{
-			//if (interrupt_level == 1) console.log("skipped INT1");
 			return;
 		}
 	}
@@ -2501,7 +2558,7 @@ function emu_main_loop()
 			//if (pc == 0x41fbae) console.log("storing D5=" + to_hex(d5 & 255, 4) +" to " + to_hex(a2,9))
 			
 			
-			if (pc == 0x4122e8) tracecount = 30; // pedrom hw version detection
+			//if (pc == 0x4122e8) tracecount = 30; // pedrom hw version detection
 			
 			try {					
 				var opcode = rw(pc);
@@ -2510,6 +2567,15 @@ function emu_main_loop()
 					if (overall > 0) {
 						overall--;
 						print_status();
+					}
+				}
+				if (pc < 0x40000)
+				{
+					if (ramflag[pc / 2] != 567)
+					{
+						ramflag[pc / 2] = 567;
+						console.log("First execution at this point, previous = " + to_hex(prev_pc, 9));
+						print_status();						
 					}
 				}
 				prev_pc = pc;*/
@@ -2745,7 +2811,7 @@ function loadrom()
 		reader.onload = function() { newromready = reader; unhandled_count = 0; };
 		reader.readAsArrayBuffer(infile);
 	}
-	if (infile.size >= 80 && infile.size < 70000 && ".9xz.9xy.9xs.89z.89y.89s".indexOf(extension) != -1)
+	if (infile.size >= 80 && infile.size < 70000 && ".9xz.9xy.9xs.89z.89y.89s.9xp.89p".indexOf(extension) != -1)
 	{
 		console.log("Starting to load as variable");
 		var reader = new FileReader();
@@ -2760,7 +2826,7 @@ function loadrom()
 
 <a href="v11.html">This is an old version of the emulator -- follow this link for a more recent version.</a>
 
-<h3>Javascript TI-92 Plus emulator (alpha version 9) by Patrick Davidson</h3>
+<h3>Javascript TI-92 Plus emulator (alpha version 10) by Patrick Davidson</h3>
 
 <p style="position:relative">
 
@@ -2786,7 +2852,7 @@ To run them just type a game name (monster, mercury, platinum, phoenix, smiley) 
 
 <p>If you encounter serious problems with this emulator, such as it erases 100% of the data on your hard disk, please
 report to me by e-mail to <a href="eeulplek@hotmail.com">eeulplek@hotmail.com</a> or on IRC.  However, please note that
-this is an alpha version so minor problems (such as erasing only 53% of your data) are to be expected and thus are
+this is an alpha version so minor problems (such as erasing only 51% of your data) are to be expected and thus are
 not worth reporting.</p>
 
 <p>Thanks to Patrick Pelissier for having written Pedrom -- this emulator would never have been written without his open source ROM available to include with it.  Also thanks to Lionel Debroux for his many suggestions to improve this emulator  -- but note that I haven't 
