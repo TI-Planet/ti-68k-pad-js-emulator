@@ -8,9 +8,18 @@ TI-92 Plus emulator (beta version 11)
 <script src="v4rom.js"></script>
 <script src="v4sav.js"></script>
 
+<!-- Dummy emulation checking function. -->
+<script type="text/javascript">
+function checkemu() {
+	return true;
+}
+</script>
+
+<!-- Script containing deeper emulation checking functions, if any-->
+<script src="v11chk.js"></script>
+
 <script type="text/javascript">
 
-var a0 = 0; // address registers, treat as 32 bit ints (A8 = the currently unused address register)
 var a0 = 0; // address registers, treat as 32 bit ints (A8 = the currently unused address register)
 var a1 = 0;
 var a2 = 0;
@@ -62,6 +71,7 @@ var stopped = false;
 var wakemask = 0;
 var interrupt_control = 0x1B;
 var interrupt_rate = 0x200;
+var calculator_model = 1; // 92+
 
 function to_hex(number, digits)
 {
@@ -78,6 +88,19 @@ function to_hex(number, digits)
 	{
 		digit = number % 16;
 		number = (number - digit) / 16;
+		s = c[digit] + s;
+	}
+	return s;
+}
+
+function to_hex2(number, digits)
+{
+	var s = "";
+	var c = "0123456789ABCDEF";
+	while (digits--)
+	{
+		digit = number & 15;
+		number = number >> 4;
 		s = c[digit] + s;
 	}
 	return s;
@@ -384,6 +407,7 @@ function mulu(x, y)
 	y = y & 0xFFFF;
 	product = x * y;
 	sr &= 0xFFF0; // clear all user flags but X
+	product &= 0xFFFFFFFF;
 	if (product >= 0x80000000) sr |= 8; // negative flag
 	if (product == 0) sr |= 4; // zero flag
 	return product;
@@ -392,19 +416,25 @@ function mulu(x, y)
 function divu(divisor, dividend)
 {
 	if (divisor == 0) throw 5;
-	var quotient = Math.floor(dividend / divisor);
-	var remainder = dividend % divisor;
+	// XXX this one needs to be enabled, but currently, if we do, divu(0xCCCCFFFF, 0xFF000000) returns something stupid.
+	//dividend &= 0xFFFFFFFF;
+	divisor &= 0xFFFF;
+	var quotient = Math.floor(dividend / divisor) & 0xFFFFFFFF;
+	var remainder = (dividend % divisor) & 0xFFFF;
 	sr &= 0xFFF0; // clear all user flags but X
-	if (quotient >= 0x80000000) sr |= 8; // negative flag
 	if (quotient == 0) sr |= 4; // zero flag
 	
-	if (quotient >= 0x10000) {
+	if (quotient & 0xFFFF0000) {
+		// NOTE: M68000PRM indicates "N undefined when V".
 		if (quotient >= 0x80000000) sr |= 8; // negative
 		sr |= 2; // overflow
 		return dividend;
 	}
 	if (quotient > 0x10000 || remainder > 0x10000 || quotient < 0 || remainder < 0) console.log("bad divide!");
-	return quotient + (remainder << 16);
+	var result = quotient | (remainder << 16);
+	if (result & 0x8000) sr |= 8; // negative flag
+	result &= 0xFFFFFFFF;
+	return result;
 }
 
 function divs(divisor, dividend)
@@ -743,7 +773,7 @@ function read_pc(size, dest, sideeffects)
 	}
 	if (size==2)
 	{
-		var code = "var " + dest + "=rl(pc);"
+		var code = "var " + dest + "=rl(pc);" //&4294967295 - 92+ AMS 2.03 hangs _earlier_ ??!
 		return sideeffects ? code + "pc+=4;" : code
 	}
 }
@@ -865,16 +895,18 @@ function amode_read(mode, reg, size, sideeffects)
 			return "var s=d" + reg + "&255;"
 		if (size == 1)
 			return "var s=d" + reg + "&65535;"
+// The two if are really important for AMS 2.03 92+ to boot.
 		if (size == 2)
-			return "var s=d" + reg + ";"
+			return "var s=d" + reg + "; if(s<0)s+=4294967296; if(s>4294967295)s-=4294967296;"
 	}
 	// a register direct
 	if (mode == MODE_AREG)
 	{
 		if (size == 1)
 			return "var s=a" + reg + "&65535;"
+// The two if are really important for AMS 2.03 92+ to boot.
 		if (size == 2)
-			return "var s=a" + reg + ";"
+			return "var s=a" + reg + "; if(s<0)s+=4294967296; if(s>4294967295)s-=4294967296;"
 	}
 	return "throw 4;";
 }
@@ -964,9 +996,9 @@ function amode_write(mode, reg, size, data)
 	if (mode == MODE_AREG)
 	{
 		if (size == 2)
-			return "a" + reg + "=" + data + ";"
+			return "a" + reg + "=" + data + "&4294967295;" // if(a" + reg + "<0)a" + reg + "=4294967296; if(a" + reg + ">4294967295)a" + reg + "-=4294967296;"
 		if (size == 1)
-			return "a" + reg + "=ewl(" + data + ");"
+			return "a" + reg + "=ewl(" + data + ")&4294967295;" // if(a" + reg + "<0)a" + reg + "=4294967296; if(a" + reg + ">4294967295)a" + reg + "-=4294967296;"
 	}
 	// address register indirect
 	if (mode == MODE_AREG_INDIRECT)
@@ -997,7 +1029,7 @@ function amode_write(mode, reg, size, data)
 	if (mode == MODE_DREG)
 	{
 		if (size == 2)
-			return "d" + reg + "=" + data + ";"
+			return "d" + reg + "=" + data + "&4294967295;" // if(d" + reg + "<0)d" + reg + "=4294967296; if(d" + reg + ">4294967295)d" + reg + "-=4294967296;"
 		if (size == 0)
 			return "d" + reg + "=((d" + reg + ">>>8)*256)+(" + data + "&255);"
 		if (size == 1)
@@ -1555,9 +1587,9 @@ function build_cmpi()
 					var iname = "CMPI" + size_name(size) + " #imm," + amode_name(srcmode, srcreg)
 					var code = read_pc(size, "subtrahend",true)
 					code += amode_read(srcmode, srcreg, size, true)
-					if (size==0) code += "subb(subtrahend, s);"
-					if (size==1) code += "subw(subtrahend, s);"
-					if (size==2) code += "subl(subtrahend, s);"
+					if (size==0) code += "cmpb(subtrahend, s);"
+					if (size==1) code += "cmpw(subtrahend, s);"
+					if (size==2) code += "cmpl(subtrahend, s);"
 					insert_inst(opcode, code, iname)
 				}
 }
@@ -1912,7 +1944,7 @@ function read_hreg(reg)
 		return status;
 	}
 	if (reg == 0x60001d) return 1; // contrast setting
-	return 0;
+	return (reg & 1) ? 0 : 0x14;
 }
 
 // write a hardware register (byte)
@@ -1976,19 +2008,20 @@ function rl(address)
 {
 	var high_word = rw(address);
 	var low_word = rw(address + 2);
-	return high_word * 65536 + low_word;
+	return ((high_word * 65536 + low_word)); //  &4294967295 - 92+ AMS 2.03 hangs _earlier_ ??!
 }
 
 function rw(address)
 {
 	address = address & 0xFFFFFF;
 	if (address < 0x200000)
-		return ram[(address & 0x3FFFF) / 2];
+		return ram[(address & 0x3FFFF) / 2] & 0xFFFF;
 	else if (address < 0x400000)
 		return 0x1400;
 	else if (address < 0x600000)
-		return rom[(address % 0x200000)/2];
-	else return read_hreg(address) * 256 + read_hreg(address + 1);
+		return rom[(address % 0x200000)/2] & 0xFFFF;
+	else
+		return ((read_hreg(address) * 256 + read_hreg(address + 1)) & 0xFFFF);
 }
 
 function rb(address)
@@ -2178,6 +2211,12 @@ function create_button(shape, coords, keynumber)
 
 function initemu()
 {
+	if (!checkemu()) {
+		console.log("Emulation checks failed");
+		return;
+	}
+//	console.log(t[0x223C].toString());
+
 	var elem = document.getElementById('screen');
 	context = elem.getContext('2d');
 
@@ -2457,6 +2496,45 @@ function emu_main_loop()
 		// We get about 744khz OSC2 rate here, which comes out to around 1.49 million instructions per second, 
 		// which is fairly reasonable depending on your instruction mix.
 		for (var inner = 0; inner < 64; inner++) {		
+
+			/*a0 &= 4294967295;
+			a1 &= 4294967295;
+			a2 &= 4294967295;
+			a3 &= 4294967295;
+			a4 &= 4294967295;
+			a5 &= 4294967295;
+			a6 &= 4294967295;
+			a7 &= 4294967295;
+			a8 &= 4294967295;
+			d0 &= 4294967295;
+			d1 &= 4294967295;
+			d2 &= 4294967295;
+			d3 &= 4294967295;
+			d4 &= 4294967295;
+			d5 &= 4294967295;
+			d6 &= 4294967295;
+			d7 &= 4294967295;
+			pc &= 4294967295;*/
+
+			/*if (a0 < 0) { a0 += 4294967296; } if (a0 > 4294967295) { a0 -= 4294967296; }
+			if (a1 < 0) { a1 += 4294967296; } if (a1 > 4294967295) { a1 -= 4294967296; }
+			if (a2 < 0) { a2 += 4294967296; } if (a2 > 4294967295) { a2 -= 4294967296; }
+			if (a3 < 0) { a3 += 4294967296; } if (a3 > 4294967295) { a3 -= 4294967296; }
+			if (a4 < 0) { a4 += 4294967296; } if (a4 > 4294967295) { a4 -= 4294967296; }
+			if (a5 < 0) { a5 += 4294967296; } if (a5 > 4294967295) { a5 -= 4294967296; }
+			if (a6 < 0) { a6 += 4294967296; } if (a6 > 4294967295) { a6 -= 4294967296; }
+			if (a7 < 0) { a7 += 4294967296; } if (a7 > 4294967295) { a7 -= 4294967296; }
+			if (a8 < 0) { a8 += 4294967296; } if (a8 > 4294967295) { a8 -= 4294967296; }
+			if (d0 < 0) { d0 += 4294967296; } if (d0 > 4294967295) { d0 -= 4294967296; }
+			if (d1 < 0) { d1 += 4294967296; } if (d1 > 4294967295) { d1 -= 4294967296; }
+			if (d2 < 0) { d2 += 4294967296; } if (d2 > 4294967295) { d2 -= 4294967296; }
+			if (d3 < 0) { d3 += 4294967296; } if (d3 > 4294967295) { d3 -= 4294967296; }
+			if (d4 < 0) { d4 += 4294967296; } if (d4 > 4294967295) { d4 -= 4294967296; }
+			if (d5 < 0) { d5 += 4294967296; } if (d5 > 4294967295) { d5 -= 4294967296; }
+			if (d6 < 0) { d6 += 4294967296; } if (d6 > 4294967295) { d6 -= 4294967296; }
+			if (d7 < 0) { d7 += 4294967296; } if (d7 > 4294967295) { d7 -= 4294967296; }
+			if (pc < 0) { pc += 4294967296; } if (pc > 4294967295) { pc -= 4294967296; }*/
+
 			// if (pc == 0x56ea6c) tracecount = 50; // end of a memory filling loop	
 			// if (pc == 0x49BBAC) tracecount = 50; // end of a check	
 			// if (pc == 0x49af08) tracecount = 50; // should have set 88fc to ffffffff but did not due to MOVEQ bug, now fixed
@@ -2536,24 +2614,59 @@ function emu_main_loop()
 			//if (pc == 0x534bc) tracecount = 200; // krypton init
 			//if (pc == 0x53538) tracecount = 300; // krypton init
 			//if (pc == 0x5360c) tracecount = 10; // krypton init
-			
-			/*if (d0 < 0 || d0 >= 0x100000000) { console.log("D0 " + d0 + " prev_pc " + to_hex(prev_pc, 9)); d0 = 0; tracecount = 2; }
-			if (d1 < 0 || d1 >= 0x100000000) { console.log("D1 " + d1 + " prev_pc " + to_hex(prev_pc, 9)); d1 = 0; tracecount = 2; }
-			if (d2 < 0 || d2 >= 0x100000000) { console.log("D2 " + d2 + " prev_pc " + to_hex(prev_pc, 9)); d2 = 0; tracecount = 2; }
-			if (d3 < 0 || d3 >= 0x100000000) { console.log("D3 " + d3 + " prev_pc " + to_hex(prev_pc, 9)); d3 = 0; tracecount = 2; }
-			if (a0 < 0 || a0 >= 0x100000000) { console.log("a0 " + a0 + " prev_pc " + to_hex(prev_pc, 9)); a0 = 0; tracecount = 2; }
-			if (a1 < 0 || a1 >= 0x100000000) { console.log("a1 " + a1 + " prev_pc " + to_hex(prev_pc, 9)); a1 = 0; tracecount = 2; }
-			if (a2 < 0 || a2 >= 0x100000000) { console.log("a2 " + a2 + " prev_pc " + to_hex(prev_pc, 9)); a2 = 0; tracecount = 2; }
-			if (a3 < 0 || a3 >= 0x100000000) { console.log("a3 " + a3 + " prev_pc " + to_hex(prev_pc, 9)); a3 = 0; tracecount = 2; }
-			if (d4 < 0 || d4 >= 0x100000000) { console.log("D4 " + d4 + " prev_pc " + to_hex(prev_pc, 9)); d4 = 0; tracecount = 2; }
-			if (d5 < 0 || d5 >= 0x100000000) { console.log("D5 " + d5 + " prev_pc " + to_hex(prev_pc, 9)); d5 = 0; tracecount = 2; }
-			if (d6 < 0 || d6 >= 0x100000000) { console.log("D6 " + d6 + " prev_pc " + to_hex(prev_pc, 9)); d6 = 0; tracecount = 2; }
-			if (d7 < 0 || d7 >= 0x100000000) { console.log("D7 " + d7 + " prev_pc " + to_hex(prev_pc, 9)); d7 = 0; tracecount = 2; }
-			if (a4 < 0 || a4 >= 0x100000000) { console.log("a4 " + a4 + " prev_pc " + to_hex(prev_pc, 9)); a4 = 0; tracecount = 2; }
-			if (a5 < 0 || a5 >= 0x100000000) { console.log("a5 " + a5 + " prev_pc " + to_hex(prev_pc, 9)); a5 = 0; tracecount = 2; }
-			if (a6 < 0 || a6 >= 0x100000000) { console.log("a6 " + a6 + " prev_pc " + to_hex(prev_pc, 9)); a6 = 0; tracecount = 2; }
-			if (a7 < 0 || a7 >= 0x100000000) { console.log("a7 " + a7 + " prev_pc " + to_hex(prev_pc, 9)); a7 = 0; tracecount = 2; }
-			if (pc < 0 || pc >= 0x100000000) { console.log("pc " + pc + " prev_pc " + to_hex(prev_pc, 9)); pc = 0; tracecount = 2; }*/
+
+			/*if (pc == 0x4DA14C) {
+				//tracecount = 10;
+				// Short-circuit OO_deref for 92+ AMS 2.03
+				// TODO: fix problem with the cmpi.l !
+				console.log("CALL OO_deref");
+				d0 = d0 & 0xFFFFFFFF;
+				if (d0 == 0xFF000000) {
+					//console.log("case 1");
+					a0 = rl(0x7C26);
+				}
+				else if (d0 - 0xFF000000 > 0) {
+					//console.log("case 3");
+					d0 = d0 & 0xFFFFFF;
+					d0 = d0 << 2;
+					a0 = rl(0x7996);
+					a0 = rl(a0 + d0);
+				}
+				else {
+					//console.log("case 2");
+					a0 = d0;
+				}
+				//print_status();
+				pc = 0x4DA170; // rts
+			}*/
+
+			/*if (pc == 0x41234A) {
+				tracecount = 3;
+			}*/
+
+			/*if (pc == 0x4DA28A) {
+				//tracecount = 10;
+			}*/
+
+
+			/*if (d0 < 0 || d0 >= 0x100000000) { console.log("D0 " + d0 + " (" + to_hex2(d0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d1 < 0 || d1 >= 0x100000000) { console.log("D1 " + d1 + " (" + to_hex2(d1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d2 < 0 || d2 >= 0x100000000) { console.log("D2 " + d2 + " (" + to_hex2(d2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d3 < 0 || d3 >= 0x100000000) { console.log("D3 " + d3 + " (" + to_hex2(d3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a0 < 0 || a0 >= 0x100000000) { console.log("a0 " + a0 + " (" + to_hex2(a0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a1 < 0 || a1 >= 0x100000000) { console.log("a1 " + a1 + " (" + to_hex2(a1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a2 < 0 || a2 >= 0x100000000) { console.log("a2 " + a2 + " (" + to_hex2(a2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a3 < 0 || a3 >= 0x100000000) { console.log("a3 " + a3 + " (" + to_hex2(a3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d4 < 0 || d4 >= 0x100000000) { console.log("D4 " + d4 + " (" + to_hex2(d4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d5 < 0 || d5 >= 0x100000000) { console.log("D5 " + d5 + " (" + to_hex2(d5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d6 < 0 || d6 >= 0x100000000) { console.log("D6 " + d6 + " (" + to_hex2(d6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d7 < 0 || d7 >= 0x100000000) { console.log("D7 " + d7 + " (" + to_hex2(d7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a4 < 0 || a4 >= 0x100000000) { console.log("a4 " + a4 + " (" + to_hex2(a4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a5 < 0 || a5 >= 0x100000000) { console.log("a5 " + a5 + " (" + to_hex2(a5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a6 < 0 || a6 >= 0x100000000) { console.log("a6 " + a6 + " (" + to_hex2(a6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a7 < 0 || a7 >= 0x100000000) { console.log("a7 " + a7 + " (" + to_hex2(a7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a8 < 0 || a8 >= 0x100000000) { console.log("a8 " + a8 + " (" + to_hex2(a8, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (pc < 0 || pc >= 0x100000000) { console.log("pc " + pc + " (" + to_hex2(pc, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }*/
 			
 			// if (pc == 0x415cdc) tracecount = 25; // memory corruption after link
 			//if (pc == 0x413f4a) tracecount = 25; // silent link failure
@@ -2571,14 +2684,14 @@ function emu_main_loop()
 			
 			try {					
 				var opcode = rw(pc);
-				/*if (tracecount > 0) {
+				if (tracecount > 0) {
 					tracecount--;
 					if (overall > 0) {
 						overall--;
 						print_status();
 					}
 				}
-				if (pc < 0x40000)
+				/*if (pc < 0x40000)
 				{
 					if (ramflag[pc / 2] != 567)
 					{
@@ -2586,11 +2699,29 @@ function emu_main_loop()
 						console.log("First execution at this point, previous = " + to_hex(prev_pc, 9));
 						print_status();						
 					}
-				}
-				prev_pc = pc;*/
+				}*/
+				prev_pc = pc;
 				pc += 2;			
 
 				t[opcode]();
+				/*a0 = a0 & 4294967295;
+				a1 = a1 & 4294967295;
+				a2 = a2 & 4294967295;
+				a3 = a3 & 4294967295;
+				a4 = a4 & 4294967295;
+				a5 = a5 & 4294967295;
+				a6 = a6 & 4294967295;
+				a7 = a7 & 4294967295;
+				a8 = a8 & 4294967295;
+				d0 = d0 & 4294967295;
+				d1 = d1 & 4294967295;
+				d2 = d2 & 4294967295;
+				d3 = d3 & 4294967295;
+				d4 = d4 & 4294967295;
+				d5 = d5 & 4294967295;
+				d6 = d6 & 4294967295;
+				d7 = d7 & 4294967295;
+				pc = pc & 4294967295;*/
 			} catch (e) {
 				if (e == "STOP")
 				{
@@ -2610,6 +2741,7 @@ function emu_main_loop()
 				{
 					// this is a processor exception
 					if (e < 25) console.log("processor exception " + to_hex(e, 2) + " occured at PC=" + to_hex(pc, 8));
+//					if (e == 3) { clearInterval(interval); print_status(); stopped = true; wakemask = 0; return; }
 					if (e == 10 || e == 11) pc -= 2;
 					fire_cpu_exception(e);
 				}
