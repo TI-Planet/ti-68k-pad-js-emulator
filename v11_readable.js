@@ -1868,59 +1868,103 @@ console.log("number of unknown opcodes is " + unknown)
 // read a hardware register (byte)
 function read_hreg(reg)
 {
-	if (reg == 0x600000) return 0x84;
-	if (reg == 0x600001) return vectorprotect ? 4 : 0;
-	if (reg == 0x60000e) return 0x10;
-	if (reg == 0x600015) return interrupt_control; // default value for interrupt / display control
-	if (reg == 0x600017) return timer_current; // programmable timer
-	if (reg == 0x600019) return key_mask; // which keys are readable
-	if (reg == 0x60001a) return 0xFF; // ON key read - treat as not pressed
-	if (reg == 0x60001b) { // keyboard read - treat as no keys pressed
-		var result = 0xFF;
-		var keymask = keymaskhigh * 256 + keymasklow;
-		for (var row = 0; row <= 9; row++) 
+	switch (reg)
+	{
+		case 0x600000: // 0x600000
 		{
-			if ((keymask & (1 << row)) == 0) 
+			return 0x84;
+		}
+
+		case 0x600001: // 0x600001
+		{
+			return vectorprotect ? 4 : 0;
+		}
+
+		case 0x60000e: // 0x60000e
+		{
+			return 0x10;
+		}
+
+		case 0x600015: // 0x600015
+		{
+			return interrupt_control; // default value for interrupt / display control
+		}
+
+		case 0x600017: // 0x600017
+		{
+			return timer_current; // programmable timer
+		}
+
+		case 0x600019: // 0x600019
+		{
+			return key_mask; // which keys are readable
+		}
+
+		case 0x60001a: // 0x60001a
+		{
+			return 0xFF; // ON key read - treat as not pressed
+		}
+
+		case 0x60001b: // 0x60001b
+		{
+			// keyboard read - treat as no keys pressed
+			var result = 0xFF;
+			var keymask = keymaskhigh * 256 + keymasklow;
+			for (var row = 0; row <= 9; row++) 
 			{
-				for (var col = 0; col < 8; col++) 
+				if ((keymask & (1 << row)) == 0) 
 				{
-					if (keystatus[row * 8 + col] == 1)
+					for (var col = 0; col < 8; col++) 
 					{
-						result &= (0xFF - (1 << col));
+						if (keystatus[row * 8 + col] == 1)
+						{
+							result &= (0xFF - (1 << col));
+						}
 					}
 				}
 			}
+			return result;
 		}
-		return result;
-	}
-	if (reg == 0x60000c)
-	{
-		//console.log("read link configuation: " + to_hex(link_config, 2));
-		return link_config;
-	}
-	if (reg == 0x60000f)
-	{
-		if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number")
+
+		case 0x60000c: // 0x60000c
 		{
-			//console.log("reading link buffer: " + to_hex(link_incoming_queue[0], 2));
-			return link_incoming_queue.shift();
+			//console.log("read link configuation: " + to_hex(link_config, 2));
+			return link_config;
 		}
-		else
+
+		case 0x60000f: // 0x60000f
 		{
-			//console.log("tried to read link buffer, returned 0 because no data");
-			return 0;
+			if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number")
+			{
+				//console.log("reading link buffer: " + to_hex(link_incoming_queue[0], 2));
+				return link_incoming_queue.shift();
+			}
+			else
+			{
+				//console.log("tried to read link buffer, returned 0 because no data");
+				return 0;
+			}
+		}
+
+		case 0x60000d: // 0x60000d
+		{
+			var status = 2;
+			if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number") status |= 0x30;
+			else if (link_config & 2) status |= 0x50;
+			//console.log("read link status: " + to_hex(status, 2));
+			return status;
+		}
+
+		case 0x60001d: // 0x60001d
+		{
+			return 1; // contrast setting
+		}
+
+		default:
+		{
+			return (reg & 1) ? 0 : 0x14;
 		}
 	}
-	if (reg == 0x60000d)
-	{
-		var status = 2;
-		if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number") status |= 0x30;
-		else if (link_config & 2) status |= 0x50;
-		//console.log("read link status: " + to_hex(status, 2));
-		return status;
-	}
-	if (reg == 0x60001d) return 1; // contrast setting
-	return (reg & 1) ? 0 : 0x14;
 }
 
 // write a hardware register (byte)
@@ -1953,7 +1997,7 @@ function write_hreg(reg, value)
 	{
 		interrupt_control = value;
 		switch ((interrupt_control >> 4) & 0x3)
-		{	
+		{
 			case 0:
 				interrupt_rate = 0x20;
 				break;
@@ -1989,15 +2033,15 @@ function rl(address)
 
 var memory_read_functions = "";
 
-if (calculator_model == 1) { // 92+
-	memory_read_functions =
-"function rw(address) {" +
+function build_memory_read_functions(flashmemoryaddress, flashmemorysize)
+{
+	memory_read_functions = "function rw(address) {" +
 "	address = address & 0xFFFFFF;" +
 "	if ((address % 2) != 0) throw 3;" + // address error
-"	if (address < 0x200000)" +
-"		return ram[(address / 2) & 0x3FFFF];" +
-"	else if (address >= 0x400000 && address < 0x600000)" +
-"		return rom[(address % 0x200000)/2];" +
+"	if (address < 0x200000)" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+"		return ram[(address >>> 1) & 0x3FFFF];" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ")" +
+"		return rom[(address - " + flashmemoryaddress + ")/2];" +
 "	else if (address >= 0x600000 && address < 0x800000)" +
 "		return read_hreg(address) * 256 + read_hreg(address + 1);" +
 "	else" +
@@ -2007,18 +2051,18 @@ if (calculator_model == 1) { // 92+
 "function rb(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if (address < 0x200000)" +
+"	if (address < 0x200000)" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
 "	{" +
 "		if (address % 2 == 0)" +
-"			return ram[(address / 2) & 0x3FFFF] >>> 8;" +
+"			return ram[(address >>> 1) & 0x3FFFF] >>> 8;" +
 "		else" +
-"			return ram[(address >> 1) & 0x3FFFF] & 0xFF;" +
+"			return ram[(address >>> 1) & 0x3FFFF] & 0xFF;" +
 "	}" +
-"	else if (address >= 0x400000 && address < 0x600000)" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ")" +
 "		if (address % 2 == 0)" +
-"			return rom[(address - 0x400000) / 2] >>> 8;" +
+"			return rom[(address - " + flashmemoryaddress + ") >>> 1] >>> 8;" +
 "		else" +
-"			return rom[(address - 0x400001) / 2] & 0xFF;" +
+"			return rom[(address - " + flashmemoryaddress + "- 1) >>> 1] & 0xFF;" +
 "	else if (address >= 0x600000 && address < 0x800000) {" +
 "		return read_hreg(address);" +
 "	}" +
@@ -2026,13 +2070,20 @@ if (calculator_model == 1) { // 92+
 "		return (address & 1) ? 0 : 0x14;" +
 "}";
 }
+
+if (calculator_model == 1) { // 92+
+	build_memory_read_functions(0x400000, 0x200000);
+}
 else if (calculator_model == 3) { // 89
+	build_memory_read_functions(0x200000, 0x200000);
 	console.log("89 support not implemented");
 }
 else if (calculator_model == 8) { // V200
+	build_memory_read_functions(0x200000, 0x400000);
 	console.log("V200 support not implemented");
 }
 else if (calculator_model == 9) { // 92+
+	build_memory_read_functions(0x800000, 0x400000);
 	console.log("89T support not implemented");
 }
 else {
@@ -2056,7 +2107,8 @@ function wl(address, value)
 
 var memory_write_functions = "";
 
-if (calculator_model == 1) { // 92+
+function build_memory_write_functions(flashmemoryaddress, flashmemorysize)
+{
 	memory_write_functions =
 "function ww(address, value)" +
 "{" +
@@ -2086,13 +2138,20 @@ if (calculator_model == 1) { // 92+
 "		write_hreg(address, value & 0xFF);" +
 "}";
 }
+
+if (calculator_model == 1) { // 92+
+	build_memory_write_functions(0x400000, 0x200000);
+}
 else if (calculator_model == 3) { // 89
+	build_memory_write_functions(0x200000, 0x200000);
 	console.log("89 support not implemented");
 }
 else if (calculator_model == 8) { // V200
+	build_memory_write_functions(0x200000, 0x400000);
 	console.log("V200 support not implemented");
 }
 else if (calculator_model == 9) { // 92+
+	build_memory_write_functions(0x800000, 0x400000);
 	console.log("89T support not implemented");
 }
 else {
@@ -2482,9 +2541,9 @@ function initemu()
 	create_button("rect", "421,403,467,433", 42); // H
 	create_button("rect", "389,355,435,385", 43); // Y
 	create_button("rect", "141,168,184,208", 44); // F6
-	create_button("rect", "168,401,214,431", 45); // SIN
-	create_button("rect", "724,260,770,290", 46); // COS
-	create_button("rect", "784,260,830,290", 47); // TAN
+	create_button("rect", "724,260,770,290", 45); // SIN
+	create_button("rect", "784,260,830,290", 46); // COS
+	create_button("rect", "844,260,890,290", 47); // TAN
 	create_button("rect", "905,260,951,290", 48); // ^
 	create_button("rect", "453,451,499,481", 49); // N
 	create_button("rect", "484,403,530,433", 50); // J
@@ -3020,7 +3079,7 @@ function emu_main_loop()
 						console.log(dump);
 
 						//link_outgoing_queue = link_outgoing_queue.splice(0, x+4);
-						link_outgoing_queue.splice(x, 4);
+						link_outgoing_queue.splice(0, x+4); // x, 4
 						link_incoming_queue.shift();
 						console.log("Eaten an item in WAIT_OK", x);
 
@@ -3050,7 +3109,7 @@ function emu_main_loop()
 						console.log(dump);
 
 						//link_outgoing_queue = link_outgoing_queue.splice(0, x+4);
-						link_outgoing_queue.splice(x, 4);
+						link_outgoing_queue.splice(0, x+4); // x, 4
 						link_incoming_queue.shift();
 						console.log("Eaten an item in WAIT_CTS", x);
 
