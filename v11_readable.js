@@ -2706,193 +2706,193 @@ function emu_main_loop()
 		// Assume we can run 2 instructions per OSC2 cycle, so 64 instructions between programmable interrupt counts (every 32 cycles).
 		// We get about 744khz OSC2 rate here, which comes out to around 1.49 million instructions per second, 
 		// which is fairly reasonable depending on your instruction mix.
-			try {
-		for (var inner = 0; inner < 64; inner++) {
+		try {
+			for (var inner = 0; inner < 64; inner++) {
 
-			/*a0 &= 4294967295;
-			a1 &= 4294967295;
-			a2 &= 4294967295;
-			a3 &= 4294967295;
-			a4 &= 4294967295;
-			a5 &= 4294967295;
-			a6 &= 4294967295;
-			a7 &= 4294967295;
-			a8 &= 4294967295;
-			d0 &= 4294967295;
-			d1 &= 4294967295;
-			d2 &= 4294967295;
-			d3 &= 4294967295;
-			d4 &= 4294967295;
-			d5 &= 4294967295;
-			d6 &= 4294967295;
-			d7 &= 4294967295;
-			pc &= 4294967295;*/
+				/*a0 &= 4294967295;
+				a1 &= 4294967295;
+				a2 &= 4294967295;
+				a3 &= 4294967295;
+				a4 &= 4294967295;
+				a5 &= 4294967295;
+				a6 &= 4294967295;
+				a7 &= 4294967295;
+				a8 &= 4294967295;
+				d0 &= 4294967295;
+				d1 &= 4294967295;
+				d2 &= 4294967295;
+				d3 &= 4294967295;
+				d4 &= 4294967295;
+				d5 &= 4294967295;
+				d6 &= 4294967295;
+				d7 &= 4294967295;
+				pc &= 4294967295;*/
 
-			/*if (a0 < 0) { a0 += 4294967296; } if (a0 > 4294967295) { a0 -= 4294967296; }
-			if (a1 < 0) { a1 += 4294967296; } if (a1 > 4294967295) { a1 -= 4294967296; }
-			if (a2 < 0) { a2 += 4294967296; } if (a2 > 4294967295) { a2 -= 4294967296; }
-			if (a3 < 0) { a3 += 4294967296; } if (a3 > 4294967295) { a3 -= 4294967296; }
-			if (a4 < 0) { a4 += 4294967296; } if (a4 > 4294967295) { a4 -= 4294967296; }
-			if (a5 < 0) { a5 += 4294967296; } if (a5 > 4294967295) { a5 -= 4294967296; }
-			if (a6 < 0) { a6 += 4294967296; } if (a6 > 4294967295) { a6 -= 4294967296; }
-			if (a7 < 0) { a7 += 4294967296; } if (a7 > 4294967295) { a7 -= 4294967296; }
-			if (a8 < 0) { a8 += 4294967296; } if (a8 > 4294967295) { a8 -= 4294967296; }
-			if (d0 < 0) { d0 += 4294967296; } if (d0 > 4294967295) { d0 -= 4294967296; }
-			if (d1 < 0) { d1 += 4294967296; } if (d1 > 4294967295) { d1 -= 4294967296; }
-			if (d2 < 0) { d2 += 4294967296; } if (d2 > 4294967295) { d2 -= 4294967296; }
-			if (d3 < 0) { d3 += 4294967296; } if (d3 > 4294967295) { d3 -= 4294967296; }
-			if (d4 < 0) { d4 += 4294967296; } if (d4 > 4294967295) { d4 -= 4294967296; }
-			if (d5 < 0) { d5 += 4294967296; } if (d5 > 4294967295) { d5 -= 4294967296; }
-			if (d6 < 0) { d6 += 4294967296; } if (d6 > 4294967295) { d6 -= 4294967296; }
-			if (d7 < 0) { d7 += 4294967296; } if (d7 > 4294967295) { d7 -= 4294967296; }
-			if (pc < 0) { pc += 4294967296; } if (pc > 4294967295) { pc -= 4294967296; }*/
+				/*if (a0 < 0) { a0 += 4294967296; } if (a0 > 4294967295) { a0 -= 4294967296; }
+				if (a1 < 0) { a1 += 4294967296; } if (a1 > 4294967295) { a1 -= 4294967296; }
+				if (a2 < 0) { a2 += 4294967296; } if (a2 > 4294967295) { a2 -= 4294967296; }
+				if (a3 < 0) { a3 += 4294967296; } if (a3 > 4294967295) { a3 -= 4294967296; }
+				if (a4 < 0) { a4 += 4294967296; } if (a4 > 4294967295) { a4 -= 4294967296; }
+				if (a5 < 0) { a5 += 4294967296; } if (a5 > 4294967295) { a5 -= 4294967296; }
+				if (a6 < 0) { a6 += 4294967296; } if (a6 > 4294967295) { a6 -= 4294967296; }
+				if (a7 < 0) { a7 += 4294967296; } if (a7 > 4294967295) { a7 -= 4294967296; }
+				if (a8 < 0) { a8 += 4294967296; } if (a8 > 4294967295) { a8 -= 4294967296; }
+				if (d0 < 0) { d0 += 4294967296; } if (d0 > 4294967295) { d0 -= 4294967296; }
+				if (d1 < 0) { d1 += 4294967296; } if (d1 > 4294967295) { d1 -= 4294967296; }
+				if (d2 < 0) { d2 += 4294967296; } if (d2 > 4294967295) { d2 -= 4294967296; }
+				if (d3 < 0) { d3 += 4294967296; } if (d3 > 4294967295) { d3 -= 4294967296; }
+				if (d4 < 0) { d4 += 4294967296; } if (d4 > 4294967295) { d4 -= 4294967296; }
+				if (d5 < 0) { d5 += 4294967296; } if (d5 > 4294967295) { d5 -= 4294967296; }
+				if (d6 < 0) { d6 += 4294967296; } if (d6 > 4294967295) { d6 -= 4294967296; }
+				if (d7 < 0) { d7 += 4294967296; } if (d7 > 4294967295) { d7 -= 4294967296; }
+				if (pc < 0) { pc += 4294967296; } if (pc > 4294967295) { pc -= 4294967296; }*/
 
-			// if (pc == 0x56ea6c) tracecount = 50; // end of a memory filling loop
-			// if (pc == 0x49BBAC) tracecount = 50; // end of a check
-			// if (pc == 0x49af08) tracecount = 50; // should have set 88fc to ffffffff but did not due to MOVEQ bug, now fixed
-			//if (pc == 0x49bbca) tracecount = 50; // tst.l (A2) that had set condition codes incorrectly
-			//if (pc == 0x49b680) tracecount = 50; // previous problem with ADD writing to wrong register
-			//if (pc == 0x49bDa6) tracecount = 50; //  somewhere earlier, tracing source of wrong D0 value
-			//if (pc == 0x49be00) tracecount = 50; // first use of indexing as destination ea
-			//if (pc == 0x49af24) tracecount = 50; // first encounter of BLE at which point D0 had wrong value, later went wrong way
-			//if (pc == 0x509a36) tracecount =100; // first ADDA
-			//if (pc == 0x455102) tracecount = 50; // first MULS instruction (but shouldn't be run at all!)
-			//if (pc == 0x421d84) tracecount = 50; // a BSR that once hit the wrong target
-			//if (pc == 0x41225c) tracecount = 100; // should have written ff to 5cf1 (but only sometimes!)
-			//if (pc == 0x422192) tracecount = 100; // first use of TRAP
-			//if (pc == 0x49cacc) tracecount = 100; // first use of PEA
-			//if (pc == 0x51a696) tracecount = 100; // call to st_busy
-			//if (pc == 0x486c42) tracecount = 100; // first NEG instruction
-			//if (pc == 0x4217e2) tracecount = 100; // first ROR instruction
-			//if (pc == 0x4c906c) tracecount = 100; // first dynamic BIT operation
-			//if (pc == 0x56e7f6) tracecount = 100; // first divu instruction
-			//if (pc == 0x412b56) tracecount = 100; // various traps
+				// if (pc == 0x56ea6c) tracecount = 50; // end of a memory filling loop
+				// if (pc == 0x49BBAC) tracecount = 50; // end of a check
+				// if (pc == 0x49af08) tracecount = 50; // should have set 88fc to ffffffff but did not due to MOVEQ bug, now fixed
+				//if (pc == 0x49bbca) tracecount = 50; // tst.l (A2) that had set condition codes incorrectly
+				//if (pc == 0x49b680) tracecount = 50; // previous problem with ADD writing to wrong register
+				//if (pc == 0x49bDa6) tracecount = 50; //  somewhere earlier, tracing source of wrong D0 value
+				//if (pc == 0x49be00) tracecount = 50; // first use of indexing as destination ea
+				//if (pc == 0x49af24) tracecount = 50; // first encounter of BLE at which point D0 had wrong value, later went wrong way
+				//if (pc == 0x509a36) tracecount =100; // first ADDA
+				//if (pc == 0x455102) tracecount = 50; // first MULS instruction (but shouldn't be run at all!)
+				//if (pc == 0x421d84) tracecount = 50; // a BSR that once hit the wrong target
+				//if (pc == 0x41225c) tracecount = 100; // should have written ff to 5cf1 (but only sometimes!)
+				//if (pc == 0x422192) tracecount = 100; // first use of TRAP
+				//if (pc == 0x49cacc) tracecount = 100; // first use of PEA
+				//if (pc == 0x51a696) tracecount = 100; // call to st_busy
+				//if (pc == 0x486c42) tracecount = 100; // first NEG instruction
+				//if (pc == 0x4217e2) tracecount = 100; // first ROR instruction
+				//if (pc == 0x4c906c) tracecount = 100; // first dynamic BIT operation
+				//if (pc == 0x56e7f6) tracecount = 100; // first divu instruction
+				//if (pc == 0x412b56) tracecount = 100; // various traps
 
-			//if (pc == 0x56e7be) tracecount = 100; // a troublesome loop (entered wrong due to PC indexing error)
-			//if (pc == 0x56e7c4) tracecount = 100;
-			//if (pc == 0x56eaec) tracecount = 100; // first CMPM
-			//if (pc == 0x422f0a) tracecount = 50; // first cmp of a certain kind
-			//if (pc == 0x4219d8) tracecount = 50; // first move SR, dest
+				//if (pc == 0x56e7be) tracecount = 100; // a troublesome loop (entered wrong due to PC indexing error)
+				//if (pc == 0x56e7c4) tracecount = 100;
+				//if (pc == 0x56eaec) tracecount = 100; // first CMPM
+				//if (pc == 0x422f0a) tracecount = 50; // first cmp of a certain kind
+				//if (pc == 0x4219d8) tracecount = 50; // first move SR, dest
 
-			//if (pc == 0x49c0aa) tracecount = 3000; // near the end of the auto int 1 exception handler, failed to due predec MOVEM
+				//if (pc == 0x49c0aa) tracecount = 3000; // near the end of the auto int 1 exception handler, failed to due predec MOVEM
 
-			//if (pc == 0x415cae) tracecount = 1000; // something in this call ought to write 0x37bf6 at 0x840a
+				//if (pc == 0x415cae) tracecount = 1000; // something in this call ought to write 0x37bf6 at 0x840a
 
-			//if (aregs[1] == 0xffffbb06 || aregs[1] < 0) tracecount = 200; to find the address register corruption (was ADDQ.W not properly treating as long)
-			//if (pc == 0x416d7c) tracecount = 50;
+				//if (aregs[1] == 0xffffbb06 || aregs[1] < 0) tracecount = 200; to find the address register corruption (was ADDQ.W not properly treating as long)
+				//if (pc == 0x416d7c) tracecount = 50;
 
-			//if (pc == 0x9880) tracecount = 400; // phoenix side scrolling building
-			//if (pc == 0xc124) tracecount = 200; // mercury grayscale setup
+				//if (pc == 0x9880) tracecount = 400; // phoenix side scrolling building
+				//if (pc == 0xc124) tracecount = 200; // mercury grayscale setup
 
-			//if (pc != Math.floor(pc)) console.log("non integer PC!");
-			//if (pc < 0) console.log("underflow PC!");
-			//if (pc >= 0x100000000) console.log("overflow PC!");
+				//if (pc != Math.floor(pc)) console.log("non integer PC!");
+				//if (pc < 0) console.log("underflow PC!");
+				//if (pc >= 0x100000000) console.log("overflow PC!");
 
-			//if ((pc == 0xabba) && ((dregs[2] & 0xFFFF) < 0x300)) tracecount = 200; // mercury map extraction
+				//if ((pc == 0xabba) && ((dregs[2] & 0xFFFF) < 0x300)) tracecount = 200; // mercury map extraction
 
-			//if (pc == 0xa85e) tracecount = 100; // phoenix collision check (was broken because MOVEQ not setting condition codes)
+				//if (pc == 0xa85e) tracecount = 100; // phoenix collision check (was broken because MOVEQ not setting condition codes)
 
-			//if (pc == 0xad5a) tracecount = 9; // phoenix enemy explosion countdown
+				//if (pc == 0xad5a) tracecount = 9; // phoenix enemy explosion countdown
 
-			//if (pc == 0x13542) tracecount = 400; // monster about to verify level, failed due to overflow in A2 causing CMPA to not match
-			//if (pc == 0x133d6) tracecount = 100; // first monster hit on actual brick
-			//if (aregs[2] == 0x10000C568) tracecount = 20;
+				//if (pc == 0x13542) tracecount = 400; // monster about to verify level, failed due to overflow in A2 causing CMPA to not match
+				//if (pc == 0x133d6) tracecount = 100; // first monster hit on actual brick
+				//if (aregs[2] == 0x10000C568) tracecount = 20;
 
-			//var digit = dregs[3] % 16;
-			//if (digit < 0 || digit > 15 || digit != Math.floor(digit)) tracecount = 15;
-			//if (pc == 0x420970) tracecount = 10; // registers corrupted here
-			//if (pc == 0x24f16) tracecount = 200; // mercury CLIP TOP (bad subtraction result due to not masking)
-			// if (aregs[1] == 0xffffffff && pc <= 0x40000) tracecount = 300; mercury had read corrupt data from heap
-			//if (pc == 0x29e8a && aregs[0] == 0x163a) tracecount = 75; // mercury heap deletion
+				//var digit = dregs[3] % 16;
+				//if (digit < 0 || digit > 15 || digit != Math.floor(digit)) tracecount = 15;
+				//if (pc == 0x420970) tracecount = 10; // registers corrupted here
+				//if (pc == 0x24f16) tracecount = 200; // mercury CLIP TOP (bad subtraction result due to not masking)
+				// if (aregs[1] == 0xffffffff && pc <= 0x40000) tracecount = 300; mercury had read corrupt data from heap
+				//if (pc == 0x29e8a && aregs[0] == 0x163a) tracecount = 75; // mercury heap deletion
 
-			//if (pc <= 0x2a016 && pc >= 0x29e44 && ram[0x163a] == 0xff) { tracecount = 300; console.log("we came from " + to_hex(prev_pc, 8)); } // detect memory corruption in Mercury 
-			//if (pc == 0x29cbc) tracecount = 8; // player bullet handling, was somehow taking wild branch (bad bullet value at 2ee0)
-			//if (pc == 0x29fae) tracecount = 100; // shortly before player bullet type is corrupted
+				//if (pc <= 0x2a016 && pc >= 0x29e44 && ram[0x163a] == 0xff) { tracecount = 300; console.log("we came from " + to_hex(prev_pc, 8)); } // detect memory corruption in Mercury 
+				//if (pc == 0x29cbc) tracecount = 8; // player bullet handling, was somehow taking wild branch (bad bullet value at 2ee0)
+				//if (pc == 0x29fae) tracecount = 100; // shortly before player bullet type is corrupted
 
-			//if ((sr & 0x700) == 0x200) tracecount = 10;
-			//if (pc == 0x240ae) tracecount = 12; // platinum bad sprite height b&w (was wrong behavior of SUBI.W using whole register)
+				//if ((sr & 0x700) == 0x200) tracecount = 10;
+				//if (pc == 0x240ae) tracecount = 12; // platinum bad sprite height b&w (was wrong behavior of SUBI.W using whole register)
 
-			//if ((sr & 0xff00) == 0x2200 && prev_pc >= 0x9800 && prev_pc < 0x9900) console.log(to_hex(prev_pc, 6) + " is where SR became " + to_hex(sr, 4));
-			//if (pc == 0x98ae) tracecount = 10;
-			//if (pc == 0x989c) tracecount = 4;
-			//if ((pc >= 0x800000 || pc < 0x100) && prev_pc < 0x800000 && prev_pc >= 0x100)
-			//	console.log("bad transfer old pc " + to_hex(prev_pc, 8) + " new pc " + to_hex(pc, 8));
-			//if (pc == 0x41eb7c) tracecount = 500; // incorrect result of 20/25 (beacuse add.w cleared upper bits inappropriately)
+				//if ((sr & 0xff00) == 0x2200 && prev_pc >= 0x9800 && prev_pc < 0x9900) console.log(to_hex(prev_pc, 6) + " is where SR became " + to_hex(sr, 4));
+				//if (pc == 0x98ae) tracecount = 10;
+				//if (pc == 0x989c) tracecount = 4;
+				//if ((pc >= 0x800000 || pc < 0x100) && prev_pc < 0x800000 && prev_pc >= 0x100)
+				//	console.log("bad transfer old pc " + to_hex(prev_pc, 8) + " new pc " + to_hex(pc, 8));
+				//if (pc == 0x41eb7c) tracecount = 500; // incorrect result of 20/25 (beacuse add.w cleared upper bits inappropriately)
 
-			//if (pc == 0x416f54) tracecount = 5; // reading out of ragne data from memory
+				//if (pc == 0x416f54) tracecount = 5; // reading out of ragne data from memory
 
-			//if (pc == 0x3963c) tracecount = 20; // TI-Chess A1 corruption, due to SUBQ underflow to address register
-			//if (pc == 0x534ba) tracecount = 10; // krypton init
-			//if (pc == 0x534bc) tracecount = 200; // krypton init
-			//if (pc == 0x53538) tracecount = 300; // krypton init
-			//if (pc == 0x5360c) tracecount = 10; // krypton init
+				//if (pc == 0x3963c) tracecount = 20; // TI-Chess A1 corruption, due to SUBQ underflow to address register
+				//if (pc == 0x534ba) tracecount = 10; // krypton init
+				//if (pc == 0x534bc) tracecount = 200; // krypton init
+				//if (pc == 0x53538) tracecount = 300; // krypton init
+				//if (pc == 0x5360c) tracecount = 10; // krypton init
 
-			/*if (pc == 0x4DA14C) {
-				//tracecount = 10;
-				// Short-circuit OO_deref for 92+ AMS 2.03
-				// TODO: fix problem with the cmpi.l !
-				console.log("CALL OO_deref");
-				d0 = d0 & 0xFFFFFFFF;
-				if (d0 == 0xFF000000) {
-					//console.log("case 1");
-					a0 = rl(0x7C26);
-				}
-				else if (d0 - 0xFF000000 > 0) {
-					//console.log("case 3");
-					d0 = d0 & 0xFFFFFF;
-					d0 = d0 << 2;
-					a0 = rl(0x7996);
-					a0 = rl(a0 + d0);
-				}
-				else {
-					//console.log("case 2");
-					a0 = d0;
-				}
-				//print_status();
-				pc = 0x4DA170; // rts
-			}*/
+				/*if (pc == 0x4DA14C) {
+					//tracecount = 10;
+					// Short-circuit OO_deref for 92+ AMS 2.03
+					// TODO: fix problem with the cmpi.l !
+					console.log("CALL OO_deref");
+					d0 = d0 & 0xFFFFFFFF;
+					if (d0 == 0xFF000000) {
+						//console.log("case 1");
+						a0 = rl(0x7C26);
+					}
+					else if (d0 - 0xFF000000 > 0) {
+						//console.log("case 3");
+						d0 = d0 & 0xFFFFFF;
+						d0 = d0 << 2;
+						a0 = rl(0x7996);
+						a0 = rl(a0 + d0);
+					}
+					else {
+						//console.log("case 2");
+						a0 = d0;
+					}
+					//print_status();
+					pc = 0x4DA170; // rts
+				}*/
 
-			/*if (pc == 0x41234A) {
-				tracecount = 3;
-			}*/
+				/*if (pc == 0x41234A) {
+					tracecount = 3;
+				}*/
 
-			/*if (pc == 0x4DA28A) {
-				//tracecount = 10;
-			}*/
-
-
-			/*if (d0 < 0 || d0 >= 0x100000000) { console.log("D0 " + d0 + " (" + to_hex2(d0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d1 < 0 || d1 >= 0x100000000) { console.log("D1 " + d1 + " (" + to_hex2(d1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d2 < 0 || d2 >= 0x100000000) { console.log("D2 " + d2 + " (" + to_hex2(d2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d3 < 0 || d3 >= 0x100000000) { console.log("D3 " + d3 + " (" + to_hex2(d3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a0 < 0 || a0 >= 0x100000000) { console.log("a0 " + a0 + " (" + to_hex2(a0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a1 < 0 || a1 >= 0x100000000) { console.log("a1 " + a1 + " (" + to_hex2(a1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a2 < 0 || a2 >= 0x100000000) { console.log("a2 " + a2 + " (" + to_hex2(a2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a3 < 0 || a3 >= 0x100000000) { console.log("a3 " + a3 + " (" + to_hex2(a3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d4 < 0 || d4 >= 0x100000000) { console.log("D4 " + d4 + " (" + to_hex2(d4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d5 < 0 || d5 >= 0x100000000) { console.log("D5 " + d5 + " (" + to_hex2(d5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d6 < 0 || d6 >= 0x100000000) { console.log("D6 " + d6 + " (" + to_hex2(d6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d7 < 0 || d7 >= 0x100000000) { console.log("D7 " + d7 + " (" + to_hex2(d7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a4 < 0 || a4 >= 0x100000000) { console.log("a4 " + a4 + " (" + to_hex2(a4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a5 < 0 || a5 >= 0x100000000) { console.log("a5 " + a5 + " (" + to_hex2(a5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a6 < 0 || a6 >= 0x100000000) { console.log("a6 " + a6 + " (" + to_hex2(a6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a7 < 0 || a7 >= 0x100000000) { console.log("a7 " + a7 + " (" + to_hex2(a7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a8 < 0 || a8 >= 0x100000000) { console.log("a8 " + a8 + " (" + to_hex2(a8, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (pc < 0 || pc >= 0x100000000) { console.log("pc " + pc + " (" + to_hex2(pc, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }*/
-
-			// if (pc == 0x415cdc) tracecount = 25; // memory corruption after link
-			//if (pc == 0x413f4a) tracecount = 25; // silent link failure
-			//if (pc == 0x413e5e) tracecount = 25; // silent link failure, at TranslatePack
-			//if (pc == 0x413c7a) tracecount = 5; // monitoring packet length pedrom 0.72
-			//if (pc == 0x41f9dc) tracecount = 520; // _tt_Decompress
-
-			//if (pc == 0x41fb46) console.log("storing D0=" + to_hex(d0 & 255, 4) +" to " + to_hex(a4,9))
-			//if (pc == 0x41fbe0) console.log("storing D4=" + to_hex(d4 & 255, 4) +" to " + to_hex(a4,9))
-			//if (pc == 0x41fabe) console.log("storing D3=" + to_hex(d3 & 255, 4) +" to " + to_hex(a2,9))
-			//if (pc == 0x41fbae) console.log("storing D5=" + to_hex(d5 & 255, 4) +" to " + to_hex(a2,9))
+				/*if (pc == 0x4DA28A) {
+					//tracecount = 10;
+				}*/
 
 
-			//if (pc == 0x4122e8) tracecount = 30; // pedrom hw version detection
+				/*if (d0 < 0 || d0 >= 0x100000000) { console.log("D0 " + d0 + " (" + to_hex2(d0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (d1 < 0 || d1 >= 0x100000000) { console.log("D1 " + d1 + " (" + to_hex2(d1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (d2 < 0 || d2 >= 0x100000000) { console.log("D2 " + d2 + " (" + to_hex2(d2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (d3 < 0 || d3 >= 0x100000000) { console.log("D3 " + d3 + " (" + to_hex2(d3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (a0 < 0 || a0 >= 0x100000000) { console.log("a0 " + a0 + " (" + to_hex2(a0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (a1 < 0 || a1 >= 0x100000000) { console.log("a1 " + a1 + " (" + to_hex2(a1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (a2 < 0 || a2 >= 0x100000000) { console.log("a2 " + a2 + " (" + to_hex2(a2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (a3 < 0 || a3 >= 0x100000000) { console.log("a3 " + a3 + " (" + to_hex2(a3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (d4 < 0 || d4 >= 0x100000000) { console.log("D4 " + d4 + " (" + to_hex2(d4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (d5 < 0 || d5 >= 0x100000000) { console.log("D5 " + d5 + " (" + to_hex2(d5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (d6 < 0 || d6 >= 0x100000000) { console.log("D6 " + d6 + " (" + to_hex2(d6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (d7 < 0 || d7 >= 0x100000000) { console.log("D7 " + d7 + " (" + to_hex2(d7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (a4 < 0 || a4 >= 0x100000000) { console.log("a4 " + a4 + " (" + to_hex2(a4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (a5 < 0 || a5 >= 0x100000000) { console.log("a5 " + a5 + " (" + to_hex2(a5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (a6 < 0 || a6 >= 0x100000000) { console.log("a6 " + a6 + " (" + to_hex2(a6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (a7 < 0 || a7 >= 0x100000000) { console.log("a7 " + a7 + " (" + to_hex2(a7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (a8 < 0 || a8 >= 0x100000000) { console.log("a8 " + a8 + " (" + to_hex2(a8, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+				if (pc < 0 || pc >= 0x100000000) { console.log("pc " + pc + " (" + to_hex2(pc, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }*/
+
+				// if (pc == 0x415cdc) tracecount = 25; // memory corruption after link
+				//if (pc == 0x413f4a) tracecount = 25; // silent link failure
+				//if (pc == 0x413e5e) tracecount = 25; // silent link failure, at TranslatePack
+				//if (pc == 0x413c7a) tracecount = 5; // monitoring packet length pedrom 0.72
+				//if (pc == 0x41f9dc) tracecount = 520; // _tt_Decompress
+
+				//if (pc == 0x41fb46) console.log("storing D0=" + to_hex(d0 & 255, 4) +" to " + to_hex(a4,9))
+				//if (pc == 0x41fbe0) console.log("storing D4=" + to_hex(d4 & 255, 4) +" to " + to_hex(a4,9))
+				//if (pc == 0x41fabe) console.log("storing D3=" + to_hex(d3 & 255, 4) +" to " + to_hex(a2,9))
+				//if (pc == 0x41fbae) console.log("storing D5=" + to_hex(d5 & 255, 4) +" to " + to_hex(a2,9))
+
+
+				//if (pc == 0x4122e8) tracecount = 30; // pedrom hw version detection
 
 				var opcode = rw(pc);
 				if (tracecount > 0) {
@@ -2933,33 +2933,33 @@ function emu_main_loop()
 				d6 = d6 & 4294967295;
 				d7 = d7 & 4294967295;
 				pc = pc & 4294967295;*/
-			
-			//if ((pc < 0x1000) && (prev_pc >= 0x1000)) console.log("we jumped into a low PC " + to_hex(pc,8) + " from " + to_hex(prev_pc, 8));
-		}
-			} catch (e) {
-				if (e == "STOP")
-				{
-					stopped = true;
-					//console.log("stopped at " + to_hex(pc,9) + " SR = " + to_hex(sr,5));
-					break;
-				}
-				else if (isNaN(e) || e < 0 || e > 255 || e != Math.floor(e))
-				{
-					// this is a real javascript exception
-					console.log("real javascript exception " + e);
-					console.log(e.stack);
-					clearInterval(interval);
-					return;
-				}
-				else
-				{
-					// this is a processor exception
-					if (e < 25) console.log("processor exception " + to_hex(e, 2) + " occured at PC=" + to_hex(pc, 8));
-//					if (e == 3) { clearInterval(interval); print_status(); stopped = true; wakemask = 0; return; }
-					if (e == 10 || e == 11) pc -= 2;
-					fire_cpu_exception(e);
-				}
+
+				//if ((pc < 0x1000) && (prev_pc >= 0x1000)) console.log("we jumped into a low PC " + to_hex(pc,8) + " from " + to_hex(prev_pc, 8));
 			}
+		} catch (e) {
+			if (e == "STOP")
+			{
+				stopped = true;
+				//console.log("stopped at " + to_hex(pc,9) + " SR = " + to_hex(sr,5));
+				break;
+			}
+			else if (isNaN(e) || e < 0 || e > 255 || e != Math.floor(e))
+			{
+				// this is a real javascript exception
+				console.log("real javascript exception " + e);
+				console.log(e.stack);
+				clearInterval(interval);
+				return;
+			}
+			else
+			{
+				// this is a processor exception
+				if (e < 25) console.log("processor exception " + to_hex(e, 2) + " occured at PC=" + to_hex(pc, 8));
+//					if (e == 3) { clearInterval(interval); print_status(); stopped = true; wakemask = 0; return; }
+				if (e == 10 || e == 11) pc -= 2;
+				fire_cpu_exception(e);
+			}
+		}
 
 		// check if osc2 enabled
 		if (interrupt_control & 2)
@@ -3136,7 +3136,13 @@ function emu_main_loop()
 		link_incoming_queue.push(8, 0xC9); // standard variable header
 
 		var varname = new Array();
-		varname.push(0x6d,0x61,0x69,0x6e,0x5c); // "main\"
+		//varname.push(0x6d,0x61,0x69,0x6e,0x5c); // "main\"
+		for (var x = 0x0A; x < 0x12; x++)
+		{
+			if (buf[x] == 0) break;
+			varname.push(buf[x]);
+		}
+		varname.push(0x5c); // backslash
 		for (var x = 0x40; x < 0x48; x++)
 		{
 			if (buf[x] == 0) break;
