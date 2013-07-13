@@ -21,7 +21,7 @@ var ram = new Uint16Array(131072); // 256K of RAM, treat as array of words
 //var ramflag = new Array(131072);
 var t = new Array(65536); // Instruction handlers.
 var n = new Array(65536); // Instruction names.
-var calcscreen = new Array(240 * 128 * 3); // stores three frames of pixel data for averaging
+var calcscreen = new Uint8Array(240 * 128 * 3); // stores three frames of pixel data for averaging
 var frame = 0;
 var unhandled_count = 0; // number of unhandled instructions encountered
 var interval = 0; // interval ID of main timer
@@ -50,6 +50,8 @@ var wakemask = 0;
 var interrupt_control = 0x1B;
 var interrupt_rate = 0x200;
 var calculator_model = 1; // 92+
+var ROM_base = 0x400000; // 92+
+var screen_scaling_ratio = 2; // 2:1 by default
 
 function to_hex(number, digits)
 {
@@ -82,6 +84,25 @@ function to_hex2(number, digits)
 		s = c[digit] + s;
 	}
 	return s;
+}
+
+function memory_dump(address, size, stride)
+{
+	var i = 0;
+	var end = address + size;
+	address &= 0xFFFFFF;
+	var str = to_hex(address, 6) + "\t";
+	while (address < end)
+	{
+		str += to_hex(rb(address), 2) + " ";
+		if (i == stride) {
+			str += "\n";
+			i = 0;
+		}
+		address++;
+		i++;
+	}
+	console.log(str);
 }
 
 // returns the executor for an unimplemented instruction
@@ -319,6 +340,11 @@ function sbcd(dst,src)
 	return finalresult;
 }
 
+function nbcd(x,y)
+{
+	// TODO: implement this infrequent instruction.
+}
+
 function addx(x,y,size)
 {
 	var overflow = 0x100;
@@ -393,7 +419,7 @@ function mulu(x, y)
 
 function divu(divisor, dividend)
 {
-	if (divisor == 0) throw 5;
+	if (divisor == 0) fire_cpu_exception(5);
 	// XXX this one needs to be enabled, but currently, if we do, divu(0xCCCCFFFF, 0xFF000000) returns something stupid.
 	//dividend &= 0xFFFFFFFF;
 	divisor &= 0xFFFF;
@@ -419,7 +445,7 @@ function divs(divisor, dividend)
 {
 	//console.log("signed divide " + to_hex(dividend,8) + " by " + to_hex(divisor,8));
 
-	if (divisor == 0) throw 5;
+	if (divisor == 0) fire_cpu_exception(5);
 	
 	var adivisor = divisor >= 0x8000 ? divisor - 0x10000 : divisor;
 	var adividend = dividend >= 0x80000000 ? dividend - 0x100000000 : dividend;
@@ -612,8 +638,8 @@ function roxl(x, shift, size)
 	return x;
 }
 
-function aline() { throw 10; }
-function fline() { throw 11; }
+function aline() { pc -= 2; fire_cpu_exception(10); }
+function fline() { pc -= 2; fire_cpu_exception(11); }
 
 // update the status register in situations that might change S bit (flips A7)
 
@@ -884,12 +910,12 @@ function amode_read(mode, reg, size, sideeffects)
 		if (size == 2)
 			return "var s=a" + reg + "; if(s<0)s+=4294967296; if(s>4294967295)s-=4294967296;"
 	}
-	return "throw 4;";
+	return "fire_cpu_exception(4);";
 }
 
 function effective_address_calc(mode, reg)
 {
-	var code = "throw 4;"
+	var code = "fire_cpu_exception(4);"
 	// PC-relative
 	if (mode == MODE_MISC && reg == MISCMODE_PC_OFFSET)
 	{
@@ -1011,7 +1037,7 @@ function amode_write(mode, reg, size, data)
 		if (size == 1)
 			return "d" + reg + "=((d" + reg + ">>>16)*65536)+(" + data + "&65535);"
 	}
-	return "throw 4;"
+	return "fire_cpu_exception(4);"
 }
 
 // build executors for ADDQ and SUBQ
@@ -1843,11 +1869,11 @@ build_jmpjsr()
 build_pea()
 build_swap()
 for (vector = 0; vector < 16; vector++)
-	insert_inst(0x4E40 + vector, "throw(" + (32 + vector) + ")", "TRAP #" + vector)
+	insert_inst(0x4E40 + vector, "fire_cpu_exception(" + (32 + vector) + ")", "TRAP #" + vector)
 for (var reg = 0; reg < 8; reg++)
 {
-	insert_inst(0x4E60 + reg, "if(sr&0x2000==0)throw 8;a8=a" + reg, "MOVE A" + reg + ",USP")
-	insert_inst(0x4E68 + reg, "if(sr&0x2000==0)throw 8;a" + reg +"=a8", "MOVE USP,A" + reg)
+	insert_inst(0x4E60 + reg, "if(sr&0x2000==0)fire_cpu_exception(8);a8=a" + reg, "MOVE A" + reg + ",USP")
+	insert_inst(0x4E68 + reg, "if(sr&0x2000==0)fire_cpu_exception(8);a" + reg +"=a8", "MOVE USP,A" + reg)
 	insert_inst(0x4880 + reg, "d" + reg + "=((d" + reg + ">>>16)*65536)+ebw(d" + reg + ")", "EXT.W D" + reg)
 	insert_inst(0x48C0 + reg, "d" + reg + "=ewl(d" + reg + ")", "EXT.L D" + reg)
 	var linkcode = "a7-=4; wl(a7,a" + reg + "); var o=rw(pc); pc+=2; a" + reg + "=a7; a7+=(o<0x8000?o:o-0x10000);"
@@ -1991,7 +2017,7 @@ function write_hreg(reg, value)
 	if (reg == 0x600005)
 	{
 		wakemask = value;
-		///throw "STOP";
+		//throw "STOP";
 	}
 	if (reg == 0x600015)
 	{
@@ -2015,14 +2041,6 @@ function write_hreg(reg, value)
 	}
 }
 
-// read from memory, size 0 for byte, 1 for word, 2 for long
-// todo rearrange with & after long recurse, odd check in size=1, else btw 0 and 1
-/*function read_memory(address, size)
-{
-	if (size == 1) return rw(address);
-	if (size == 2) return rl(address);
-	return rb(address);
-}*/
 
 function rl(address)
 {
@@ -2035,9 +2053,10 @@ var memory_read_functions = "";
 
 function build_memory_read_functions(flashmemoryaddress, flashmemorysize)
 {
+	ROM_base = flashmemoryaddress;
 	memory_read_functions = "function rw(address) {" +
 "	address = address & 0xFFFFFF;" +
-"	if ((address % 2) != 0) throw 3;" + // address error
+"	if ((address % 2) != 0) fire_cpu_exception(3);" + // address error
 "	if (address < 0x200000)" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
 "		return ram[(address >>> 1) & 0x3FFFF];" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ")" +
@@ -2092,12 +2111,6 @@ else {
 
 eval(memory_read_functions);
 
-/*function write_memory(address, size, value)
-{
-	if (size == 1) ww(address, value);
-	if (size == 2) wl(address, value);
-	if (size == 0) wb(address, value);
-}*/
 
 function wl(address, value)
 {
@@ -2113,9 +2126,12 @@ function build_memory_write_functions(flashmemoryaddress, flashmemorysize)
 "function ww(address, value)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if ((address % 2) != 0) throw 3;" + // address error
+"	if ((address % 2) != 0) fire_cpu_exception(3);" + // address error
 "	if (address < 0x200000) {" +
 "		ram[(address & 0x3FFFF) / 2] = value;" +
+"	}" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" + // Extremely rudimentary Flash write support: enough for archiving / unarchiving with a _modified_ OS image, but no erase, etc.
+"		rom[(address - " + flashmemoryaddress + ") / 2] = value;" +
 "	}" +
 "	else if (address >= 0x600000) {" +
 "		write_hreg(address, (value >> 8) & 0xFF);" +
@@ -2421,10 +2437,57 @@ console.log("18172\t" +n[18172]);*/
 var bitmap = false;
 var context = false;
 
-function draw_screen()
+// Just an experiment: faster as expected, but flickers, obviously.
+/*function draw_screen()
 {
 	var address = (lcd_address_low + (lcd_address_high << 8)) << 2;
 	var buff = bitmap.data;
+
+	var pixel = 0;
+	var p = 0;
+	for (var y = 0; y < 128; y++) {
+		for (var x = 0; x < 15; x++) {
+			var b = ram[address++];
+			for (var bit = 15; bit >= 0; bit--) {
+				var color = calcscreen[pixel];
+				if ((b & 0x8000)) {
+					color -= 0x50;
+					calcscreen[pixel] = color;
+				}
+
+				buff[p] = color;
+				buff[p + 1] = color;
+				buff[p + 2] = color;
+				buff[p + 4] = color;
+				buff[p + 5] = color;
+				buff[p + 6] = color;
+				buff[p + 1920] = color;
+				buff[p + 1921] = color;
+				buff[p + 1922] = color;
+				buff[p + 1924] = color;
+				buff[p + 1925] = color;
+				buff[p + 1926] = color;
+				p+=8;
+
+				pixel++;
+				b <<= 1;
+			}
+		}
+		p += 1920;
+	}
+
+	frame++;
+	if (frame == 3) {
+		frame = 0;
+		for (p = 0; p < calcscreen.length; calcscreen[p++] = 0xF0) {};
+	}
+
+	context.putImageData(bitmap, 0, 0);
+};*/
+
+function draw_calcscreen()
+{
+	var address = (lcd_address_low + (lcd_address_high << 8)) << 2;
 
 	var pixel = frame;
 	for (var y = 0; y < 128; y++)
@@ -2440,9 +2503,33 @@ function draw_screen()
 
 	frame++;
 	if (frame == 3) frame = 0;
+};
 
-	pixel = 0;
+function output_calcscreen_to_bitmap_scale1()
+{
+	var pixel = 0;
 	var p = 0;
+	var buff = bitmap.data;
+
+	for (var y = 0; y < 3840 * 128; y += 3840) {
+		for (var x = 0; x < 240; x++) {
+			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
+			buff[p] = color;
+			buff[p + 1] = color;
+			buff[p + 2] = color;
+			p+=4;
+		}
+	}
+
+	context.putImageData(bitmap, 0, 0);
+};
+
+function output_calcscreen_to_bitmap_scale2()
+{
+	var pixel = 0;
+	var p = 0;
+	var buff = bitmap.data;
+
 	for (var y = 0; y < 3840 * 128; y += 3840) {
 		for (var x = 0; x < 240; x++) {
 			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
@@ -2466,6 +2553,19 @@ function draw_screen()
 	context.putImageData(bitmap, 0, 0);
 };
 
+// Split the function to help with profiling.
+function draw_screen()
+{
+	draw_calcscreen();
+	if (screen_scaling_ratio == 2) {
+		output_calcscreen_to_bitmap_scale2();
+	}
+	else if (screen_scaling_ratio == 1) {
+		output_calcscreen_to_bitmap_scale1();
+	}
+	// else do nothing.
+};
+
 function create_button(shape, coords, keynumber)
 {
 	var map = document.getElementById('map');
@@ -2485,17 +2585,26 @@ function initemu()
 		console.log("Emulation checks failed");
 		return;
 	}
-//	console.log(t[0x223C].toString());
 
 	var elem = document.getElementById('screen');
 	context = elem.getContext('2d');
 
-	if (context.createImageData)
-		bitmap = context.createImageData(480, 256);
-	else if (context.getImageData)
-		bitmap = context.getImageData(0, 0, 960, 512);
-	else
-		bitmap = {'width' : 480, 'height' : h, 'data' : new Array(480 * 256 * 4)};
+	if (screen_scaling_ratio == 2) {
+		if (context.createImageData)
+			bitmap = context.createImageData(480, 256);
+		else if (context.getImageData)
+			bitmap = context.getImageData(0, 0, 960, 512);
+		else
+			bitmap = {'width' : 480, 'height' : h, 'data' : new Uint8Array(480 * 256 * 4)};
+	}
+	else if (screen_scaling_ratio == 1) {
+		if (context.createImageData)
+			bitmap = context.createImageData(240, 128);
+		else if (context.getImageData)
+			bitmap = context.getImageData(0, 0, 960, 512);
+		else
+			bitmap = {'width' : 240, 'height' : 128, 'data' : new Uint8Array(240 * 128 * 4)};
+	}
 
 	create_button("rect", "140,52,193,112", 3); // LOCK (hand)
 	create_button("rect", "871,69,920,108", 5); // Up
@@ -2578,7 +2687,7 @@ function initemu()
 	create_button("rect", "845,501,891,531", 79); // (-)
 
 	// set all alpha channels to 255 (fully opaque)
-	for (var x = 3; x < bitmap.data.length; x++) bitmap.data[x] = 255;
+	for (var x = 3; x < bitmap.data.length; x+= 4) bitmap.data[x] = 255;
 
 	initialize_calculator();
 	interval = setInterval("emu_main_loop()", 11);
@@ -2695,6 +2804,7 @@ function reset_calculator()
 	for (var b = 0; b < 131072; b++)
 		ram[b] = 0;
 
+	//for (var p = 0; p < calcscreen.length; calcscreen[p++] = 0xF0) {};
 	for (var p = 0; p < calcscreen.length; calcscreen[p++] = 0x50) {};
 
 	// start here to skip the boot code (which is missing in TIB based images)
@@ -2750,6 +2860,114 @@ function fire_cpu_exception(e)
 
 var totalframes = 0;
 
+// Extracted out of main_loop to help profiling.
+function timer_interrupts()
+{
+	osc2_counter += 32;
+
+	if (osc2_counter >= 0x1000000) osc2_counter -= 0x1000000;
+
+	// check master interrupt control
+	if ((interrupt_control & 0x80) == 0)
+	{
+		// Trigger level 1 interrupt
+		if ((osc2_counter & 0x7FF) == 0)
+			fire_cpu_exception(25);
+
+		// Trigger level 3 interrupt
+		if ((osc2_counter & 0x7FFFF) == 0 && (interrupt_control & 4))
+			fire_cpu_exception(27);
+
+		// Programmable timer
+		if (((osc2_counter % interrupt_rate) == 0) && (interrupt_control & 8))
+		{
+			if (timer_current == 0)
+				timer_current = timer_min;
+			else
+				timer_current++;
+			if (timer_current >= 256)
+			{
+				timer_current = 0;
+				fire_cpu_exception(29);
+			}
+		}
+	}
+};
+
+// Extracted out of main_loop to help profiling.
+function link_handling()
+{
+	if (((link_config & 5) && link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number") ||
+		(link_config & 6))
+	{
+		fire_cpu_exception(28);
+	}
+	
+	if (link_incoming_queue.length > 0)
+	{
+		if (link_incoming_queue[0] == 'WAIT_OK')
+		{
+			//console.log("Begin WAIT_OK, outgoing queue length:", link_outgoing_queue.length);
+			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
+			{
+				//                            TI92p_PC                            CMD_ACK
+				if (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x56 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0 )
+				{
+					var dump = "Before:";
+					for (var y = 0; y < link_outgoing_queue.length; y++)
+					{
+						dump += to_hex(link_outgoing_queue[y], 2) + " ";
+					}
+					console.log(dump);
+
+					//link_outgoing_queue = link_outgoing_queue.splice(0, x+4);
+					link_outgoing_queue.splice(0, x+4); // x, 4
+					link_incoming_queue.shift();
+					console.log("Eaten an item in WAIT_OK", x);
+
+					dump = "After:";
+					for (var y = 0; y < link_outgoing_queue.length; y++)
+					{
+						dump += to_hex(link_outgoing_queue[y], 2) + " ";
+					}
+					console.log(dump);
+				}
+			}
+			//console.log("End WAIT_OK, outgoing queue length:", link_outgoing_queue.length);
+		}
+		else if (link_incoming_queue[0] == 'WAIT_CTS')
+		{
+			//console.log("Begin WAIT_CTS, outgoing queue length:", link_outgoing_queue.length);
+			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
+			{
+				//                            TI92p_PC                            CMD_CTS
+				if (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 9 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0 )
+				{
+					var dump = "Before:";
+					for (var y = 0; y < link_outgoing_queue.length; y++)
+					{
+						dump += to_hex(link_outgoing_queue[y], 2) + " ";
+					}
+					console.log(dump);
+
+					//link_outgoing_queue = link_outgoing_queue.splice(0, x+4);
+					link_outgoing_queue.splice(0, x+4); // x, 4
+					link_incoming_queue.shift();
+					console.log("Eaten an item in WAIT_CTS", x);
+
+					dump = "After:";
+					for (var y = 0; y < link_outgoing_queue.length; y++)
+					{
+						dump += to_hex(link_outgoing_queue[y], 2) + " ";
+					}
+					console.log(dump);
+				}
+			}
+			//console.log("End WAIT_CTS, outgoing queue length:", link_outgoing_queue.length);
+		}
+	}
+};
+
 function emu_main_loop()
 {
 	if (unhandled_count >= 10) return;
@@ -2757,372 +2975,270 @@ function emu_main_loop()
 	var starttime = (new Date).getTime();
 	var started = false;
 	var prev_pc = 0;
-	
+
+	// The cost of exception handling is noticeable. For most of the emulator's operation, it can, in fact, be removed.
+	try {
 	// The LCD refreshes every 8192 OSC2 cycles (by default)
-	for (var outer = 0; outer < (256 - screen_height) * 2 && unhandled_count < 10; outer++)
+	for (var outer = 0; outer < (256 - screen_height) * 2 /*&& unhandled_count < 10*/; outer++)
 	{
 		if (!stopped)
 		// Assume we can run 2 instructions per OSC2 cycle, so 64 instructions between programmable interrupt counts (every 32 cycles).
 		// We get about 744khz OSC2 rate here, which comes out to around 1.49 million instructions per second, 
 		// which is fairly reasonable depending on your instruction mix.
-		try {
-			for (var inner = 0; inner < 64; inner++) {
 
-				/*a0 &= 4294967295;
-				a1 &= 4294967295;
-				a2 &= 4294967295;
-				a3 &= 4294967295;
-				a4 &= 4294967295;
-				a5 &= 4294967295;
-				a6 &= 4294967295;
-				a7 &= 4294967295;
-				a8 &= 4294967295;
-				d0 &= 4294967295;
-				d1 &= 4294967295;
-				d2 &= 4294967295;
-				d3 &= 4294967295;
-				d4 &= 4294967295;
-				d5 &= 4294967295;
-				d6 &= 4294967295;
-				d7 &= 4294967295;
-				pc &= 4294967295;*/
+		for (var inner = 0; inner < 64; inner++) {
 
-				/*if (a0 < 0) { a0 += 4294967296; } if (a0 > 4294967295) { a0 -= 4294967296; }
-				if (a1 < 0) { a1 += 4294967296; } if (a1 > 4294967295) { a1 -= 4294967296; }
-				if (a2 < 0) { a2 += 4294967296; } if (a2 > 4294967295) { a2 -= 4294967296; }
-				if (a3 < 0) { a3 += 4294967296; } if (a3 > 4294967295) { a3 -= 4294967296; }
-				if (a4 < 0) { a4 += 4294967296; } if (a4 > 4294967295) { a4 -= 4294967296; }
-				if (a5 < 0) { a5 += 4294967296; } if (a5 > 4294967295) { a5 -= 4294967296; }
-				if (a6 < 0) { a6 += 4294967296; } if (a6 > 4294967295) { a6 -= 4294967296; }
-				if (a7 < 0) { a7 += 4294967296; } if (a7 > 4294967295) { a7 -= 4294967296; }
-				if (a8 < 0) { a8 += 4294967296; } if (a8 > 4294967295) { a8 -= 4294967296; }
-				if (d0 < 0) { d0 += 4294967296; } if (d0 > 4294967295) { d0 -= 4294967296; }
-				if (d1 < 0) { d1 += 4294967296; } if (d1 > 4294967295) { d1 -= 4294967296; }
-				if (d2 < 0) { d2 += 4294967296; } if (d2 > 4294967295) { d2 -= 4294967296; }
-				if (d3 < 0) { d3 += 4294967296; } if (d3 > 4294967295) { d3 -= 4294967296; }
-				if (d4 < 0) { d4 += 4294967296; } if (d4 > 4294967295) { d4 -= 4294967296; }
-				if (d5 < 0) { d5 += 4294967296; } if (d5 > 4294967295) { d5 -= 4294967296; }
-				if (d6 < 0) { d6 += 4294967296; } if (d6 > 4294967295) { d6 -= 4294967296; }
-				if (d7 < 0) { d7 += 4294967296; } if (d7 > 4294967295) { d7 -= 4294967296; }
-				if (pc < 0) { pc += 4294967296; } if (pc > 4294967295) { pc -= 4294967296; }*/
+			/*a0 &= 4294967295;
+			a1 &= 4294967295;
+			a2 &= 4294967295;
+			a3 &= 4294967295;
+			a4 &= 4294967295;
+			a5 &= 4294967295;
+			a6 &= 4294967295;
+			a7 &= 4294967295;
+			a8 &= 4294967295;
+			d0 &= 4294967295;
+			d1 &= 4294967295;
+			d2 &= 4294967295;
+			d3 &= 4294967295;
+			d4 &= 4294967295;
+			d5 &= 4294967295;
+			d6 &= 4294967295;
+			d7 &= 4294967295;
+			pc &= 4294967295;*/
 
-				// if (pc == 0x56ea6c) tracecount = 50; // end of a memory filling loop
-				// if (pc == 0x49BBAC) tracecount = 50; // end of a check
-				// if (pc == 0x49af08) tracecount = 50; // should have set 88fc to ffffffff but did not due to MOVEQ bug, now fixed
-				//if (pc == 0x49bbca) tracecount = 50; // tst.l (A2) that had set condition codes incorrectly
-				//if (pc == 0x49b680) tracecount = 50; // previous problem with ADD writing to wrong register
-				//if (pc == 0x49bDa6) tracecount = 50; //  somewhere earlier, tracing source of wrong D0 value
-				//if (pc == 0x49be00) tracecount = 50; // first use of indexing as destination ea
-				//if (pc == 0x49af24) tracecount = 50; // first encounter of BLE at which point D0 had wrong value, later went wrong way
-				//if (pc == 0x509a36) tracecount =100; // first ADDA
-				//if (pc == 0x455102) tracecount = 50; // first MULS instruction (but shouldn't be run at all!)
-				//if (pc == 0x421d84) tracecount = 50; // a BSR that once hit the wrong target
-				//if (pc == 0x41225c) tracecount = 100; // should have written ff to 5cf1 (but only sometimes!)
-				//if (pc == 0x422192) tracecount = 100; // first use of TRAP
-				//if (pc == 0x49cacc) tracecount = 100; // first use of PEA
-				//if (pc == 0x51a696) tracecount = 100; // call to st_busy
-				//if (pc == 0x486c42) tracecount = 100; // first NEG instruction
-				//if (pc == 0x4217e2) tracecount = 100; // first ROR instruction
-				//if (pc == 0x4c906c) tracecount = 100; // first dynamic BIT operation
-				//if (pc == 0x56e7f6) tracecount = 100; // first divu instruction
-				//if (pc == 0x412b56) tracecount = 100; // various traps
+			/*if (a0 < 0) { a0 += 4294967296; } if (a0 > 4294967295) { a0 -= 4294967296; }
+			if (a1 < 0) { a1 += 4294967296; } if (a1 > 4294967295) { a1 -= 4294967296; }
+			if (a2 < 0) { a2 += 4294967296; } if (a2 > 4294967295) { a2 -= 4294967296; }
+			if (a3 < 0) { a3 += 4294967296; } if (a3 > 4294967295) { a3 -= 4294967296; }
+			if (a4 < 0) { a4 += 4294967296; } if (a4 > 4294967295) { a4 -= 4294967296; }
+			if (a5 < 0) { a5 += 4294967296; } if (a5 > 4294967295) { a5 -= 4294967296; }
+			if (a6 < 0) { a6 += 4294967296; } if (a6 > 4294967295) { a6 -= 4294967296; }
+			if (a7 < 0) { a7 += 4294967296; } if (a7 > 4294967295) { a7 -= 4294967296; }
+			if (a8 < 0) { a8 += 4294967296; } if (a8 > 4294967295) { a8 -= 4294967296; }
+			if (d0 < 0) { d0 += 4294967296; } if (d0 > 4294967295) { d0 -= 4294967296; }
+			if (d1 < 0) { d1 += 4294967296; } if (d1 > 4294967295) { d1 -= 4294967296; }
+			if (d2 < 0) { d2 += 4294967296; } if (d2 > 4294967295) { d2 -= 4294967296; }
+			if (d3 < 0) { d3 += 4294967296; } if (d3 > 4294967295) { d3 -= 4294967296; }
+			if (d4 < 0) { d4 += 4294967296; } if (d4 > 4294967295) { d4 -= 4294967296; }
+			if (d5 < 0) { d5 += 4294967296; } if (d5 > 4294967295) { d5 -= 4294967296; }
+			if (d6 < 0) { d6 += 4294967296; } if (d6 > 4294967295) { d6 -= 4294967296; }
+			if (d7 < 0) { d7 += 4294967296; } if (d7 > 4294967295) { d7 -= 4294967296; }
+			if (pc < 0) { pc += 4294967296; } if (pc > 4294967295) { pc -= 4294967296; }*/
 
-				//if (pc == 0x56e7be) tracecount = 100; // a troublesome loop (entered wrong due to PC indexing error)
-				//if (pc == 0x56e7c4) tracecount = 100;
-				//if (pc == 0x56eaec) tracecount = 100; // first CMPM
-				//if (pc == 0x422f0a) tracecount = 50; // first cmp of a certain kind
-				//if (pc == 0x4219d8) tracecount = 50; // first move SR, dest
+			// if (pc == 0x56ea6c) tracecount = 50; // end of a memory filling loop
+			// if (pc == 0x49BBAC) tracecount = 50; // end of a check
+			// if (pc == 0x49af08) tracecount = 50; // should have set 88fc to ffffffff but did not due to MOVEQ bug, now fixed
+			//if (pc == 0x49bbca) tracecount = 50; // tst.l (A2) that had set condition codes incorrectly
+			//if (pc == 0x49b680) tracecount = 50; // previous problem with ADD writing to wrong register
+			//if (pc == 0x49bDa6) tracecount = 50; //  somewhere earlier, tracing source of wrong D0 value
+			//if (pc == 0x49be00) tracecount = 50; // first use of indexing as destination ea
+			//if (pc == 0x49af24) tracecount = 50; // first encounter of BLE at which point D0 had wrong value, later went wrong way
+			//if (pc == 0x509a36) tracecount =100; // first ADDA
+			//if (pc == 0x455102) tracecount = 50; // first MULS instruction (but shouldn't be run at all!)
+			//if (pc == 0x421d84) tracecount = 50; // a BSR that once hit the wrong target
+			//if (pc == 0x41225c) tracecount = 100; // should have written ff to 5cf1 (but only sometimes!)
+			//if (pc == 0x422192) tracecount = 100; // first use of TRAP
+			//if (pc == 0x49cacc) tracecount = 100; // first use of PEA
+			//if (pc == 0x51a696) tracecount = 100; // call to st_busy
+			//if (pc == 0x486c42) tracecount = 100; // first NEG instruction
+			//if (pc == 0x4217e2) tracecount = 100; // first ROR instruction
+			//if (pc == 0x4c906c) tracecount = 100; // first dynamic BIT operation
+			//if (pc == 0x56e7f6) tracecount = 100; // first divu instruction
+			//if (pc == 0x412b56) tracecount = 100; // various traps
 
-				//if (pc == 0x49c0aa) tracecount = 3000; // near the end of the auto int 1 exception handler, failed to due predec MOVEM
+			//if (pc == 0x56e7be) tracecount = 100; // a troublesome loop (entered wrong due to PC indexing error)
+			//if (pc == 0x56e7c4) tracecount = 100;
+			//if (pc == 0x56eaec) tracecount = 100; // first CMPM
+			//if (pc == 0x422f0a) tracecount = 50; // first cmp of a certain kind
+			//if (pc == 0x4219d8) tracecount = 50; // first move SR, dest
 
-				//if (pc == 0x415cae) tracecount = 1000; // something in this call ought to write 0x37bf6 at 0x840a
+			//if (pc == 0x49c0aa) tracecount = 3000; // near the end of the auto int 1 exception handler, failed to due predec MOVEM
 
-				//if (aregs[1] == 0xffffbb06 || aregs[1] < 0) tracecount = 200; to find the address register corruption (was ADDQ.W not properly treating as long)
-				//if (pc == 0x416d7c) tracecount = 50;
+			//if (pc == 0x415cae) tracecount = 1000; // something in this call ought to write 0x37bf6 at 0x840a
 
-				//if (pc == 0x9880) tracecount = 400; // phoenix side scrolling building
-				//if (pc == 0xc124) tracecount = 200; // mercury grayscale setup
+			//if (aregs[1] == 0xffffbb06 || aregs[1] < 0) tracecount = 200; to find the address register corruption (was ADDQ.W not properly treating as long)
+			//if (pc == 0x416d7c) tracecount = 50;
 
-				//if (pc != Math.floor(pc)) console.log("non integer PC!");
-				//if (pc < 0) console.log("underflow PC!");
-				//if (pc >= 0x100000000) console.log("overflow PC!");
+			//if (pc == 0x9880) tracecount = 400; // phoenix side scrolling building
+			//if (pc == 0xc124) tracecount = 200; // mercury grayscale setup
 
-				//if ((pc == 0xabba) && ((dregs[2] & 0xFFFF) < 0x300)) tracecount = 200; // mercury map extraction
+			//if (pc != Math.floor(pc)) console.log("non integer PC!");
+			//if (pc < 0) console.log("underflow PC!");
+			//if (pc >= 0x100000000) console.log("overflow PC!");
 
-				//if (pc == 0xa85e) tracecount = 100; // phoenix collision check (was broken because MOVEQ not setting condition codes)
+			//if ((pc == 0xabba) && ((dregs[2] & 0xFFFF) < 0x300)) tracecount = 200; // mercury map extraction
 
-				//if (pc == 0xad5a) tracecount = 9; // phoenix enemy explosion countdown
+			//if (pc == 0xa85e) tracecount = 100; // phoenix collision check (was broken because MOVEQ not setting condition codes)
 
-				//if (pc == 0x13542) tracecount = 400; // monster about to verify level, failed due to overflow in A2 causing CMPA to not match
-				//if (pc == 0x133d6) tracecount = 100; // first monster hit on actual brick
-				//if (aregs[2] == 0x10000C568) tracecount = 20;
+			//if (pc == 0xad5a) tracecount = 9; // phoenix enemy explosion countdown
 
-				//var digit = dregs[3] % 16;
-				//if (digit < 0 || digit > 15 || digit != Math.floor(digit)) tracecount = 15;
-				//if (pc == 0x420970) tracecount = 10; // registers corrupted here
-				//if (pc == 0x24f16) tracecount = 200; // mercury CLIP TOP (bad subtraction result due to not masking)
-				// if (aregs[1] == 0xffffffff && pc <= 0x40000) tracecount = 300; mercury had read corrupt data from heap
-				//if (pc == 0x29e8a && aregs[0] == 0x163a) tracecount = 75; // mercury heap deletion
+			//if (pc == 0x13542) tracecount = 400; // monster about to verify level, failed due to overflow in A2 causing CMPA to not match
+			//if (pc == 0x133d6) tracecount = 100; // first monster hit on actual brick
+			//if (aregs[2] == 0x10000C568) tracecount = 20;
 
-				//if (pc <= 0x2a016 && pc >= 0x29e44 && ram[0x163a] == 0xff) { tracecount = 300; console.log("we came from " + to_hex(prev_pc, 8)); } // detect memory corruption in Mercury 
-				//if (pc == 0x29cbc) tracecount = 8; // player bullet handling, was somehow taking wild branch (bad bullet value at 2ee0)
-				//if (pc == 0x29fae) tracecount = 100; // shortly before player bullet type is corrupted
+			//var digit = dregs[3] % 16;
+			//if (digit < 0 || digit > 15 || digit != Math.floor(digit)) tracecount = 15;
+			//if (pc == 0x420970) tracecount = 10; // registers corrupted here
+			//if (pc == 0x24f16) tracecount = 200; // mercury CLIP TOP (bad subtraction result due to not masking)
+			// if (aregs[1] == 0xffffffff && pc <= 0x40000) tracecount = 300; mercury had read corrupt data from heap
+			//if (pc == 0x29e8a && aregs[0] == 0x163a) tracecount = 75; // mercury heap deletion
 
-				//if ((sr & 0x700) == 0x200) tracecount = 10;
-				//if (pc == 0x240ae) tracecount = 12; // platinum bad sprite height b&w (was wrong behavior of SUBI.W using whole register)
+			//if (pc <= 0x2a016 && pc >= 0x29e44 && ram[0x163a] == 0xff) { tracecount = 300; console.log("we came from " + to_hex(prev_pc, 8)); } // detect memory corruption in Mercury 
+			//if (pc == 0x29cbc) tracecount = 8; // player bullet handling, was somehow taking wild branch (bad bullet value at 2ee0)
+			//if (pc == 0x29fae) tracecount = 100; // shortly before player bullet type is corrupted
 
-				//if ((sr & 0xff00) == 0x2200 && prev_pc >= 0x9800 && prev_pc < 0x9900) console.log(to_hex(prev_pc, 6) + " is where SR became " + to_hex(sr, 4));
-				//if (pc == 0x98ae) tracecount = 10;
-				//if (pc == 0x989c) tracecount = 4;
-				//if ((pc >= 0x800000 || pc < 0x100) && prev_pc < 0x800000 && prev_pc >= 0x100)
-				//	console.log("bad transfer old pc " + to_hex(prev_pc, 8) + " new pc " + to_hex(pc, 8));
-				//if (pc == 0x41eb7c) tracecount = 500; // incorrect result of 20/25 (beacuse add.w cleared upper bits inappropriately)
+			//if ((sr & 0x700) == 0x200) tracecount = 10;
+			//if (pc == 0x240ae) tracecount = 12; // platinum bad sprite height b&w (was wrong behavior of SUBI.W using whole register)
 
-				//if (pc == 0x416f54) tracecount = 5; // reading out of ragne data from memory
+			//if ((sr & 0xff00) == 0x2200 && prev_pc >= 0x9800 && prev_pc < 0x9900) console.log(to_hex(prev_pc, 6) + " is where SR became " + to_hex(sr, 4));
+			//if (pc == 0x98ae) tracecount = 10;
+			//if (pc == 0x989c) tracecount = 4;
+			//if ((pc >= 0x800000 || pc < 0x100) && prev_pc < 0x800000 && prev_pc >= 0x100)
+			//	console.log("bad transfer old pc " + to_hex(prev_pc, 8) + " new pc " + to_hex(pc, 8));
+			//if (pc == 0x41eb7c) tracecount = 500; // incorrect result of 20/25 (beacuse add.w cleared upper bits inappropriately)
 
-				//if (pc == 0x3963c) tracecount = 20; // TI-Chess A1 corruption, due to SUBQ underflow to address register
-				//if (pc == 0x534ba) tracecount = 10; // krypton init
-				//if (pc == 0x534bc) tracecount = 200; // krypton init
-				//if (pc == 0x53538) tracecount = 300; // krypton init
-				//if (pc == 0x5360c) tracecount = 10; // krypton init
+			//if (pc == 0x416f54) tracecount = 5; // reading out of ragne data from memory
 
-				/*if (pc == 0x4DA14C) {
-					//tracecount = 10;
-					// Short-circuit OO_deref for 92+ AMS 2.03
-					// TODO: fix problem with the cmpi.l !
-					console.log("CALL OO_deref");
-					d0 = d0 & 0xFFFFFFFF;
-					if (d0 == 0xFF000000) {
-						//console.log("case 1");
-						a0 = rl(0x7C26);
-					}
-					else if (d0 - 0xFF000000 > 0) {
-						//console.log("case 3");
-						d0 = d0 & 0xFFFFFF;
-						d0 = d0 << 2;
-						a0 = rl(0x7996);
-						a0 = rl(a0 + d0);
-					}
-					else {
-						//console.log("case 2");
-						a0 = d0;
-					}
-					//print_status();
-					pc = 0x4DA170; // rts
-				}*/
+			//if (pc == 0x3963c) tracecount = 20; // TI-Chess A1 corruption, due to SUBQ underflow to address register
+			//if (pc == 0x534ba) tracecount = 10; // krypton init
+			//if (pc == 0x534bc) tracecount = 200; // krypton init
+			//if (pc == 0x53538) tracecount = 300; // krypton init
+			//if (pc == 0x5360c) tracecount = 10; // krypton init
 
-				/*if (pc == 0x41234A) {
-					tracecount = 3;
-				}*/
-
-				/*if (pc == 0x4DA28A) {
-					//tracecount = 10;
-				}*/
-
-
-				/*if (d0 < 0 || d0 >= 0x100000000) { console.log("D0 " + d0 + " (" + to_hex2(d0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (d1 < 0 || d1 >= 0x100000000) { console.log("D1 " + d1 + " (" + to_hex2(d1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (d2 < 0 || d2 >= 0x100000000) { console.log("D2 " + d2 + " (" + to_hex2(d2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (d3 < 0 || d3 >= 0x100000000) { console.log("D3 " + d3 + " (" + to_hex2(d3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (a0 < 0 || a0 >= 0x100000000) { console.log("a0 " + a0 + " (" + to_hex2(a0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (a1 < 0 || a1 >= 0x100000000) { console.log("a1 " + a1 + " (" + to_hex2(a1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (a2 < 0 || a2 >= 0x100000000) { console.log("a2 " + a2 + " (" + to_hex2(a2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (a3 < 0 || a3 >= 0x100000000) { console.log("a3 " + a3 + " (" + to_hex2(a3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (d4 < 0 || d4 >= 0x100000000) { console.log("D4 " + d4 + " (" + to_hex2(d4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (d5 < 0 || d5 >= 0x100000000) { console.log("D5 " + d5 + " (" + to_hex2(d5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (d6 < 0 || d6 >= 0x100000000) { console.log("D6 " + d6 + " (" + to_hex2(d6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (d7 < 0 || d7 >= 0x100000000) { console.log("D7 " + d7 + " (" + to_hex2(d7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (a4 < 0 || a4 >= 0x100000000) { console.log("a4 " + a4 + " (" + to_hex2(a4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (a5 < 0 || a5 >= 0x100000000) { console.log("a5 " + a5 + " (" + to_hex2(a5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (a6 < 0 || a6 >= 0x100000000) { console.log("a6 " + a6 + " (" + to_hex2(a6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (a7 < 0 || a7 >= 0x100000000) { console.log("a7 " + a7 + " (" + to_hex2(a7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (a8 < 0 || a8 >= 0x100000000) { console.log("a8 " + a8 + " (" + to_hex2(a8, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-				if (pc < 0 || pc >= 0x100000000) { console.log("pc " + pc + " (" + to_hex2(pc, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }*/
-
-				// if (pc == 0x415cdc) tracecount = 25; // memory corruption after link
-				//if (pc == 0x413f4a) tracecount = 25; // silent link failure
-				//if (pc == 0x413e5e) tracecount = 25; // silent link failure, at TranslatePack
-				//if (pc == 0x413c7a) tracecount = 5; // monitoring packet length pedrom 0.72
-				//if (pc == 0x41f9dc) tracecount = 520; // _tt_Decompress
-
-				//if (pc == 0x41fb46) console.log("storing D0=" + to_hex(d0 & 255, 4) +" to " + to_hex(a4,9))
-				//if (pc == 0x41fbe0) console.log("storing D4=" + to_hex(d4 & 255, 4) +" to " + to_hex(a4,9))
-				//if (pc == 0x41fabe) console.log("storing D3=" + to_hex(d3 & 255, 4) +" to " + to_hex(a2,9))
-				//if (pc == 0x41fbae) console.log("storing D5=" + to_hex(d5 & 255, 4) +" to " + to_hex(a2,9))
-
-
-				//if (pc == 0x4122e8) tracecount = 30; // pedrom hw version detection
-
-				var opcode = rw(pc);
-				if (tracecount > 0) {
-					tracecount--;
-					if (overall > 0) {
-						overall--;
-						print_status();
-					}
+			/*if (pc == 0x4DA14C) {
+				//tracecount = 10;
+				// Short-circuit OO_deref for 92+ AMS 2.03
+				// TODO: fix problem with the cmpi.l !
+				console.log("CALL OO_deref");
+				d0 = d0 & 0xFFFFFFFF;
+				if (d0 == 0xFF000000) {
+					//console.log("case 1");
+					a0 = rl(0x7C26);
 				}
-				/*if (pc < 0x40000)
+				else if (d0 - 0xFF000000 > 0) {
+					//console.log("case 3");
+					d0 = d0 & 0xFFFFFF;
+					d0 = d0 << 2;
+					a0 = rl(0x7996);
+					a0 = rl(a0 + d0);
+				}
+				else {
+					//console.log("case 2");
+					a0 = d0;
+				}
+				//print_status();
+				pc = 0x4DA170; // rts
+			}*/
+
+			/*if (pc == 0x41234A) {
+				tracecount = 3;
+			}*/
+
+			/*if (pc == 0x4DA28A) {
+				//tracecount = 10;
+			}*/
+
+
+			/*if (d0 < 0 || d0 >= 0x100000000) { console.log("D0 " + d0 + " (" + to_hex2(d0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d1 < 0 || d1 >= 0x100000000) { console.log("D1 " + d1 + " (" + to_hex2(d1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d2 < 0 || d2 >= 0x100000000) { console.log("D2 " + d2 + " (" + to_hex2(d2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d3 < 0 || d3 >= 0x100000000) { console.log("D3 " + d3 + " (" + to_hex2(d3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a0 < 0 || a0 >= 0x100000000) { console.log("a0 " + a0 + " (" + to_hex2(a0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a1 < 0 || a1 >= 0x100000000) { console.log("a1 " + a1 + " (" + to_hex2(a1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a2 < 0 || a2 >= 0x100000000) { console.log("a2 " + a2 + " (" + to_hex2(a2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a3 < 0 || a3 >= 0x100000000) { console.log("a3 " + a3 + " (" + to_hex2(a3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d4 < 0 || d4 >= 0x100000000) { console.log("D4 " + d4 + " (" + to_hex2(d4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d5 < 0 || d5 >= 0x100000000) { console.log("D5 " + d5 + " (" + to_hex2(d5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d6 < 0 || d6 >= 0x100000000) { console.log("D6 " + d6 + " (" + to_hex2(d6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (d7 < 0 || d7 >= 0x100000000) { console.log("D7 " + d7 + " (" + to_hex2(d7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a4 < 0 || a4 >= 0x100000000) { console.log("a4 " + a4 + " (" + to_hex2(a4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a5 < 0 || a5 >= 0x100000000) { console.log("a5 " + a5 + " (" + to_hex2(a5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a6 < 0 || a6 >= 0x100000000) { console.log("a6 " + a6 + " (" + to_hex2(a6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a7 < 0 || a7 >= 0x100000000) { console.log("a7 " + a7 + " (" + to_hex2(a7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (a8 < 0 || a8 >= 0x100000000) { console.log("a8 " + a8 + " (" + to_hex2(a8, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
+			if (pc < 0 || pc >= 0x100000000) { console.log("pc " + pc + " (" + to_hex2(pc, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }*/
+
+			// if (pc == 0x415cdc) tracecount = 25; // memory corruption after link
+			//if (pc == 0x413f4a) tracecount = 25; // silent link failure
+			//if (pc == 0x413e5e) tracecount = 25; // silent link failure, at TranslatePack
+			//if (pc == 0x413c7a) tracecount = 5; // monitoring packet length pedrom 0.72
+			//if (pc == 0x41f9dc) tracecount = 520; // _tt_Decompress
+
+			//if (pc == 0x41fb46) console.log("storing D0=" + to_hex(d0 & 255, 4) +" to " + to_hex(a4,9))
+			//if (pc == 0x41fbe0) console.log("storing D4=" + to_hex(d4 & 255, 4) +" to " + to_hex(a4,9))
+			//if (pc == 0x41fabe) console.log("storing D3=" + to_hex(d3 & 255, 4) +" to " + to_hex(a2,9))
+			//if (pc == 0x41fbae) console.log("storing D5=" + to_hex(d5 & 255, 4) +" to " + to_hex(a2,9))
+
+
+			//if (pc == 0x4122e8) tracecount = 30; // pedrom hw version detection
+
+			var opcode = rw(pc);
+			if (tracecount > 0) {
+				tracecount--;
+				if (overall > 0) {
+					overall--;
+					print_status();
+				}
+			}
+			/*if (pc < 0x40000)
+			{
+				if (ramflag[pc / 2] != 567)
 				{
-					if (ramflag[pc / 2] != 567)
-					{
-						ramflag[pc / 2] = 567;
-						console.log("First execution at this point, previous = " + to_hex(prev_pc, 9));
-						print_status();
-					}
-				}*/
-				prev_pc = pc;
-				pc += 2;
+					ramflag[pc / 2] = 567;
+					console.log("First execution at this point, previous = " + to_hex(prev_pc, 9));
+					print_status();
+				}
+			}*/
+			//prev_pc = pc;
+			pc += 2;
 
-				t[opcode]();
-				/*a0 = a0 & 4294967295;
-				a1 = a1 & 4294967295;
-				a2 = a2 & 4294967295;
-				a3 = a3 & 4294967295;
-				a4 = a4 & 4294967295;
-				a5 = a5 & 4294967295;
-				a6 = a6 & 4294967295;
-				a7 = a7 & 4294967295;
-				a8 = a8 & 4294967295;
-				d0 = d0 & 4294967295;
-				d1 = d1 & 4294967295;
-				d2 = d2 & 4294967295;
-				d3 = d3 & 4294967295;
-				d4 = d4 & 4294967295;
-				d5 = d5 & 4294967295;
-				d6 = d6 & 4294967295;
-				d7 = d7 & 4294967295;
-				pc = pc & 4294967295;*/
+			t[opcode]();
+			/*a0 = a0 & 4294967295;
+			a1 = a1 & 4294967295;
+			a2 = a2 & 4294967295;
+			a3 = a3 & 4294967295;
+			a4 = a4 & 4294967295;
+			a5 = a5 & 4294967295;
+			a6 = a6 & 4294967295;
+			a7 = a7 & 4294967295;
+			a8 = a8 & 4294967295;
+			d0 = d0 & 4294967295;
+			d1 = d1 & 4294967295;
+			d2 = d2 & 4294967295;
+			d3 = d3 & 4294967295;
+			d4 = d4 & 4294967295;
+			d5 = d5 & 4294967295;
+			d6 = d6 & 4294967295;
+			d7 = d7 & 4294967295;
+			pc = pc & 4294967295;*/
 
-				//if ((pc < 0x1000) && (prev_pc >= 0x1000)) console.log("we jumped into a low PC " + to_hex(pc,8) + " from " + to_hex(prev_pc, 8));
-			}
-		} catch (e) {
-			if (e == "STOP")
-			{
-				stopped = true;
-				//console.log("stopped at " + to_hex(pc,9) + " SR = " + to_hex(sr,5));
-				break;
-			}
-			else if (isNaN(e) || e < 0 || e > 255 || e != Math.floor(e))
-			{
-				// this is a real javascript exception
-				console.log("real javascript exception " + e);
-				console.log(e.stack);
-				clearInterval(interval);
-				return;
-			}
-			else
-			{
-				// this is a processor exception
-				if (e < 25) console.log("processor exception " + to_hex(e, 2) + " occured at PC=" + to_hex(pc, 8));
-//					if (e == 3) { clearInterval(interval); print_status(); stopped = true; wakemask = 0; return; }
-				if (e == 10 || e == 11) pc -= 2;
-				fire_cpu_exception(e);
-			}
+			//if ((pc < 0x1000) && (prev_pc >= 0x1000)) console.log("we jumped into a low PC " + to_hex(pc,8) + " from " + to_hex(prev_pc, 8));
 		}
 
 		// check if osc2 enabled
 		if (interrupt_control & 2)
 		{
-			osc2_counter += 32;
-
-			if (osc2_counter >= 0x1000000) osc2_counter -= 0x1000000;
-
-			// check master interrupt control
-			if ((interrupt_control & 0x80) == 0)
-			{
-				// Trigger level 1 interrupt
-				if ((osc2_counter & 0x7FF) == 0)
-					fire_cpu_exception(25);
-
-				// Trigger level 3 interrupt
-				if ((osc2_counter & 0x7FFFF) == 0 && (interrupt_control & 4))
-					fire_cpu_exception(27);
-
-				// Programmable timer
-				if (((osc2_counter % interrupt_rate) == 0) && (interrupt_control & 8))
-				{
-					if (timer_current == 0)
-						timer_current = timer_min;
-					else
-						timer_current++;
-					if (timer_current >= 256)
-					{
-						timer_current = 0;
-						fire_cpu_exception(29);
-					}
-				}
-			}
+			timer_interrupts();
 		}
 
 		// link interrupts
-		if (((link_config & 5) && link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number") ||
-			(link_config & 6))
+		link_handling();
+	}
+
+	} catch (e) {
+		if (e == "STOP")
 		{
-			fire_cpu_exception(28);
+			stopped = true;
+			//console.log("stopped at " + to_hex(pc,9) + " SR = " + to_hex(sr,5));
 		}
-		
-		if (link_incoming_queue.length > 0)
+		else if (isNaN(e) || e < 0 || e > 255 || e != Math.floor(e))
 		{
-			if (link_incoming_queue[0] == 'WAIT_OK')
-			{
-				//console.log("Begin WAIT_OK, outgoing queue length:", link_outgoing_queue.length);
-				for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
-				{
-					//                            TI92p_PC                            CMD_ACK
-					if (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x56 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0 )
-					{
-						var dump = "Before:";
-						for (var y = 0; y < link_outgoing_queue.length; y++)
-						{
-							dump += to_hex(link_outgoing_queue[y], 2) + " ";
-						}
-						console.log(dump);
-
-						//link_outgoing_queue = link_outgoing_queue.splice(0, x+4);
-						link_outgoing_queue.splice(0, x+4); // x, 4
-						link_incoming_queue.shift();
-						console.log("Eaten an item in WAIT_OK", x);
-
-						dump = "After:";
-						for (var y = 0; y < link_outgoing_queue.length; y++)
-						{
-							dump += to_hex(link_outgoing_queue[y], 2) + " ";
-						}
-						console.log(dump);
-					}
-				}
-				//console.log("End WAIT_OK, outgoing queue length:", link_outgoing_queue.length);
-			}
-			else if (link_incoming_queue[0] == 'WAIT_CTS')
-			{
-				//console.log("Begin WAIT_CTS, outgoing queue length:", link_outgoing_queue.length);
-				for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
-				{
-					//                            TI92p_PC                            CMD_CTS
-					if (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 9 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0 )
-					{
-						var dump = "Before:";
-						for (var y = 0; y < link_outgoing_queue.length; y++)
-						{
-							dump += to_hex(link_outgoing_queue[y], 2) + " ";
-						}
-						console.log(dump);
-
-						//link_outgoing_queue = link_outgoing_queue.splice(0, x+4);
-						link_outgoing_queue.splice(0, x+4); // x, 4
-						link_incoming_queue.shift();
-						console.log("Eaten an item in WAIT_CTS", x);
-
-						dump = "After:";
-						for (var y = 0; y < link_outgoing_queue.length; y++)
-						{
-							dump += to_hex(link_outgoing_queue[y], 2) + " ";
-						}
-						console.log(dump);
-					}
-				}
-				//console.log("End WAIT_CTS, outgoing queue length:", link_outgoing_queue.length);
-			}
+			// this is a real javascript exception
+			console.log("real javascript exception " + e);
+			console.log(e.stack);
+			clearInterval(interval);
+			return;
 		}
 	}
 
