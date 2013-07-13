@@ -105,6 +105,74 @@ function memory_dump(address, size, stride)
 	console.log(str);
 }
 
+function ROM_CALL(id)
+{
+	// Read jump table address, 32 bits at ROM_base + 0x12088 + 0xC8.
+	var jmp_tbl = rl(ROM_base + 0x12088 + 0xC8);
+	return rl(jmp_tbl + 4 * id);
+}
+
+// Special-casing for PedroM extracted from TIEmu, src/core/ti_sw/handles.c.
+function HeapTable()
+{
+	var pedrom = (ram[0x32 >>> 1] == 0x524F);
+	// Are we dealing with an old version of PedroM ?
+	if (pedrom && ram[0x30 >>> 1] <= 0x0080) {
+		return rl(0x5d58);
+	}
+	else {
+		if (ROM_CALL(-1) < 0x441 && !pedrom) { // TIOS_entries.
+			// AMS 1.xx
+			return rl(rw(ROM_CALL(0x96) + 8)); // Use word at HeapDeref + 8.
+		}
+		else {
+			// AMS 2.xx, 3.xx, PedroM >= 0.81 (which still pretends to have fewer entries in the jump table than AMS 2.xx and 3.xx have).
+			return ROM_CALL(0x441); // HeapTable.
+		}
+	}
+}
+
+function HeapDeref(id)
+{
+	return rl(HeapTable() + 4 * id);
+}
+
+// Special-casing for PedroM extracted from TIEmu, src/core/ti_sw/handles.c.
+function HeapSizeAddress(address)
+{
+	if (ram[0x32 >>> 1] != 0x524F) { // AMS
+		// Read 2 bytes before addess, remove locked indication, subtract 1 byte, and multiply by 2.
+		return ((rw(address - 2) & 0x7FFF) - 1) << 1;
+	}
+	else {
+		if (address >= ROM_base) { // archived file: use file size
+			return rw(address) + 2;
+		}
+		else {
+			return rl(address - 6) - 6;
+		}
+	}
+}
+
+function HeapSize(id)
+{
+	return HeapSizeAddress(rl(HeapTable() + 4 * id));
+}
+// TODO: Ptr2Hd ?
+
+// TODO: print handle table: ID, address, size.
+function PrintHeap()
+{
+	var address = HeapTable() + 4;
+	for (var i = 1; i < 2000; i++) { // 0 is an invalid HANDLE.
+		var handle = rl(address);
+		if (handle != 0) {
+			console.log(i + "\t" + to_hex(handle, 6) + "\t" + to_hex(HeapSizeAddress(handle), 6));
+		}
+		address += 4;
+	}
+}
+
 // returns the executor for an unimplemented instruction
 function make_unhandled(i)
 {
