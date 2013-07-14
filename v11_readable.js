@@ -50,7 +50,7 @@ var wakemask = 0;
 var interrupt_control = 0x1B;
 var interrupt_rate = 0x200;
 var calculator_model = 1; // 92+
-var ROM_base = 0x400000; // 92+
+var ROM_base;
 var screen_scaling_ratio = 2; // 2:1 by default
 
 function to_hex(number, digits)
@@ -96,7 +96,7 @@ function memory_dump(address, size, stride)
 	{
 		str += to_hex(rb(address), 2) + " ";
 		if (i == stride) {
-			str += "\n";
+			str += "\n" + to_hex(address, 6) + "\t";
 			i = 0;
 		}
 		address++;
@@ -1174,7 +1174,7 @@ function build_conditionals(condition, name, bits)
 	var dbcc_opcode = 0x50C8 + (bits << 8)
 	var scc_opcode = 0x50C0 + (bits << 8)
 	// Bcc
-	for (o = 0; o < 256; o++)
+	for (var o = 0; o < 256; o++)
 	{
 		var opcode = bcc_opcode + o
 		var iname = "B" + name
@@ -1219,7 +1219,7 @@ function build_conditionals(condition, name, bits)
 	}
 
 	// DBcc
-	for (reg = 0; reg < 8; reg++)
+	for (var reg = 0; reg < 8; reg++)
 	{
 		var opcode = dbcc_opcode + reg
 		var code = condition + "pc+=2; else {"
@@ -1236,8 +1236,8 @@ function build_conditionals(condition, name, bits)
 	}
 
 	// Scc
-	for (reg = 0; reg < 8; reg++)
-		for (mode = 0; mode < 8; mode++)
+	for (var reg = 0; reg < 8; reg++)
+		for (var mode = 0; mode < 8; mode++)
 			if (valid_dest(mode, reg) && mode != 1)
 			{
 				var opcode = scc_opcode + reg + (mode << 3)
@@ -1253,12 +1253,12 @@ function build_conditionals(condition, name, bits)
 // generate standard MOVE instructions
 function build_moves(name, size, pattern)
 {
-	for (srcmode = 0; srcmode < 8; srcmode++)
-		for (srcreg = 0; srcreg < 8; srcreg++)
-			for (dstmode = 0; dstmode < 8; dstmode++)
+	for (var srcmode = 0; srcmode < 8; srcmode++)
+		for (var srcreg = 0; srcreg < 8; srcreg++)
+			for (var dstmode = 0; dstmode < 8; dstmode++)
 			{
 				if (size == 0 && dstmode == 1) continue // no byte moves to a registers
-				for (dstreg = 0; dstreg < 8; dstreg++)
+				for (var dstreg = 0; dstreg < 8; dstreg++)
 					if (valid_source(srcmode, srcreg) && valid_dest(dstmode, dstreg))
 					{
 						var opcode = pattern + (dstreg << 9) + (dstmode << 6) + (srcmode << 3) + srcreg
@@ -1346,12 +1346,12 @@ function build_muldiv(name, bits, calcfunc)
 // build a bit operation
 function build_bit_operation(name, bits)
 {
-	for (srcmode = 0; srcmode < 8; srcmode++)
-		for (srcreg = 0; srcreg < 8; srcreg++)
+	for (var srcmode = 0; srcmode < 8; srcmode++)
+		for (var srcreg = 0; srcreg < 8; srcreg++)
 			if (valid_dest(srcmode, srcreg) || 
 				(name == 'BTST' && srcmode == MODE_MISC && 
 				(srcreg == MISCMODE_PC_OFFSET || srcreg == MISCMODE_PC_INDEX)))
-				for (dreg = 0; dreg <= 8; dreg++) // # if this value is 8, use bit number static version
+				for (var dreg = 0; dreg <= 8; dreg++) // # if this value is 8, use bit number static version
 				{
 					var opcode, iname, code = "";
 					if (dreg == 8)
@@ -1412,10 +1412,10 @@ function build_bit_operation(name, bits)
 
 function build_cmp()
 {
-	for (size = 0; size < 3; size++)
-		for (srcmode = 0; srcmode < 8; srcmode++)
-			for (srcreg = 0; srcreg < 8; srcreg++)
-				for (firstreg = 0; firstreg < 8; firstreg++)
+	for (var size = 0; size < 3; size++)
+		for (var srcmode = 0; srcmode < 8; srcmode++)
+			for (var srcreg = 0; srcreg < 8; srcreg++)
+				for (var firstreg = 0; firstreg < 8; firstreg++)
 					if (valid_source(srcmode, srcreg))
 					{
 						var opcode = 0xB000 + (firstreg << 9) + (size << 6) + (srcmode << 3) + srcreg;
@@ -1433,10 +1433,10 @@ function build_cmp()
 
 function build_adest()
 {
-	for (areg = 0; areg < 8; areg++)
-		for (srcreg = 0; srcreg < 8; srcreg++)
-			for (srcmode = 0; srcmode < 8; srcmode++)
-				for (size = 1; size < 3; size++)
+	for (var areg = 0; areg < 8; areg++)
+		for (var srcreg = 0; srcreg < 8; srcreg++)
+			for (var srcmode = 0; srcmode < 8; srcmode++)
+				for (var size = 1; size < 3; size++)
 					if (valid_source(srcmode, srcreg))
 					{
 						var opcode = 0x90C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
@@ -1447,14 +1447,14 @@ function build_adest()
 						code += "if(r<0)r+=0x100000000;"
 						code += amode_write(1, areg, 2, "r")
 						insert_inst(opcode, code, iname)
-						
+
 						opcode = 0xB0C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
 						iname = "CMPA" + size_name(size) + " " + amode_name(srcmode, srcreg) + ",A" + areg
 						code = amode_read(srcmode, srcreg, size, true)
 						if (size == 1) code += "s=ewl(s);"
 						code += "cmpl(s,a" + areg + ");"
 						insert_inst(opcode, code, iname)
-						
+
 						opcode = 0xD0C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
 						iname = "ADDA" + size_name(size) + " " + amode_name(srcmode, srcreg) + ",A" + areg
 						code = amode_read(srcmode, srcreg, size, true)
@@ -1470,10 +1470,10 @@ function build_adest()
 function build_shifts(name, mask, altmask, namelower)
 {
 	// register target version
-	for (reg = 0; reg < 8; reg++)
-		for (size = 0; size < 3; size++)
-			for (shift = 0; shift < 8; shift++)
-				for (mm = 0; mm < 2; mm++)
+	for (var reg = 0; reg < 8; reg++)
+		for (var size = 0; size < 3; size++)
+			for (var shift = 0; shift < 8; shift++)
+				for (var mm = 0; mm < 2; mm++)
 				{
 					var actualshift = shift == 0 ? 8 : shift;
 					var iname = "";
@@ -1496,8 +1496,8 @@ function build_shifts(name, mask, altmask, namelower)
 					insert_inst(opcode, code, iname)
 				}
 	// EA target version
-	for (reg = 0; reg < 8; reg++)
-		for (mode = 0; mode < 8; mode++)
+	for (var reg = 0; reg < 8; reg++)
+		for (var mode = 0; mode < 8; mode++)
 			if (valid_dest(mode, reg) && mode != MODE_DREG && mode != MODE_AREG)
 			{
 				var opcode = altmask + (mode << 3) + reg;
@@ -1510,9 +1510,9 @@ function build_shifts(name, mask, altmask, namelower)
 
 function build_immediate(name, mask, operation)
 {
-	for (reg = 0; reg < 8; reg++)
-		for (mode = 0; mode < 8; mode++)
-			for (size = 0; size < 3; size++)	
+	for (var reg = 0; reg < 8; reg++)
+		for (var mode = 0; mode < 8; mode++)
+			for (var size = 0; size < 3; size++)
 				if ((valid_dest(mode, reg) && mode != MODE_AREG) || (mode == MODE_MISC && reg == 4 && size < 2 && operation != ""))
 				{
 					var opcode = mask + (size << 6) + (mode << 3) + reg
@@ -1547,10 +1547,10 @@ function build_immediate(name, mask, operation)
 
 function build_ext(name, bits)
 {
-	for (src = 0; src < 8; src++)
-		for (dst = 0; dst < 8; dst++)
-			for (size = 0; size < 3; size++)
-				for (mem = 0; mem < 2; mem++)
+	for (var src = 0; src < 8; src++)
+		for (var dst = 0; dst < 8; dst++)
+			for (var size = 0; size < 3; size++)
+				for (var mem = 0; mem < 2; mem++)
 				{
 					var opcode = bits + (dst << 9) + (size << 6) + (mem << 3) + src
 					var iname = name + size_name(size)
@@ -1558,7 +1558,7 @@ function build_ext(name, bits)
 						iname += " D" + src + ",D" + dst + "'"
 					else
 						iname += " -(A" + src + "),-(A" + dst + ")'"
-					mode = mem == 0 ? MODE_DREG : mode = MODE_AREG_PREDEC
+					var mode = mem == 0 ? MODE_DREG : mode = MODE_AREG_PREDEC
 					var code = amode_read(mode, src, size, true)
 					code += "var c=s;"
 					code += amode_read(mode, dst, size, false)
@@ -1570,9 +1570,9 @@ function build_ext(name, bits)
 
 function build_not_neg()
 {
-	for (size = 0; size < 3; size++)
-		for (srcmode = 0; srcmode < 8; srcmode++)
-			for (srcreg = 0; srcreg < 8; srcreg++)
+	for (var size = 0; size < 3; size++)
+		for (var srcmode = 0; srcmode < 8; srcmode++)
+			for (var srcreg = 0; srcreg < 8; srcreg++)
 				if (valid_dest(srcmode, srcreg))
 				{
 					var opcode = 0x4600 + (size << 6) + (srcmode << 3) + srcreg;
@@ -1612,9 +1612,9 @@ function build_not_neg()
 
 function build_clr_tst()
 {
-	for (size = 0; size < 3; size++)
-		for (srcmode = 0; srcmode < 8; srcmode++)
-			for (srcreg = 0; srcreg < 8; srcreg++)
+	for (var size = 0; size < 3; size++)
+		for (var srcmode = 0; srcmode < 8; srcmode++)
+			for (var srcreg = 0; srcreg < 8; srcreg++)
 				if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
 				{
 					var opcode = 0x4200 + (size << 6) + (srcmode << 3) + srcreg;
@@ -1633,9 +1633,9 @@ function build_clr_tst()
 
 function build_lea()
 {
-	for (srcmode = 0; srcmode < 8; srcmode++)
-		for (srcreg = 0; srcreg < 8; srcreg++)
-			for (reg = 0; reg < 8; reg++)
+	for (var srcmode = 0; srcmode < 8; srcmode++)
+		for (var srcreg = 0; srcreg < 8; srcreg++)
+			for (var reg = 0; reg < 8; reg++)
 				if (valid_calc_effective_address(srcmode, srcreg))
 				{
 					var opcode = 0x41C0 + (reg << 9) + (srcmode << 3) + srcreg;
@@ -1648,9 +1648,9 @@ function build_lea()
 
 function build_cmpi()
 {
-	for (size = 0; size < 3; size++)
-		for (srcmode = 0; srcmode < 8; srcmode++)
-			for (srcreg = 0; srcreg < 8; srcreg++)
+	for (var size = 0; size < 3; size++)
+		for (var srcmode = 0; srcmode < 8; srcmode++)
+			for (var srcreg = 0; srcreg < 8; srcreg++)
 				if (valid_dest(srcmode, srcreg))
 				{
 					var opcode = 0xC00 + (size << 6) + (srcmode << 3) + srcreg;
@@ -1666,9 +1666,9 @@ function build_cmpi()
 
 function build_movem()
 {
-	for (reg = 0; reg < 8; reg++)
-		for (mode = 0; mode < 8; mode++)
-			for (size = 1; size < 3; size++)
+	for (var reg = 0; reg < 8; reg++)
+		for (var mode = 0; mode < 8; mode++)
+			for (var size = 1; size < 3; size++)
 			{
 				var actualsize = size * 2
 				// to registers
@@ -1721,9 +1721,9 @@ function build_movem()
 
 function build_cmpm()
 {
-	for (src = 0; src < 8; src++)
-		for (dest = 0; dest < 8; dest++)
-			for (size = 0; size < 3; size++)
+	for (var src = 0; src < 8; src++)
+		for (var dest = 0; dest < 8; dest++)
+			for (var size = 0; size < 3; size++)
 			{
 				var opcode = 0xB108 + (dest << 9) + (size << 6) + src
 				var iname = "CMPM" + size_name(size) + " (A" + src + ")+,(A" + dest + ")+'"
@@ -1739,10 +1739,10 @@ function build_cmpm()
 
 function build_bcd()
 {
-	for (src = 0; src < 8; src++)
-		for (dest = 0; dest < 8; dest++)
-			for (m = 1; m >= 0; m--)
-				for (sub = 0; sub <= 1; sub++)
+	for (var src = 0; src < 8; src++)
+		for (var dest = 0; dest < 8; dest++)
+			for (var m = 1; m >= 0; m--)
+				for (var sub = 0; sub <= 1; sub++)
 				{
 					var operation = sub == 0 ? "ABCD" : "SBCD"
 					var opcode = 0x8100 + (dest << 9) + src
@@ -1771,15 +1771,15 @@ function build_bcd()
 
 function build_movesrccr()
 {
-	for (srcmode = 0; srcmode < 8; srcmode++)
-		for (srcreg = 0; srcreg < 8; srcreg++)
+	for (var srcmode = 0; srcmode < 8; srcmode++)
+		for (var srcreg = 0; srcreg < 8; srcreg++)
 		{
 			if (valid_source(srcmode, srcreg) && srcmode != MODE_AREG)
 			{
 				var opcode = 0x46C0 + (srcmode << 3) + srcreg;
 				var iname = "'MOVE " + amode_name(srcmode, srcreg) + ",SR"
 				insert_inst(opcode, amode_read(srcmode, srcreg, 1, true) + "update_sr(s);", iname)
-				
+
 				opcode = 0x44C0 + (srcmode << 3) + srcreg;
 				iname = "MOVE " + amode_name(srcmode, srcreg) + ",CCR"
 				insert_inst(opcode, amode_read(srcmode, srcreg, 0, true) + "sr = (sr&0xFF00) + s;", iname)
@@ -1795,8 +1795,8 @@ function build_movesrccr()
 
 function build_exchange(xtype, ytype, bits)
 {
-	for (x = 0; x < 8; x++)
-		for (y = 0; y < 8; y++)
+	for (var x = 0; x < 8; x++)
+		for (var y = 0; y < 8; y++)
 		{
 			var opcode = bits + (x << 9) + y
 			var iname = "EXG " + xtype + x + "," + ytype + y
@@ -1814,7 +1814,7 @@ function build_jmpjsr()
 	for (var mode = 0; mode < 8; mode++)
 		for (var reg = 0; reg < 8; reg++)
 			if (valid_calc_effective_address(mode, reg))
-				for (jsr = 1; jsr >= 0; jsr--)
+				for (var jsr = 1; jsr >= 0; jsr--)
 				{
 					var opcode = 0x4EC0 + (mode << 3) + reg - jsr * 0x40;
 					var iname = (jsr == 1 ? "JSR" : "JMP") + amode_name(mode, reg)
@@ -1828,8 +1828,8 @@ function build_jmpjsr()
 
 function build_pea()
 {
-	for (srcmode = 0; srcmode < 8; srcmode++)
-		for (srcreg = 0; srcreg < 8; srcreg++)
+	for (var srcmode = 0; srcmode < 8; srcmode++)
+		for (var srcreg = 0; srcreg < 8; srcreg++)
 			if (valid_calc_effective_address(srcmode, srcreg))
 			{
 				var opcode = 0x4840 + (srcmode << 3) + srcreg;
@@ -1852,20 +1852,32 @@ function build_swap()
 // fill default instruction table, initially all unimplemented instructions 
 
 // fill unhandled instructions by default
-for (var i = 0; i < 65536; i++) {
-	t[i] = make_unhandled(i);
-	n[i] = "UNKNOWN";
+function build_initial_instructions()
+{
+	var i;
+	for (i = 0; i < 0xA000; i++) {
+		t[i] = make_unhandled(i);
+		n[i] = "UNKNOWN";
+	}
+
+	for (i = 0xA000; i <= 0xAFFF; i++) {
+		t[i] = aline;
+		n[i] = "ALINE " + to_hex(i,3);
+	}
+
+	for (i = 0xB000; i < 0xF000; i++) {
+		t[i] = make_unhandled(i);
+		n[i] = "UNKNOWN";
+	}
+
+	for (i = 0xF000; i <= 0xFFFF; i++) {
+		t[i] = fline;
+		n[i] = "FLINE " + to_hex(i,3);
+	}
 }
 
-for (var i = 0xA000; i <= 0xAFFF; i++) {
-	t[i] = aline;
-	n[i] = "ALINE " + to_hex(i,3);
-}
 
-for (var i = 0xF000; i <= 0xFFFF; i++) {
-	t[i] = fline;
-	n[i] = "FLINE " + to_hex(i,3);
-}
+build_initial_instructions();
 
 build_moveq();
 build_addsubq();
@@ -1936,7 +1948,7 @@ build_movesrccr()
 build_jmpjsr()
 build_pea()
 build_swap()
-for (vector = 0; vector < 16; vector++)
+for (var vector = 0; vector < 16; vector++)
 	insert_inst(0x4E40 + vector, "fire_cpu_exception(" + (32 + vector) + ")", "TRAP #" + vector)
 for (var reg = 0; reg < 8; reg++)
 {
@@ -1989,9 +2001,14 @@ function read_hreg(reg)
 			return timer_current; // programmable timer
 		}
 
+		case 0x600018: // 0x600018
+		{
+			return keymaskhigh; // which keys are readable
+		}
+
 		case 0x600019: // 0x600019
 		{
-			return key_mask; // which keys are readable
+			return keymasklow; // which keys are readable
 		}
 
 		case 0x60001a: // 0x60001a
@@ -2110,13 +2127,6 @@ function write_hreg(reg, value)
 }
 
 
-function rl(address)
-{
-	var high_word = rw(address);
-	var low_word = rw(address + 2);
-	return ((high_word * 65536 + low_word));
-}
-
 var memory_read_functions = "";
 
 function build_memory_read_functions(flashmemoryaddress, flashmemorysize)
@@ -2179,12 +2189,13 @@ else {
 
 eval(memory_read_functions);
 
-
-function wl(address, value)
+function rl(address)
 {
-	ww(address, value >>> 16);
-	ww(address + 2, value & 0xFFFF);
+	var high_word = rw(address);
+	var low_word = rw(address + 2);
+	return ((high_word * 65536 + low_word));
 }
+
 
 var memory_write_functions = "";
 
@@ -2244,236 +2255,247 @@ else {
 
 eval(memory_write_functions);
 
-// MOVEM handlers. We generate them because eval() takes a severe toll on performance (about an order of magnitude).
-// Might optimize them further (on average) by splitting all loops in 2, and returning if mask == 0.
+function wl(address, value)
+{
+	ww(address, value >>> 16);
+	ww(address + 2, value & 0xFFFF);
+}
+
 var movem_handlers = "";
 
+// MOVEM handlers. We generate them because eval() takes a severe toll on performance (about an order of magnitude).
+// Might optimize them further (on average) by splitting all loops in 2, and returning if mask == 0.
+function build_movem_handlers() {
+	var reg;
+
 // store_multiple
-movem_handlers += "function store_multiple(address, mask, size) {" +
+	movem_handlers += "function store_multiple(address, mask, size) {" +
 "	if (size == 1) {";
-for (var reg = 0; reg <= 7; reg++) {
+	for (reg = 0; reg <= 7; reg++) {
 	movem_handlers += "		if (mask & 1) {" +
 "			ww(address, d" + reg + ");" +
 "			address += 2;" +
 "		}" +
 "		mask >>>= 1;";
-}
-for (var reg = 0; reg <= 3; reg++) {
-	movem_handlers += "			if (mask & 1) {" +
+	}
+	for (reg = 0; reg <= 3; reg++) {
+		movem_handlers += "			if (mask & 1) {" +
 "				ww(address, a" + reg + ");" +
 "				address += 2;" +
 "			}" +
 "			mask >>>= 1;";
-}
-movem_handlers += "if (!mask) return;";
-for (var reg = 4; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	movem_handlers += "if (!mask) return;";
+	for (reg = 4; reg <= 7; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			ww(address, a" + reg + ");" +
 "			address += 2;" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "	}" +
+	}
+	movem_handlers += "	}" +
 "	else {";
-for (var reg = 0; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	for (reg = 0; reg <= 7; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			wl(address, d" + reg + ");" +
 "			address += 4;" +
 "		}" +
 "		mask >>>= 1;";
-}
-for (var reg = 0; reg <= 3; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	for (reg = 0; reg <= 3; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			wl(address, a" + reg + ");" +
 "			address += 4;" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "if (!mask) return;";
-for (var reg = 4; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	movem_handlers += "if (!mask) return;";
+	for (reg = 4; reg <= 7; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			wl(address, a" + reg + ");" +
 "			address += 4;" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers +=  "	}" +
+	}
+	movem_handlers +=  "	}" +
 "}";
 
 // store_multiple_predec
-movem_handlers += "function store_multiple_predec(address, mask, size)" +
+	movem_handlers += "function store_multiple_predec(address, mask, size)" +
 "{" +
 "	if (size == 1) {";
-for (var reg = 7; reg >= 0; reg--) {
-	movem_handlers += "		if (mask & 1) {" +
+	for (reg = 7; reg >= 0; reg--) {
+		movem_handlers += "		if (mask & 1) {" +
 "			address -= 2;" +
 "			ww(address, a" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
-}
-for (var reg = 7; reg >= 4; reg--) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	for (reg = 7; reg >= 4; reg--) {
+		movem_handlers += "		if (mask & 1) {" +
 "			address -= 2;" +
 "			ww(address, d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "if (!mask) return address;";
-for (var reg = 3; reg >= 0; reg--) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	movem_handlers += "if (!mask) return address;";
+	for (reg = 3; reg >= 0; reg--) {
+		movem_handlers += "		if (mask & 1) {" +
 "			address -= 2;" +
 "			ww(address, d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "	}" +
+	}
+	movem_handlers += "	}" +
 "	else {";
-for (var reg = 7; reg >= 0; reg--) {
-	movem_handlers += "		if (mask & 1) {" +
+	for (reg = 7; reg >= 0; reg--) {
+		movem_handlers += "		if (mask & 1) {" +
 "			address -= 4;" +
 "			wl(address, a" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
-}
-for (var reg = 7; reg >= 4; reg--) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	for (reg = 7; reg >= 4; reg--) {
+		movem_handlers += "		if (mask & 1) {" +
 "			address -= 4;" +
 "			wl(address, d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "if (!mask) return address;";
-for (var reg = 3; reg >= 0; reg--) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	movem_handlers += "if (!mask) return address;";
+	for (reg = 3; reg >= 0; reg--) {
+		movem_handlers += "		if (mask & 1) {" +
 "			address -= 4;" +
 "			wl(address, d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "	}" +
+	}
+	movem_handlers += "	}" +
 "	return address;" +
 "}";
 
 // load_multiple
-movem_handlers += "function load_multiple(address, mask, size)" +
+	movem_handlers += "function load_multiple(address, mask, size)" +
 "{" +
 "	if (size == 1) {";
-for (var reg = 0; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	for (reg = 0; reg <= 7; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = ewl(rw(address, size));" +
 "			address += 2;" +
 "			d" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-for (var reg = 0; reg <= 3; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	for (reg = 0; reg <= 3; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = ewl(rw(address, size));" +
 "			address += 2;" +
 "			a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "if (!mask) return;";
-for (var reg = 4; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	movem_handlers += "if (!mask) return;";
+	for (reg = 4; reg <= 7; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = ewl(rw(address, size));" +
 "			address += 2;" +
 "			a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "	}" +
+	}
+	movem_handlers += "	}" +
 "	else {";
-for (var reg = 0; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	for (reg = 0; reg <= 7; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = rl(address, size);" +
 "			address += 4;" +
 "			d" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-for (var reg = 0; reg <= 3; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	for (reg = 0; reg <= 3; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = rl(address, size);" +
 "			address += 4;" +
 "			a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "if (!mask) return;";
-for (var reg = 4; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	movem_handlers += "if (!mask) return;";
+	for (reg = 4; reg <= 7; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = rl(address, size);" +
 "			address += 4;" +
 "			a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "	}" +
+	}
+	movem_handlers += "	}" +
 "}";
 
 // load_multiple_postinc
-movem_handlers += "function load_multiple_postinc(address, mask, size)" +
+	movem_handlers += "function load_multiple_postinc(address, mask, size)" +
 "{" +
 "	if (size == 1) {";
-for (var reg = 0; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	for (reg = 0; reg <= 7; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			d" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-for (var reg = 0; reg <= 3; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	for (reg = 0; reg <= 3; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "if (!mask) return address;";
-for (var reg = 4; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	movem_handlers += "if (!mask) return address;";
+	for (reg = 4; reg <= 7; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "	}" +
+	}
+	movem_handlers += "	}" +
 "	else {";
-for (var reg = 0; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	for (reg = 0; reg <= 7; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
 "			d" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-for (var reg = 0; reg <= 3; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	for (reg = 0; reg <= 3; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
 "			a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "if (!mask) return address;";
-for (var reg = 4; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+	}
+	movem_handlers += "if (!mask) return address;";
+	for (reg = 4; reg <= 7; reg++) {
+		movem_handlers += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
 "			a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
-}
-movem_handlers += "	}" +
+	}
+	movem_handlers += "	}" +
 "	return address;" +
 "}";
 
 //console.log(movem_handlers);
+}
+build_movem_handlers();
 eval(movem_handlers);
 
 // Most frequently used functions, according to profiling AMS 2.03 on Firefox Nightly on 2013/07/08.
@@ -2663,7 +2685,7 @@ function initemu()
 		else if (context.getImageData)
 			bitmap = context.getImageData(0, 0, 960, 512);
 		else
-			bitmap = {'width' : 480, 'height' : h, 'data' : new Uint8Array(480 * 256 * 4)};
+			bitmap = {'width' : 480, 'height' : 256, 'data' : new Uint8Array(480 * 256 * 4)};
 	}
 	else if (screen_scaling_ratio == 1) {
 		if (context.createImageData)
@@ -2760,7 +2782,7 @@ function initemu()
 	initialize_calculator();
 	interval = setInterval("emu_main_loop()", 11);
 
-	for (key = 0; key < 80; key++) keystatus[key] = 0;
+	for (var key = 0; key < 80; key++) keystatus[key] = 0;
 
 	document.onkeydown = handle_keys;
 	document.onkeyup = handle_keys;
@@ -2879,7 +2901,7 @@ function reset_calculator()
 
 	for (var i = 0; i < 128; i++) ram[i] = rom[i + 0x12088 / 2];
 
-	pc = 0x412188;
+	pc = ROM_base+0x12188;
 	sr = 0x2700;
 
 	link_incoming_queue = new Array();
