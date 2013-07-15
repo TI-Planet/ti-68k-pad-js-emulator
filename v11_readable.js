@@ -202,14 +202,20 @@ function print_status()
 	}
 	console.log(d);
 	console.log(a);
+}
 
-	/*for (var startaddress = 0x4b00; startaddress <= 0x4bc0; startaddress += 0x40)
-	{	
-		var m = to_hex(startaddress, 8) + " -> ";
-		for (var addr = startaddress; addr < startaddress + 64; addr += 2)
-			m = m + to_hex(ram[addr] * 256 + ram[addr+1], 4) + " ";
-		console.log(m);
-	}*/
+function print_status2()
+{
+	console.log("---")
+	var opcode = rw(pc);
+	for (var r = 0; r < 8; r++)
+	{
+		console.log("D" + r + "=" + to_hex(eval("d" + r), 9) + "\t" + "A" + r + "=" + to_hex(eval("a" + r), 9));
+	}
+	console.log("SR=" + to_hex(sr, 4) + "\tPC=" + to_hex(pc, 9));
+	console.log("T=" + ((sr & 0x8000) >>> 15) + "\tS=" + ((sr & 0x2000) >>> 13) + "\tM=" + ((sr & 0x1000) >>> 12) + "\tI=" + ((sr & 0x0700) >>> 8));
+	console.log("X=" + ((sr & 0x0010) >>>  4) + "\tN=" + ((sr & 0x0008) >>>  3) + "\tZ=" + ((sr & 0x0004) >>>  2) + "\tV=" + ((sr & 0x0002) >>> 1) + "\tC=" + (sr & 0x0001));
+	console.log("opcode=" + to_hex(opcode, 4) + "\t" + n[opcode]);
 }
 
 // sign extend functions
@@ -824,13 +830,13 @@ function amode_name(mode, reg)
 	if (mode==2) return "(A" + (reg) + ")"
 	if (mode==3) return "(A" + (reg) + ")+"
 	if (mode==MODE_AREG_PREDEC) return "-(A" + (reg) + ")"
-	if (mode==5) return "nnn(A" + (reg) + ")"
-	if (mode==6) return "n(A" + (reg) + ",Dn)"
-	if (mode==7 && reg==0) return "nnn.W"
-	if (mode==7 && reg==1) return "nnnnn.L"
-	if (mode==7 && reg==2) return "nnn(PC)"
-	if (mode==7 && reg==3) return "n(PC,Dn)"
-	if (mode==7 && reg==4) return "#"
+	if (mode==5) return "d(A" + (reg) + ")"
+	if (mode==6) return "d(A" + (reg) + ",Dn)"
+	if (mode==7 && reg==0) return "xxx.W"
+	if (mode==7 && reg==1) return "xxx.L"
+	if (mode==7 && reg==2) return "d(PC)"
+	if (mode==7 && reg==3) return "d(PC,Dn)"
+	if (mode==7 && reg==4) return "#xxx"
 	return "unk"
 }
 
@@ -1356,13 +1362,13 @@ function build_bit_operation(name, bits)
 			if (valid_dest(srcmode, srcreg) || 
 				(name == 'BTST' && srcmode == MODE_MISC && 
 				(srcreg == MISCMODE_PC_OFFSET || srcreg == MISCMODE_PC_INDEX)))
-				for (var dreg = 0; dreg <= 8; dreg++) // # if this value is 8, use bit number static version
+				for (var dreg = 0; dreg <= 8; dreg++) // if this value is 8, use bit number static version
 				{
 					var opcode, iname, code = "";
 					if (dreg == 8)
 					{
 						opcode = bits + (srcmode << 3) + srcreg;
-						iname = name + " #nnn," + amode_name(srcmode, srcreg)
+						iname = name + " #xxx," + amode_name(srcmode, srcreg)
 					}
 					else
 					{
@@ -1524,7 +1530,7 @@ function build_immediate(name, mask, operation)
 					var mode_name = amode_name(mode, reg)
 					if (mode == MODE_MISC && reg == 4 && size == 0) mode_name = "CCR"
 					if (mode == MODE_MISC && reg == 4 && size == 1) mode_name = "SR"
-					var iname = name + size_name(size) + " #nnn," + mode_name
+					var iname = name + size_name(size) + " #xxx," + mode_name
 					var code = read_pc(size, "m", true)
 					if (mode == MODE_MISC && reg == 4)
 					{
@@ -1615,7 +1621,7 @@ function build_not_neg()
 				}
 }
 
-function build_clr_tst()
+function build_clr_tst_tas()
 {
 	for (var size = 0; size < 3; size++)
 		for (var srcmode = 0; srcmode < 8; srcmode++)
@@ -1627,12 +1633,23 @@ function build_clr_tst()
 					var code = amode_write(srcmode, srcreg, size, "0")
 					code += "sr|=4;"
 					insert_inst(opcode, code, iname)
-					
+
 					opcode = 0x4a00 + (size << 6) + (srcmode << 3) + srcreg;
 					iname = "TST" + size_name(size) + " " + amode_name(srcmode, srcreg)
 					code = amode_read(srcmode, srcreg, size, true)
 					code += set_condition_flags_data(size, "s")
 					insert_inst(opcode, code, iname)
+
+					// TAS exists only under byte form.
+					if (size == 0)
+					{
+						opcode = 0x4ac0 + (srcmode << 3) + srcreg;
+						iname = "TAS.B" + " " + amode_name(srcmode, srcreg)
+						code = amode_read(srcmode, srcreg, size, true)
+						code += set_condition_flags_data(size, "s")
+						code += amode_write(srcmode, srcreg, size, "s | 0x80")
+						insert_inst(opcode, code, iname)
+					}
 				}
 }
 
@@ -1659,7 +1676,7 @@ function build_cmpi()
 				if (valid_dest(srcmode, srcreg))
 				{
 					var opcode = 0xC00 + (size << 6) + (srcmode << 3) + srcreg;
-					var iname = "CMPI" + size_name(size) + " #imm," + amode_name(srcmode, srcreg)
+					var iname = "CMPI" + size_name(size) + " #xxx," + amode_name(srcmode, srcreg)
 					var code = read_pc(size, "subtrahend",true)
 					code += amode_read(srcmode, srcreg, size, true)
 					if (size==0) code += "cmpb(subtrahend, s);"
@@ -1854,6 +1871,21 @@ function build_swap()
 	}
 }
 
+function build_chk()
+{
+	for (var srcmode = 0; srcmode < 8; srcmode++)
+		for (var srcreg = 0; srcreg < 8; srcreg++)
+			for (var reg = 0; reg < 8; reg++)
+				if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
+				{
+					var opcode = 0x4180 + (reg << 9) + (srcmode << 3) + srcreg;
+					var iname = "CHK " + amode_name(srcmode, srcreg) + ",D" + reg
+					var code = amode_read(srcmode, srcreg, 1, true)
+					code += "if (d" + reg + "<0) { sr |= 8; raise_cpu_exception(6); } if(d" + reg + "> s) { sr &= 0xFFF7; raise_cpu_exception(6); }"
+					insert_inst(opcode, code, iname)
+				}
+}
+
 // fill default instruction table, initially all unimplemented instructions 
 
 // fill unhandled instructions by default
@@ -1890,6 +1922,7 @@ build_addsubq();
 build_moves("MOVE.L", 2, 0x2000);
 build_moves("MOVE.W", 1, 0x3000);
 build_moves("MOVE.B", 0, 0x1000);
+// TODO: the strange movep
 build_conditionals("if(true)", "T", 0)
 build_conditionals("if(false)", "F", 1)
 build_conditionals("if(!(sr&5))", "HI", 2)
@@ -1937,7 +1970,7 @@ build_immediate("SUBI", 0x400, "")
 build_ext("ADDX", 0xD100)
 build_ext("SUBX", 0x9100)
 build_not_neg()
-build_clr_tst()
+build_clr_tst_tas()
 build_lea()
 build_cmpi()
 build_movem()
@@ -1946,13 +1979,18 @@ build_bcd()
 build_exchange("D", "D", 0xC140)
 build_exchange("A", "A", 0xC148)
 build_exchange("D", "A", 0xC188)
-insert_inst(0x4E75, "pc=rl(a7);a7+=4;", "RTS")
 insert_inst(0x4E71, "", "NOP")
+insert_inst(0x4E72, "pc+=2", "STOP #xxx") // TODO: proper implementation
 insert_inst(0x4E73, "var s=rw(a7);a7+=2;pc=rl(a7);a7+=4;update_sr(s)", "RTE")
+insert_inst(0x4E75, "pc=rl(a7);a7+=4;", "RTS")
+insert_inst(0x4E76, "if(sr&2)fire_cpu_exception(7)", "TRAPV")
+insert_inst(0x4E77, "var s=rw(a7);a7+=2;pc=rl(a7);a7+=4;sr=(sr & 0xFFE0)|(s&0x001F)", "RTR")
+insert_inst(0x4AFC, "fire_cpu_exception(4)", "ILLEGAL")
 build_movesrccr()
 build_jmpjsr()
 build_pea()
 build_swap()
+build_chk()
 for (var vector = 0; vector < 16; vector++)
 	insert_inst(0x4E40 + vector, "fire_cpu_exception(" + (32 + vector) + ")", "TRAP #" + vector)
 for (var reg = 0; reg < 8; reg++)
@@ -1962,7 +2000,7 @@ for (var reg = 0; reg < 8; reg++)
 	insert_inst(0x4880 + reg, "d" + reg + "=((d" + reg + ">>>16)*65536)+ebw(d" + reg + ")", "EXT.W D" + reg)
 	insert_inst(0x48C0 + reg, "d" + reg + "=ewl(d" + reg + ")", "EXT.L D" + reg)
 	var linkcode = "a7-=4; wl(a7,a" + reg + "); var o=rw(pc); pc+=2; a" + reg + "=a7; a7+=(o<0x8000?o:o-0x10000);"
-	insert_inst(0x4e50 + reg, linkcode, "LINK #nnnn,A" + reg)
+	insert_inst(0x4e50 + reg, linkcode, "LINK #xxx,A" + reg)
 	var unlkcode ="a7 = a" + reg + "; var s=rl(a7); a7+=4; a" + reg + " = s;"
 	insert_inst(0x4e58 + reg, unlkcode, "UNLK A " + reg)
 }
@@ -2071,9 +2109,14 @@ function read_hreg(reg)
 			return result;
 		}
 
-		/*case 0x60001d: // 0x60001d
+		case 0x60001d: // 0x60001d
 		{
 			return port_60001D; // contrast setting - 0x8F would be better ?
+		}
+
+		case 0x700017: // 0x700017: HW2 snoop palette range.
+		{
+			return 0x00;
 		}
 
 		case 0x70001d: // 0x70001d
@@ -2084,11 +2127,11 @@ function read_hreg(reg)
 		case 0x70001f: // 0x70001f
 		{
 			return port_70001F;
-		}*/
+		}
 
 		default:
 		{
-			//console.log("pc " + to_hex(pc, 6) + ": read from " + to_hex(reg, 6));
+			console.log("pc " + to_hex(pc, 6) + ": read from " + to_hex(reg, 6));
 			return (reg & 1) ? 0 : 0x14;
 		}
 	}
@@ -2102,6 +2145,19 @@ function write_hreg(reg, value)
 		case 0x600000: // 0x600000
 		{
 			//port_600000 = value;
+			break;
+		}
+
+		case 0x600001: // 0x600001
+		{
+			vectorprotect = ((value & 4) == 4);
+			break;
+		}
+
+		case 0x600002: // 0x600002: wait states, not needed on 89 hardware according to J89hw.txt.
+		case 0x600003: // 0x600003
+		{
+			// Ignore.
 			break;
 		}
 
@@ -2140,9 +2196,17 @@ function write_hreg(reg, value)
 			break;
 		}
 
+		// 600012: logical LCD width.
+
 		case 0x600013: // 0x600013
 		{
 			screen_height = value;
+			break;
+		}
+
+		case 0x600014: // 0x600014: nothing, but some writes to port 600015 are word writes.
+		{
+			// Ignore.
 			break;
 		}
 
@@ -2168,7 +2232,13 @@ function write_hreg(reg, value)
 			break;
 		}
 
-		case 0x600017: // 0x600017, programmable timer
+		case 0x600016: // 0x600016: nothing, but some writes to port 600016 are word writes.
+		{
+			// Ignore.
+			break;
+		}
+
+		case 0x600017: // 0x600017: programmable timer
 		{
 			timer_current = value; timer_min = value;
 			break;
@@ -2186,9 +2256,62 @@ function write_hreg(reg, value)
 			break;
 		}
 
-		/*case 0x60001d: // 0x60001d
+		case 0x60001a: // 0x60001a: acknowledge AUTO_INT_6
+		{
+			// TODO: implement this.
+			break;
+		}
+
+		case 0x60001b: // 0x60001b: acknowledge AUTO_INT_2
+		{
+			// TODO: implement this.
+			break;
+		}
+
+		case 0x60001d: // 0x60001d
 		{
 			port_60001D = value;
+			break;
+		}
+
+		case 0x700000: // 0x700000: RAM execution protection.
+		case 0x700001: // 0x700001
+		case 0x700002: // 0x700002
+		case 0x700003: // 0x700003
+		case 0x700004: // 0x700004
+		case 0x700005: // 0x700005
+		case 0x700006: // 0x700006
+		case 0x700007: // 0x700007
+		case 0x700008: // 0x700008: RAM execution protection (ghosts)
+		case 0x700009: // 0x700009
+		case 0x70000a: // 0x70000a
+		case 0x70000b: // 0x70000b
+		case 0x70000c: // 0x70000c
+		case 0x70000d: // 0x70000d
+		case 0x70000e: // 0x70000e
+		case 0x70000f: // 0x70000f
+		{
+			// Ignore. This protection is nothing more than an impediment, and emulating it would slow the emulator down.
+			break;
+		}
+
+		case 0x700010: // 0x700010: link port transfer speed.
+		case 0x700011: // 0x700011
+		{
+			// Ignore, we're not emulating link port that way.
+			break;
+		}
+
+		case 0x700012: // 0x700012: Flash ROM execution protection.
+		case 0x700013: // 0x700013
+		{
+			// Ignore. This protection is nothing more than an impediment, and emulating it would slow the emulator down.
+			break;
+		}
+
+		case 0x70001c: // 0x70001c
+		{
+			// Ignore: the battery checker code does word writes, but there's nothing at 70001C, AFAWCT.
 			break;
 		}
 
@@ -2202,11 +2325,11 @@ function write_hreg(reg, value)
 		{
 			port_70001F = value;
 			break;
-		}*/
+		}
 
 		default:
 		{
-			//console.log("pc " + to_hex(pc, 6) + ": write " + to_hex(value, 2) + " to " + to_hex(reg, 6));
+			console.log("pc " + to_hex(pc, 6) + ": write " + to_hex(value, 2) + " to " + to_hex(reg, 6));
 			break;
 		}
 	}
@@ -2215,10 +2338,11 @@ function write_hreg(reg, value)
 
 var memory_read_functions = "";
 
-function build_memory_read_functions(flashmemoryaddress, flashmemorysize)
+function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize)
 {
-	ROM_base = flashmemoryaddress;
-	memory_read_functions = "function rw(address) {" +
+	memory_read_functions +=
+"function rw_" + suffix + "_normal(address)" +
+"{" +
 "	address = address & 0xFFFFFF;" +
 "	if ((address % 2) != 0) fire_cpu_exception(3);" + // address error
 "	if (address < 0x200000)" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
@@ -2229,9 +2353,9 @@ function build_memory_read_functions(flashmemoryaddress, flashmemorysize)
 "		return read_hreg(address) * 256 + read_hreg(address + 1);" +
 "	else" +
 "		return 0x1400;" +
-"}"+
+"}" +
 "" +
-"function rb(address)" +
+"function rb_" + suffix + "_normal(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
 "	if (address < 0x200000)" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
@@ -2252,26 +2376,13 @@ function build_memory_read_functions(flashmemoryaddress, flashmemorysize)
 "	else" +
 "		return (address & 1) ? 0 : 0x14;" +
 "}";
+// TODO: support for special Flash mode.
 }
 
-if (calculator_model == 1) { // 92+
-	build_memory_read_functions(0x400000, 0x200000);
-}
-else if (calculator_model == 3) { // 89
-	build_memory_read_functions(0x200000, 0x200000);
-	console.log("89 support not implemented");
-}
-else if (calculator_model == 8) { // V200
-	build_memory_read_functions(0x200000, 0x400000);
-	console.log("V200 support not implemented");
-}
-else if (calculator_model == 9) { // 92+
-	build_memory_read_functions(0x800000, 0x400000);
-	console.log("89T support not implemented");
-}
-else {
-	console.log("Invalid calculator type");
-}
+build_memory_read_functions("1", 0x400000, 0x200000); // 92+
+build_memory_read_functions("3", 0x200000, 0x200000); // 89
+build_memory_read_functions("8", 0x200000, 0x400000); // V200
+build_memory_read_functions("9", 0x800000, 0x400000); // 89T
 
 eval(memory_read_functions);
 
@@ -2285,10 +2396,10 @@ function rl(address)
 
 var memory_write_functions = "";
 
-function build_memory_write_functions(flashmemoryaddress, flashmemorysize)
+function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysize)
 {
-	memory_write_functions =
-"function ww(address, value)" +
+	memory_write_functions +=
+"function ww_" + suffix + "_normal(address, value)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
 "	if ((address % 2) != 0) fire_cpu_exception(3);" + // address error
@@ -2298,13 +2409,13 @@ function build_memory_write_functions(flashmemoryaddress, flashmemorysize)
 "	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" + // Extremely rudimentary Flash write support: enough for archiving / unarchiving with a _modified_ OS image, but no erase, etc.
 "		rom[(address - " + flashmemoryaddress + ") / 2] = value;" +
 "	}" +
-"	else if (address >= 0x600000) {" +
+"	else if (address >= 0x600000 && address < 0x800000) {" +
 "		write_hreg(address, (value >> 8) & 0xFF);" +
 "		write_hreg(address + 1, value & 0xFF);" +
 "	}" +
 "}" +
 "" +
-"function wb(address, value)" +
+"function wb_" + suffix + "_normal(address, value)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
 "	if (address < 0x200000)" +
@@ -2315,29 +2426,16 @@ function build_memory_write_functions(flashmemoryaddress, flashmemorysize)
 "		else" +
 "			ram[address >> 1] = (ram[address >> 1] & 0xFF00) + value;" +
 "	}" +
-"	else if (address >= 0x600000)" +
+"	else if (address >= 0x600000 && address < 0x800000)" +
 "		write_hreg(address, value & 0xFF);" +
 "}";
+// TODO: support for special Flash mode.
 }
 
-if (calculator_model == 1) { // 92+
-	build_memory_write_functions(0x400000, 0x200000);
-}
-else if (calculator_model == 3) { // 89
-	build_memory_write_functions(0x200000, 0x200000);
-	console.log("89 support not implemented");
-}
-else if (calculator_model == 8) { // V200
-	build_memory_write_functions(0x200000, 0x400000);
-	console.log("V200 support not implemented");
-}
-else if (calculator_model == 9) { // 92+
-	build_memory_write_functions(0x800000, 0x400000);
-	console.log("89T support not implemented");
-}
-else {
-	console.log("Invalid calculator type");
-}
+build_memory_write_functions("1", 0x400000, 0x200000); // 92+
+build_memory_write_functions("3", 0x200000, 0x200000); // 89
+build_memory_write_functions("8", 0x200000, 0x400000); // V200
+build_memory_write_functions("9", 0x800000, 0x400000); // 89T
 
 eval(memory_write_functions);
 
@@ -3039,6 +3137,27 @@ function reset_calculator()
 	// start here to skip the boot code (which is missing in TIB based images)
 
 	for (var i = 0; i < 128; i++) ram[i] = rom[i + 0x12088 / 2];
+
+	// Redefine memory read / write functions
+	if (calculator_model == 1) { // 92+
+		rb = rb_1_normal; rw = rw_1_normal; wb = wb_1_normal; ww = ww_1_normal;
+		ROM_base = 0x400000;
+	}
+	else if (calculator_model == 3) { // 89
+		rb = rb_3_normal; rw = rw_3_normal; wb = wb_3_normal; ww = ww_3_normal;
+		ROM_base = 0x200000;
+	}
+	else if (calculator_model == 8) { // V200
+		rb = rb_8_normal; rw = rw_8_normal; wb = wb_8_normal; ww = ww_8_normal;
+		ROM_base = 0x200000;
+	}
+	else if (calculator_model == 9) { // 89T
+		rb = rb_9_normal; rw = rw_9_normal; wb = wb_9_normal; ww = ww_9_normal;
+		ROM_base = 0x800000;
+	}
+	else {
+		console.log("Invalid calculator type");
+	}
 
 	pc = ROM_base+0x12188;
 	sr = 0x2700;
