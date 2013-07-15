@@ -29,7 +29,7 @@ var tracecount = 20; // number of instructions to trace in console
 var vectorprotect = false;
 var overall = 2500;
 var osc2_counter = 0;
-var timer_min = 0xB2;
+var timer_min = 0xB2; // 0xCC on HW2
 var timer_current = 0;
 var lcd_address_high = 9; // stores LCD address / 8, corresponding to the default 0x4c00
 var lcd_address_low = 0x80;
@@ -49,9 +49,14 @@ var stopped = false;
 var wakemask = 0;
 var interrupt_control = 0x1B;
 var interrupt_rate = 0x200;
-var calculator_model = 1; // 92+
+var calculator_model = 1;
+var hardware_model = 1; // Only HW1 is emulated at the moment anyway.
 var ROM_base;
 var screen_scaling_ratio = 2; // 2:1 by default
+var port_600000 = 0x04;
+var port_60001D = 0;
+var port_70001D = 0;
+var port_70001F = 0;
 
 function to_hex(number, digits)
 {
@@ -94,11 +99,11 @@ function memory_dump(address, size, stride)
 	var str = to_hex(address, 6) + "\t";
 	while (address < end)
 	{
-		str += to_hex(rb(address), 2) + " ";
 		if (i == stride) {
 			str += "\n" + to_hex(address, 6) + "\t";
 			i = 0;
 		}
+		str += to_hex(rb(address), 2) + " ";
 		address++;
 		i++;
 	}
@@ -273,7 +278,7 @@ function addw(x, y)
 }
 
 function subb(subtrahend, minuend)
-{	
+{
 	subtrahend &= 0xFF;
 	minuend &= 0xFF;
 	var complement = 0x100 - subtrahend;
@@ -290,7 +295,7 @@ function subb(subtrahend, minuend)
 }
 
 function cmpb(subtrahend, minuend)
-{	
+{
 	subtrahend &= 0xFF;
 	minuend &= 0xFF;
 	var complement = 0x100 - subtrahend;
@@ -1852,7 +1857,7 @@ function build_swap()
 // fill default instruction table, initially all unimplemented instructions 
 
 // fill unhandled instructions by default
-function build_initial_instructions()
+function build_initial_instructions_handlers()
 {
 	var i;
 	for (i = 0; i < 0xA000; i++) {
@@ -1877,7 +1882,7 @@ function build_initial_instructions()
 }
 
 
-build_initial_instructions();
+build_initial_instructions_handlers();
 
 build_moveq();
 build_addsubq();
@@ -1978,7 +1983,7 @@ function read_hreg(reg)
 	{
 		case 0x600000: // 0x600000
 		{
-			return 0x84;
+			return 0x04;
 		}
 
 		case 0x600001: // 0x600001
@@ -1986,9 +1991,38 @@ function read_hreg(reg)
 			return vectorprotect ? 4 : 0;
 		}
 
+		case 0x60000c: // 0x60000c
+		{
+			//console.log("read link configuation: " + to_hex(link_config, 2));
+			return link_config;
+		}
+
+		case 0x60000d: // 0x60000d
+		{
+			var status = 2;
+			if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number") status |= 0x30;
+			else if (link_config & 2) status |= 0x50;
+			//console.log("read link status: " + to_hex(status, 2));
+			return status;
+		}
+
 		case 0x60000e: // 0x60000e
 		{
 			return 0x10;
+		}
+
+		case 0x60000f: // 0x60000f
+		{
+			if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number")
+			{
+				//console.log("reading link buffer: " + to_hex(link_incoming_queue[0], 2));
+				return link_incoming_queue.shift();
+			}
+			else
+			{
+				//console.log("tried to read link buffer, returned 0 because no data");
+				return 0;
+			}
 		}
 
 		case 0x600015: // 0x600015
@@ -2037,42 +2071,24 @@ function read_hreg(reg)
 			return result;
 		}
 
-		case 0x60000c: // 0x60000c
+		/*case 0x60001d: // 0x60001d
 		{
-			//console.log("read link configuation: " + to_hex(link_config, 2));
-			return link_config;
+			return port_60001D; // contrast setting - 0x8F would be better ?
 		}
 
-		case 0x60000f: // 0x60000f
+		case 0x70001d: // 0x70001d
 		{
-			if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number")
-			{
-				//console.log("reading link buffer: " + to_hex(link_incoming_queue[0], 2));
-				return link_incoming_queue.shift();
-			}
-			else
-			{
-				//console.log("tried to read link buffer, returned 0 because no data");
-				return 0;
-			}
+			return port_70001D;
 		}
-
-		case 0x60000d: // 0x60000d
+		
+		case 0x70001f: // 0x70001f
 		{
-			var status = 2;
-			if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number") status |= 0x30;
-			else if (link_config & 2) status |= 0x50;
-			//console.log("read link status: " + to_hex(status, 2));
-			return status;
-		}
-
-		case 0x60001d: // 0x60001d
-		{
-			return 1; // contrast setting
-		}
+			return port_70001F;
+		}*/
 
 		default:
 		{
+			//console.log("pc " + to_hex(pc, 6) + ": read from " + to_hex(reg, 6));
 			return (reg & 1) ? 0 : 0x14;
 		}
 	}
@@ -2081,48 +2097,118 @@ function read_hreg(reg)
 // write a hardware register (byte)
 function write_hreg(reg, value)
 {
-	if (reg == 0x600010) lcd_address_high = value;
-	if (reg == 0x600011) lcd_address_low = value;
-	if (reg == 0x600013) screen_height = value;
-	if (reg == 0x600018) keymaskhigh = value;
-	if (reg == 0x600019) keymasklow = value;
-	if (reg == 0x600017) { timer_current = value; timer_min = value;} // programmable timer
-	if (reg == 0x60000c)
+	switch (reg)
 	{
-		link_config = value;
-		if (value & 2 == 0) transmit_finished = false;
-		//console.log("writing link configuation: " + to_hex(link_config, 2));
-	}
-	if (reg == 0x60000f)
-	{
-		link_outgoing_queue.push(value);
-		//console.log("writing to link buffer: " + to_hex(value, 2));
-		transmit_finished = true;
-	}
-	if (reg == 0x600005)
-	{
-		wakemask = value;
-		//throw "STOP";
-	}
-	if (reg == 0x600015)
-	{
-		interrupt_control = value;
-		switch ((interrupt_control >> 4) & 0x3)
+		case 0x600000: // 0x600000
 		{
-			case 0:
-				interrupt_rate = 0x20;
-				break;
-			case 1:
-				interrupt_rate = 0x200;
-				break;
-			case 2:
-				interrupt_rate = 0x1000;
-				break;
-			case 3:
-				interrupt_rate = 0x40000;
-				break;
+			//port_600000 = value;
+			break;
 		}
-		console.log("writing interrupt_control: " + to_hex(interrupt_control, 2));
+
+		case 0x600005: // 0x600005
+		{
+			wakemask = value;
+			//throw "STOP";
+			break;
+		}
+
+		case 0x60000c: // 0x60000c
+		{
+			link_config = value;
+			if (value & 2 == 0) transmit_finished = false;
+			//console.log("writing link configuation: " + to_hex(link_config, 2));
+			break;
+		}
+
+		case 0x60000f: // 0x60000f
+		{
+			link_outgoing_queue.push(value);
+			//console.log("writing to link buffer: " + to_hex(value, 2));
+			transmit_finished = true;
+			break;
+		}
+
+		case 0x600010: // 0x600010
+		{
+			lcd_address_high = value;
+			break;
+		}
+
+		case 0x600011: // 0x600011
+		{
+			lcd_address_low = value;
+			break;
+		}
+
+		case 0x600013: // 0x600013
+		{
+			screen_height = value;
+			break;
+		}
+
+		case 0x600015: // 0x600015
+		{
+			interrupt_control = value;
+			switch ((interrupt_control >> 4) & 0x3)
+			{
+				case 0:
+					interrupt_rate = 0x20;
+					break;
+				case 1:
+					interrupt_rate = 0x200;
+					break;
+				case 2:
+					interrupt_rate = 0x1000;
+					break;
+				case 3:
+					interrupt_rate = 0x40000;
+					break;
+			}
+			console.log("writing interrupt_control: " + to_hex(interrupt_control, 2));
+			break;
+		}
+
+		case 0x600017: // 0x600017, programmable timer
+		{
+			timer_current = value; timer_min = value;
+			break;
+		}
+
+		case 0x600018: // 0x600018
+		{
+			keymaskhigh = value;
+			break;
+		}
+
+		case 0x600019: // 0x600019
+		{
+			keymasklow = value;
+			break;
+		}
+
+		/*case 0x60001d: // 0x60001d
+		{
+			port_60001D = value;
+			break;
+		}
+
+		case 0x70001d: // 0x70001d
+		{
+			port_70001D = value;
+			break;
+		}
+
+		case 0x70001f: // 0x70001f
+		{
+			port_70001F = value;
+			break;
+		}*/
+
+		default:
+		{
+			//console.log("pc " + to_hex(pc, 6) + ": write " + to_hex(value, 2) + " to " + to_hex(reg, 6));
+			break;
+		}
 	}
 }
 
@@ -2803,80 +2889,133 @@ function handle_keys(event)
 		default:
 			return true;
 	}
-	switch (e.keyCode)
+	if (calculator_model == 3 || calculator_model == 9) // 89 or 89T
+	{	switch (e.keyCode)
+		{
+			case 113: keystatus[39] = value; break; // F2
+			case 112: keystatus[47] = value; break; // F1
+			case 114: keystatus[31] = value; break; // F3
+			case 115: keystatus[23] = value; break; // F4
+			case 116: keystatus[15] = value; break; // F5
+			case 27: keystatus[48] = value; break; // ESC
+
+			case 59: keystatus[16] = value; break; // ;, simulated (-) (Firefox, Opera)
+			case 186: keystatus[16] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
+
+			case 43: keystatus[9] = value; break; // + (Opera)
+			case 45: keystatus[10] = value; break; // -
+			case 42: keystatus[11] = value; break; // *
+			case 47: keystatus[12] = value; break; // /
+
+			case 107: keystatus[9] = value; break; // + (all browsers but Opera)
+			case 109: keystatus[10] = value; break; // - 
+			case 106: keystatus[11] = value; break; // *
+			case 111: keystatus[12] = value; break; // /
+
+			case 8: keystatus[22] = value; break; // backspace
+			case 192: keystatus[4] = value; break; // backquote, simulated 2nd
+			case 38: keystatus[2] = value; break; // up
+			case 40: keystatus[4] = value; break; // down
+			case 37: keystatus[1] = value; break; // left
+			case 39: keystatus[3] = value; break; // right
+			case 190: keystatus[24] = value; break; // . (decimal point)
+			case 13: keystatus[8] = value; break; // ENTER
+			case 117: keystatus[47] = value; break; // F6 is treated as F1
+			case 118: keystatus[39] = value; break; // F7 is treated as F2
+			case 119: keystatus[31] = value; break; // F8 is treated as F3
+			case 121: keystatus[5] = value; break; // F10 is treated as SHIFT
+			case 48: keystatus[32] = value; break; // 0
+			case 49: keystatus[33] = value; break; // 1
+			case 50: keystatus[25] = value; break; // 2
+			case 51: keystatus[17] = value; break; // 3
+			case 52: keystatus[34] = value; break; // 4
+			case 53: keystatus[26] = value; break; // 5
+			case 54: keystatus[18] = value; break; // 6
+			case 55: keystatus[35] = value; break; // 7
+			case 56: keystatus[27] = value; break; // 8
+			case 57: keystatus[19] = value; break; // 9
+			case 84: keystatus[21] = value; break  // T
+			case 88: keystatus[45] = value; break  // X
+			case 89: keystatus[37] = value; break  // Y
+			case 90: keystatus[29] = value; break  // Z
+		}
+	}
+	else // 92+ or V200
 	{
-		case 113: keystatus[36] = value; break; // F2
-		case 112: keystatus[52] = value; break; // F1
-		case 114: keystatus[20] = value; break; // F3
-		case 115: keystatus[76] = value; break; // F4
-		case 116: keystatus[60] = value; break; // F5
-		case 117: keystatus[44] = value; break; // F6
-		case 118: keystatus[28] = value; break; // F7
-		case 119: keystatus[12] = value; break; // F1
-		case 27: keystatus[70] = value; break; // ESC
+		switch (e.keyCode)
+		{
+			case 113: keystatus[36] = value; break; // F2
+			case 112: keystatus[52] = value; break; // F1
+			case 114: keystatus[20] = value; break; // F3
+			case 115: keystatus[76] = value; break; // F4
+			case 116: keystatus[60] = value; break; // F5
+			case 117: keystatus[44] = value; break; // F6
+			case 118: keystatus[28] = value; break; // F7
+			case 119: keystatus[12] = value; break; // F1
+			case 27: keystatus[70] = value; break; // ESC
 
-		case 59: keystatus[81] = value; break; // ;, simulated (-) (Firefox, Opera)
-		case 186: keystatus[81] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
+			case 59: keystatus[81] = value; break; // ;, simulated (-) (Firefox, Opera)
+			case 186: keystatus[81] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
 
-		case 43: keystatus[68] = value; break; // + (Opera)
-		case 45: keystatus[72] = value; break; // -
-		case 42: keystatus[63] = value; break; // *
-		case 47: keystatus[40] = value; break; // /
+			case 43: keystatus[68] = value; break; // + (Opera)
+			case 45: keystatus[72] = value; break; // -
+			case 42: keystatus[63] = value; break; // *
+			case 47: keystatus[40] = value; break; // /
 
-		case 107: keystatus[68] = value; break; // + (all browsers but Opera)
-		case 109: keystatus[72] = value; break; // - 
-		case 106: keystatus[63] = value; break; // *
-		case 111: keystatus[40] = value; break; // /
+			case 107: keystatus[68] = value; break; // + (all browsers but Opera)
+			case 109: keystatus[72] = value; break; // - 
+			case 106: keystatus[63] = value; break; // *
+			case 111: keystatus[40] = value; break; // /
 
-		case 32: keystatus[32] = value; break; // spacebar
-		case 8: keystatus[64] = value; break; // backspace
-		case 220: keystatus[3] = value; break; // backslash, simulated LOCK (hand)
-		case 192: keystatus[0] = value; break; // backquote, simulated 2nd
-		case 38: keystatus[5] = value; break; // up
-		case 40: keystatus[7] = value; break; // down
-		case 37: keystatus[4] = value; break; // left
-		case 39: keystatus[6] = value; break; // right
-		case 190: keystatus[78] = value; break; // . (decimal point)
-		case 13: keystatus[73] = value; break; // ENTER
-		case 120: keystatus[52] = value; break; // F9 is treated as F1
-		case 121: keystatus[2] = value; break; // F10 is treated as SHIFT
-		case 48: keystatus[77] = value; break; // 0
-		case 49: keystatus[13] = value; break; // 1
-		case 50: keystatus[14] = value; break; // 2
-		case 51: keystatus[15] = value; break; // 3
-		case 52: keystatus[21] = value; break; // 4
-		case 53: keystatus[22] = value; break; // 5
-		case 54: keystatus[23] = value; break; // 6
-		case 55: keystatus[29] = value; break; // 7
-		case 56: keystatus[30] = value; break; // 8
-		case 57: keystatus[31] = value; break; // 9
-		case 65: keystatus[74] = value; break // A - Z
-		case 66: keystatus[41] = value; break 
-		case 67: keystatus[25] = value; break 
-		case 68: keystatus[18] = value; break 
-		case 69: keystatus[19] = value; break 
-		case 70: keystatus[26] = value; break 
-		case 71: keystatus[34] = value; break 
-		case 72: keystatus[42] = value; break 
-		case 73: keystatus[59] = value; break 
-		case 74: keystatus[50] = value; break 
-		case 75: keystatus[58] = value; break 
-		case 76: keystatus[66] = value; break 
-		case 77: keystatus[57] = value; break 
-		case 78: keystatus[49] = value; break 
-		case 79: keystatus[67] = value; break 
-		case 80: keystatus[55] = value; break 
-		case 81: keystatus[75] = value; break 
-		case 82: keystatus[27] = value; break 
-		case 83: keystatus[10] = value; break 
-		case 84: keystatus[35] = value; break 
-		case 85: keystatus[51] = value; break 
-		case 86: keystatus[33] = value; break 
-		case 87: keystatus[11] = value; break 
-		case 88: keystatus[17] = value; break 
-		case 89: keystatus[43] = value; break 
-		case 90: keystatus[9] = value; break 
-
+			case 32: keystatus[32] = value; break; // spacebar
+			case 8: keystatus[64] = value; break; // backspace
+			case 220: keystatus[3] = value; break; // backslash, simulated LOCK (hand)
+			case 192: keystatus[0] = value; break; // backquote, simulated 2nd
+			case 38: keystatus[5] = value; break; // up
+			case 40: keystatus[7] = value; break; // down
+			case 37: keystatus[4] = value; break; // left
+			case 39: keystatus[6] = value; break; // right
+			case 190: keystatus[78] = value; break; // . (decimal point)
+			case 13: keystatus[73] = value; break; // ENTER
+			case 120: keystatus[52] = value; break; // F9 is treated as F1
+			case 121: keystatus[2] = value; break; // F10 is treated as SHIFT
+			case 48: keystatus[77] = value; break; // 0
+			case 49: keystatus[13] = value; break; // 1
+			case 50: keystatus[14] = value; break; // 2
+			case 51: keystatus[15] = value; break; // 3
+			case 52: keystatus[21] = value; break; // 4
+			case 53: keystatus[22] = value; break; // 5
+			case 54: keystatus[23] = value; break; // 6
+			case 55: keystatus[29] = value; break; // 7
+			case 56: keystatus[30] = value; break; // 8
+			case 57: keystatus[31] = value; break; // 9
+			case 65: keystatus[74] = value; break // A - Z
+			case 66: keystatus[41] = value; break 
+			case 67: keystatus[25] = value; break 
+			case 68: keystatus[18] = value; break 
+			case 69: keystatus[19] = value; break 
+			case 70: keystatus[26] = value; break 
+			case 71: keystatus[34] = value; break 
+			case 72: keystatus[42] = value; break 
+			case 73: keystatus[59] = value; break 
+			case 74: keystatus[50] = value; break 
+			case 75: keystatus[58] = value; break 
+			case 76: keystatus[66] = value; break 
+			case 77: keystatus[57] = value; break 
+			case 78: keystatus[49] = value; break 
+			case 79: keystatus[67] = value; break 
+			case 80: keystatus[55] = value; break 
+			case 81: keystatus[75] = value; break 
+			case 82: keystatus[27] = value; break 
+			case 83: keystatus[10] = value; break 
+			case 84: keystatus[35] = value; break 
+			case 85: keystatus[51] = value; break 
+			case 86: keystatus[33] = value; break 
+			case 87: keystatus[11] = value; break 
+			case 88: keystatus[17] = value; break 
+			case 89: keystatus[43] = value; break 
+			case 90: keystatus[9] = value; break 
+		}
 	}
 
 	return true; // suppress default action
@@ -3000,8 +3139,10 @@ function link_handling()
 			//console.log("Begin WAIT_OK, outgoing queue length:", link_outgoing_queue.length);
 			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
 			{
-				//                            TI92p_PC                            CMD_ACK
-				if (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x56 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0 )
+				//                                TI92p_PC / V200_PC                  CMD_ACK
+				if (   (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x56 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0)
+				//                                TI89_PC / TI89t_PC                  CMD_ACK
+				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x56 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0))
 				{
 					var dump = "Before:";
 					for (var y = 0; y < link_outgoing_queue.length; y++)
@@ -3030,8 +3171,10 @@ function link_handling()
 			//console.log("Begin WAIT_CTS, outgoing queue length:", link_outgoing_queue.length);
 			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
 			{
-				//                            TI92p_PC                            CMD_CTS
-				if (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 9 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0 )
+				//                                TI92p_PC / V200_PC                  CMD_CTS
+				if (   (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x09 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0)
+				//                                TI89_PC / TI89t_PC                  CMD_CTS
+				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x09 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0))
 				{
 					var dump = "Before:";
 					for (var y = 0; y < link_outgoing_queue.length; y++)
@@ -3350,11 +3493,12 @@ function emu_main_loop()
 		var inputrom = newromready.result;
 		newromready = false;
 		var buf = new Uint8Array(inputrom);
-		if (inputrom.byteLength == 0x200000)
+		if (inputrom.byteLength == 0x200000 || inputrom.byteLength == 0x400000)
 		{
 			console.log("Processing plain ROM image");
+			// TODO: fix this to cope with typed arrays.
 			rom = new Array();
-			for (var x = 0; x < 0x200000; x += 2)
+			for (var x = 0; x < inputrom.byteLength; x += 2)
 			{
 				rom.push(buf[x] * 256 + buf[x + 1]);
 			}
@@ -3371,6 +3515,7 @@ function emu_main_loop()
 			{
 				for (var test = 0; test < inputrom.byteLength - 8; test++)
 				{
+					// "basecode"
 					if (buf[test] == 0x62 && buf[test+1] == 0x61 && buf[test+2] == 0x73 && buf[test+3] == 0x65 && buf[test+4] == 0x63 && buf[test+5] == 0x6f && buf[test+6] == 0x64 && buf[test+7]== 0x65)
 					{
 						start = test + 0x3d;
@@ -3389,7 +3534,7 @@ function emu_main_loop()
 			overall = 150; tracecount = 50;
 		}
 	}
-	
+
 	if (newfileready)
 	{
 		var inputfile = newfileready.result
