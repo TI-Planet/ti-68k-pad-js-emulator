@@ -1,12 +1,4 @@
-var a0 = 0; // address registers, treat as 32 bit ints (A8 = the currently unused address register)
-var a1 = 0;
-var a2 = 0;
-var a3 = 0;
-var a4 = 0;
-var a5 = 0;
-var a6 = 0;
-var a7 = 0;
-var a8 = 0;
+// Registers
 var d0 = 0; // data registers, treat as 32 bit ints
 var d1 = 0;
 var d2 = 0;
@@ -15,48 +7,71 @@ var d4 = 0;
 var d5 = 0;
 var d6 = 0;
 var d7 = 0;
+var a0 = 0; // address registers, treat as 32 bit ints (A8 = the currently unused address register, i.e. sp / ssp)
+var a1 = 0;
+var a2 = 0;
+var a3 = 0;
+var a4 = 0;
+var a5 = 0;
+var a6 = 0;
+var a7 = 0;
+var a8 = 0;
 var sr = 0; // status register, treat as 16 bit int
 var pc = 0; // program counter, treat as 32 bit int
+
+// Emulator arrays (rom defined elsewhere).
 var ram = new Uint16Array(131072); // 256K of RAM, treat as array of words
 //var ramflag = new Array(131072);
 var t = new Array(65536); // Instruction handlers.
 var n = new Array(65536); // Instruction names.
 var calcscreen = new Uint8Array(240 * 128 * 3); // stores three frames of pixel data for averaging
+var link_incoming_queue = new Array();
+var link_outgoing_queue = new Array();
+
+// Emulator variables, part 1.
 var frame = 0;
 var unhandled_count = 0; // number of unhandled instructions encountered
 var interval = 0; // interval ID of main timer
 var tracecount = 20; // number of instructions to trace in console
-var vectorprotect = false;
 var overall = 2500;
 var osc2_counter = 0;
-var timer_min = 0xB2; // 0xCC on HW2
-var timer_current = 0;
-var lcd_address_high = 9; // stores LCD address / 8, corresponding to the default 0x4c00
-var lcd_address_low = 0x80;
-var screen_height = 128;
-var keystatus = new Uint8Array(80); // status of each key is at ROW * 8 + COLUMN
-var keymasklow = 0xFF; // which key rows are selected to read (from 600019)
-var keymaskhigh = 0xFF;
 var frames_counted = 0;
 var total_time = 0;
 var newromready = false;
 var newfileready = false;
-var link_incoming_queue = new Array();
-var link_outgoing_queue = new Array();
-var link_config = 1;
-var transmit_finished = false;
-var stopped = false;
-var wakemask = 0;
-var interrupt_control = 0x1B;
-var interrupt_rate = 0x200;
-var calculator_model = 1;
-var hardware_model = 1; // Only HW1 is emulated at the moment anyway.
-var ROM_base;
 var screen_scaling_ratio = 2; // 2:1 by default
+
+// Hardware ports and variables deduced from them.
 var port_600000 = 0x04;
-var port_60001D = 0;
-var port_70001D = 0;
-var port_70001F = 0;
+var vectorprotect = false; // 0x600001
+var wakemask = 0; // 0x600005
+var link_config = 1; // 0x60000C
+var transmit_finished = false; // deduced from 0x60000C
+var lcd_address_high = 9; // 0x600010: stores LCD address / 8, corresponding to the default 0x4c00
+var lcd_address_low = 0x80; // 0x600011
+var screen_height = 128; // 0x600013
+var interrupt_control = 0x1B; // 0x600015
+var interrupt_rate = 0x200; // deduced from 0x600015
+var timer_min = 0xB2; // 0x600017; 0xCC on HW2
+var timer_current = 0; // 0x600017
+var keystatus = new Uint8Array(80); // status of each key is at ROW * 8 + COLUMN
+var keymaskhigh = 0xFF; // 0x600018
+var keymasklow = 0xFF; // 0x600019: which key rows are selected to read
+var port_60001D = 0; // 0x60001D
+var port_70001D = 0; // 0x70001D
+var port_70001F = 0; // 0x70001F
+
+// Emulator variables, part 2.
+var stopped = false;
+var hardware_model = 1; // Only HW1 is emulated at the moment anyway.
+var calculator_model = 1;
+var ROM_base; // Deduced from calculator model
+var Protection_enabled = false; // The Protection with a capital P is not implemented, it slows down emulation.
+
+// Flash memory state machine
+var flash_write_ready = 0;
+var flash_write_phase = 0x50;
+var flash_ret_or = 0;
 
 function to_hex(number, digits)
 {
@@ -2336,6 +2351,16 @@ function write_hreg(reg, value)
 }
 
 
+var rw = function(address)
+{
+	// Dummy implementation, will be overridden later.
+}
+
+var rb = function(address)
+{
+	// Dummy implementation, will be overridden later.
+}
+
 var memory_read_functions = "";
 
 function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize)
@@ -2345,12 +2370,15 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "{" +
 "	address = address & 0xFFFFFF;" +
 "	if ((address % 2) != 0) fire_cpu_exception(3);" + // address error
-"	if (address < 0x200000)" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
 "		return ram[(address >>> 1) & 0x3FFFF];" +
-"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ")" +
+"	}" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
 "		return rom[(address - " + flashmemoryaddress + ")/2];" +
-"	else if (address >= 0x600000 && address < 0x800000)" +
+"	}" +
+"	else if (address >= 0x600000 && address < 0x800000) {" +
 "		return read_hreg(address) * 256 + read_hreg(address + 1);" +
+"	}" +
 "	else" +
 "		return 0x1400;" +
 "}" +
@@ -2358,25 +2386,88 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "function rb_" + suffix + "_normal(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if (address < 0x200000)" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
-"	{" +
-"		if (address % 2 == 0)" +
+"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+"		if (address % 2 == 0) {" +
 "			return ram[(address >>> 1) & 0x3FFFF] >>> 8;" +
-"		else" +
+"		}" +
+"		else {" +
 "			return ram[(address >>> 1) & 0x3FFFF] & 0xFF;" +
+"		}" +
 "	}" +
-"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ")" +
-"		if (address % 2 == 0)" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
+"		if (address % 2 == 0) {" +
 "			return rom[(address - " + flashmemoryaddress + ") >>> 1] >>> 8;" +
-"		else" +
+"		}" +
+"		else {" +
 "			return rom[(address - " + flashmemoryaddress + "- 1) >>> 1] & 0xFF;" +
+"		}" +
+"	}" +
 "	else if (address >= 0x600000 && address < 0x800000) {" +
 "		return read_hreg(address);" +
 "	}" +
 "	else" +
 "		return (address & 1) ? 0 : 0x14;" +
+"}" +
+"" +
+"function rw_" + suffix + "_flash(address)" +
+"{" +
+"	address = address & 0xFFFFFF;" +
+"	if ((address % 2) != 0) fire_cpu_exception(3);" + // address error
+"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+"		return ram[(address >>> 1) & 0x3FFFF];" +
+"	}" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
+"		if (flash_write_phase == 0x90) {" + // Read identifier codes mode
+"			switch (address & 0xffff) {" +
+"				case 0:  return (calculator_model == 8 || calculator_model == 9) ? 0x00b0 : 0x0089;" + // manufacturer code
+"				case 2:  return 0x00b5;" + // device code
+"				default: return 0xffff;" +
+"			}" +
+"		}" +
+"		else {" +
+"			return rom[(address - " + flashmemoryaddress + ")/2] | flash_ret_or;" +
+"		}" +
+"	}" +
+"	else if (address >= 0x600000 && address < 0x800000) {" +
+"		return read_hreg(address) * 256 + read_hreg(address + 1);" +
+"	}" +
+"}" +
+"" +
+"function rb_" + suffix + "_flash(address)" +
+"{" +
+"	address = address & 0xFFFFFF;" +
+"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+"		if (address % 2 == 0) {" +
+"			return ram[(address >>> 1) & 0x3FFFF] >>> 8;" +
+"		}" +
+"		else {" +
+"			return ram[(address >>> 1) & 0x3FFFF] & 0xFF;" +
+"		}" +
+"	}" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
+"		if (flash_write_phase == 0x90) {" + // Read identifier codes mode; not sure anyone uses it under byte form...
+"			switch (address & 0xffff) {" +
+"				case 0:  return 0x00;" +
+"				case 1:  return (calculator_model == 8 || calculator_model == 9) ? 0xb0 : 0x89;" + // manufacturer code
+"				case 2:  return 0x00;" +
+"				case 3:  return 0xb5;" + // device code
+"				default: return 0xff;" +
+"			}" +
+"		}" +
+"		else {" +
+"			if (address % 2 == 0) {" +
+"				return ((rom[(address - " + flashmemoryaddress + ") >>> 1] >>> 8) | flash_ret_or) & 0xFF;" +
+"			}" +
+"			else {" +
+"				return (rom[(address - " + flashmemoryaddress + "- 1) >>> 1] | flash_ret_or) & 0xFF;" +
+"			}" +
+"		}" +
+"	}" +
+"	else if (address >= 0x600000 && address < 0x800000) {" +
+"		return read_hreg(address);" +
+"	}" +
 "}";
-// TODO: support for special Flash mode.
+// WIP: support for special Flash mode.
 }
 
 build_memory_read_functions("1", 0x400000, 0x200000); // 92+
@@ -2394,6 +2485,16 @@ function rl(address)
 }
 
 
+var ww = function(address, value)
+{
+	// Dummy implementation, will be overridden later.
+}
+
+var wb = function(address, value)
+{
+	// Dummy implementation, will be overridden later.
+}
+
 var memory_write_functions = "";
 
 function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysize)
@@ -2406,8 +2507,14 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "	if (address < 0x200000) {" +
 "		ram[(address & 0x3FFFF) / 2] = value;" +
 "	}" +
-"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" + // Extremely rudimentary Flash write support: enough for archiving / unarchiving with a _modified_ OS image, but no erase, etc.
-"		rom[(address - " + flashmemoryaddress + ") / 2] = value;" +
+// TODO: modify
+"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" + // Flash write support.
+"		if ((pc < 0x40000) && (value == 0x5050 || value == 0x9090)) {" + // Introductory commands, run from RAM... chances are that we want to switch to the special mode.
+"			ww = ww_" + suffix + "_flash;" + // Redefine functions
+"			rw = rw_" + suffix + "_flash;" +
+"			rb = rb_" + suffix + "_flash;" +
+"			ww_" + suffix + "_flash(address, value);" + // Forward to special function
+"		}" +
 "	}" +
 "	else if (address >= 0x600000 && address < 0x800000) {" +
 "		write_hreg(address, (value >> 8) & 0xFF);" +
@@ -2421,15 +2528,85 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "	if (address < 0x200000)" +
 "	{" +
 "		address &= 0x3FFFF;" +
-"		if (address % 2 == 0)" +
+"		if (address % 2 == 0) {" +
 "			ram[address / 2] = (ram[address / 2] & 0xFF) + (value * 256);" +
-"		else" +
+"		}" +
+"		else {" +
 "			ram[address >> 1] = (ram[address >> 1] & 0xFF00) + value;" +
+"		}" +
 "	}" +
-"	else if (address >= 0x600000 && address < 0x800000)" +
+// Flash write bytes not implemented for now - does anyone use them ?
+"	else if (address >= 0x600000 && address < 0x800000) {" +
 "		write_hreg(address, value & 0xFF);" +
+"	}" +
+"}" +
+"" +
+"function ww_" + suffix + "_flash(address, value)" +
+"{" +
+"	address = address & 0xFFFFFF;" +
+"	if ((address % 2) != 0) fire_cpu_exception(3);" + // address error
+"	if (address < 0x200000) {" +
+"		ram[(address & 0x3FFFF) / 2] = value;" +
+"	}" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
+"console.log(\"Write \" + to_hex(value, 4) + \" to \" + to_hex(address, 6));" +
+"		if (flash_write_ready) {" + // Write the value to Flash, if we're ready.
+"			rom[(address - " + flashmemoryaddress + ") / 2] &= value;" +
+"			flash_write_ready--;" +
+"			flash_ret_or = 0xffffffff;" +
+"		}" +
+"		else if (value == 0x5050) {" + // Clear status register
+"			flash_write_phase = 0x50;" +
+"			ww = ww_" + suffix + "_flash;" + // Redefine functions
+"			rw = rw_" + suffix + "_flash;" +
+"			rb = rb_" + suffix + "_flash;" +
+"		}" +
+"		else if (value == 0x1010) {" + // Byte write setup/confirm
+"			if (flash_write_phase == 0x50) {" +
+"				flash_write_phase = 0x51;" + // Special, internal value used for the next if
+"			}" +
+"			else if (flash_write_phase == 0x51) {" +
+"				flash_write_ready = 1;" +
+"				flash_write_phase = 0x50;" +
+"			}" +
+"		}" +
+"		else if (value == 0x2020) {" + // Block erase setup/confirm
+"			if (flash_write_phase == 0x50) {" +
+"				flash_write_phase = 0x20;" +
+"			}" +
+"		}" +
+"		else if (value == 0xD0D0) {" + // Confirm and block erase
+"			if (flash_write_phase == 0x20) {" +
+"				flash_write_phase = 0xd0;" +
+"				flash_ret_or = 0xffffffff;" +
+"				address &= 0xFF0000;" +
+"				address >>>= 1;" +
+"				for (var i = 0; i < 65536/2; i++, address++) {" +
+"					rom[address] = 0xFFFF;" +
+"				}" +
+"			}" +
+"		}" +
+"		else if (value == 0xFFFF) {" + // read array/reset
+"			if (flash_write_phase == 0x50) {" +
+"				flash_write_ready = 0;" +
+"				flash_ret_or = 0;" +
+"				ww = ww_" + suffix + "_normal;" + // Redefine functions
+"				rw = rw_" + suffix + "_normal;" +
+"				rb = rb_" + suffix + "_normal;" +
+"			}" +
+"		}" +
+"		else if (value == 0x9090) {" +
+"			flash_write_phase = 0x90;" +
+"			ww = ww_" + suffix + "_flash;" + // Redefine functions
+"			rw = rw_" + suffix + "_flash;" +
+"			rb = rb_" + suffix + "_flash;" +
+"		}" +
+"	}" +
+"	else if (address >= 0x600000 && address < 0x800000) {" +
+"		write_hreg(address, (value >> 8) & 0xFF);" +
+"		write_hreg(address + 1, value & 0xFF);" +
+"	}" +
 "}";
-// TODO: support for special Flash mode.
 }
 
 build_memory_write_functions("1", 0x400000, 0x200000); // 92+
@@ -3628,7 +3805,7 @@ function emu_main_loop()
 			console.log("Processing TIB/9XU image");
 			rom = new Array();
 			for (var y = 0; y < 0x12000; y += 2) { rom.push(0x1400); }
-			
+
 			var start = 0;
 			if (buf[0] == 0x2a && buf[4] == 0x46)
 			{
