@@ -39,6 +39,7 @@ var frames_counted = 0;
 var total_time = 0;
 var newromready = false;
 var newfileready = false;
+var newflashfileready = false;
 var screen_scaling_ratio = 2; // 2:1 by default
 
 // Hardware ports and variables deduced from them.
@@ -2146,7 +2147,7 @@ function read_hreg(reg)
 
 		default:
 		{
-			console.log("pc " + to_hex(pc, 6) + ": read from " + to_hex(reg, 6));
+			//console.log("pc " + to_hex(pc, 6) + ": read from " + to_hex(reg, 6));
 			return (reg & 1) ? 0 : 0x14;
 		}
 	}
@@ -2344,7 +2345,7 @@ function write_hreg(reg, value)
 
 		default:
 		{
-			console.log("pc " + to_hex(pc, 6) + ": write " + to_hex(value, 2) + " to " + to_hex(reg, 6));
+			//console.log("pc " + to_hex(pc, 6) + ": write " + to_hex(value, 2) + " to " + to_hex(reg, 6));
 			break;
 		}
 	}
@@ -2507,9 +2508,9 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "	if (address < 0x200000) {" +
 "		ram[(address & 0x3FFFF) / 2] = value;" +
 "	}" +
-// TODO: modify
 "	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" + // Flash write support.
-"		if ((pc < 0x40000) && (value == 0x5050 || value == 0x9090)) {" + // Introductory commands, run from RAM... chances are that we want to switch to the special mode.
+"		if ((pc < 0x40000) && !Protection_enabled) {" + // This write runs from RAM, with Protection disabled... chances are that we want to switch to the special mode.
+//"console.log(\"Switch to special\");" +
 "			ww = ww_" + suffix + "_flash;" + // Redefine functions
 "			rw = rw_" + suffix + "_flash;" +
 "			rb = rb_" + suffix + "_flash;" +
@@ -2549,7 +2550,6 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "		ram[(address & 0x3FFFF) / 2] = value;" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
-"console.log(\"Write \" + to_hex(value, 4) + \" to \" + to_hex(address, 6));" +
 "		if (flash_write_ready) {" + // Write the value to Flash, if we're ready.
 "			rom[(address - " + flashmemoryaddress + ") / 2] &= value;" +
 "			flash_write_ready--;" +
@@ -2557,15 +2557,12 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "		}" +
 "		else if (value == 0x5050) {" + // Clear status register
 "			flash_write_phase = 0x50;" +
-"			ww = ww_" + suffix + "_flash;" + // Redefine functions
-"			rw = rw_" + suffix + "_flash;" +
-"			rb = rb_" + suffix + "_flash;" +
+"		}" +
+"		else if (value == 0x9090) {" + // Read identifier codes
+"			flash_write_phase = 0x90;" +
 "		}" +
 "		else if (value == 0x1010) {" + // Byte write setup/confirm
 "			if (flash_write_phase == 0x50) {" +
-"				flash_write_phase = 0x51;" + // Special, internal value used for the next if
-"			}" +
-"			else if (flash_write_phase == 0x51) {" +
 "				flash_write_ready = 1;" +
 "				flash_write_phase = 0x50;" +
 "			}" +
@@ -2580,6 +2577,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "				flash_write_phase = 0xd0;" +
 "				flash_ret_or = 0xffffffff;" +
 "				address &= 0xFF0000;" +
+"				address -= " + flashmemoryaddress + ";" +
 "				address >>>= 1;" +
 "				for (var i = 0; i < 65536/2; i++, address++) {" +
 "					rom[address] = 0xFFFF;" +
@@ -2590,16 +2588,11 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "			if (flash_write_phase == 0x50) {" +
 "				flash_write_ready = 0;" +
 "				flash_ret_or = 0;" +
+//"console.log(\"Switch to normal\");" +
 "				ww = ww_" + suffix + "_normal;" + // Redefine functions
 "				rw = rw_" + suffix + "_normal;" +
 "				rb = rb_" + suffix + "_normal;" +
 "			}" +
-"		}" +
-"		else if (value == 0x9090) {" +
-"			flash_write_phase = 0x90;" +
-"			ww = ww_" + suffix + "_flash;" + // Redefine functions
-"			rw = rw_" + suffix + "_flash;" +
-"			rb = rb_" + suffix + "_flash;" +
 "		}" +
 "	}" +
 "	else if (address >= 0x600000 && address < 0x800000) {" +
@@ -3383,7 +3376,106 @@ function fire_cpu_exception(e)
 	}
 }
 
-var totalframes = 0;
+function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_and_length)
+{
+	// Initial RTS.
+	// libticalcs: dbus_send (target + cmd), called by ti89_send_RTS.
+	//                PC_TI92p  CMD_RTS
+	link_incoming_queue.push(8, 0xC9); // standard variable header
+
+	var header_len = varname.length + 6 + 1;
+	var data_len_full = data_len;
+
+	if (write_both_checksum_and_length) {
+		data_len_full += 2;
+	}
+
+	// libticalcs: dbus_send (length).
+	link_incoming_queue.push(header_len, 0); // header length, little endian to calc
+	// libticalcs: ti89_send_RTS.
+	link_incoming_queue.push(data_len_full % 256, (data_len_full >>> 8) & 0xFF, (data_len_full >>> 16) & 0xFF, (data_len_full >>> 24) & 0xFF); // data length, little endian to calc
+	link_incoming_queue.push(vartype); // variable type
+	link_incoming_queue.push(varname.length);
+
+	// libticalcs: dbus_send (checksum computation) on the sole data after the 4 first bytes.
+	var header_checksum = varname.length + vartype + (data_len_full % 256) + ((data_len_full >>> 8) & 0xFF) + ((data_len_full >>> 16) & 0xFF) + ((data_len_full >>> 24) & 0xFF);
+	for (var x = 0; x < varname.length; x++)
+	{
+		link_incoming_queue.push(varname[x]);
+		header_checksum += varname[x];
+	}
+	link_incoming_queue.push(0);
+
+	// libticalcs: dbus_send (sum).
+	link_incoming_queue.push(header_checksum % 256, header_checksum >>> 8); // header checksum, little endian to calc
+
+	// Loop until all chunks have been queued.
+	do {
+		var chunk_len = Math.min(65536, data_len);
+
+		// Equivalent of libticalcs: ti89_recv_ACK.
+		link_incoming_queue.push('WAIT_OK');
+		// Equivalent of libticalcs: ti89_recv_CTS.
+		link_incoming_queue.push('WAIT_CTS');
+		// libticalcs: ti89_send_ACK.
+		//                PC_TI92p  CMD_ACK
+		link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's CTS)
+
+		var data_section_len = chunk_len;
+		if (write_both_checksum_and_length) {
+			data_section_len += 6; // 4 length bytes + 2 checksum bytes
+		}
+		// libticalcs: ti89_send_XDP
+		//                PC_TI92p  CMD_XDP
+		link_incoming_queue.push(8, 0x15);
+
+		var data_checksum = 0;
+
+		link_incoming_queue.push(data_section_len % 256, data_section_len >>> 8); // length, little endian to calc
+		if (write_both_checksum_and_length) {
+			link_incoming_queue.push(0, 0, 0, 0);
+			link_incoming_queue.push((chunk_len >>> 8) & 0xFF, chunk_len % 256);
+			data_checksum = (chunk_len % 256) + ((chunk_len >>> 8) & 0xFF);
+		}
+
+		for (var x = offset; x < offset + chunk_len; x++)
+		{
+			link_incoming_queue.push(buf[x]);
+			data_checksum += buf[x];
+		}
+		link_incoming_queue.push(data_checksum % 256, (data_checksum >>> 8) % 256); // data checksum, little endian to calc
+
+		// Equivalent of libticalcs: ti89_recv_ACK.
+		link_incoming_queue.push('WAIT_OK');
+
+		if (chunk_len == 65536) {
+			// libticalcs: ti89_send_CNT.
+			//                PC_TI92p  CMD_CNT
+			link_incoming_queue.push(8, 0x78, 0, 0);
+			offset += 65536;
+			data_len -= 65536;
+		}
+		else {
+			// libticalcs: ti89_send_EOT.
+			//                PC_TI92p  CMD_EOT
+			link_incoming_queue.push(8, 0x92, 0, 0);
+		}
+
+	} while (chunk_len != data_len);
+
+	// Wait for final ACK.
+	// Equivalent of libticalcs: ti89_recv_ACK.
+	link_incoming_queue.push('WAIT_OK');
+
+	console.log("finished processing variable");
+
+	var dump = "Incoming: " + link_incoming_queue.length + " (pseudo-)bytes\n";
+	for (var y = 0; y < link_incoming_queue.length; y++)
+	{
+		dump += to_hex(link_incoming_queue[y], 2) + " ";
+	}
+	console.log(dump);
+}
 
 // Extracted out of main_loop to help profiling.
 function timer_interrupts()
@@ -3831,18 +3923,19 @@ function emu_main_loop()
 		}
 	}
 
+	// WIP: refactor code, moving parts to an external function.
 	if (newfileready)
 	{
-		var inputfile = newfileready.result
+		var buf;
+		if (typeof(newfileready) == "object") { // The contents were loaded from a JS function further down
+			buf = new Uint8Array(newfileready.result);
+		}
+		else if (typeof(newfileready) == "array") { // The contents were stored directly into an array
+			buf = newfileready;
+		}
 		newfileready = false;
-		var buf = new Uint8Array(inputfile);
-
-		// libticalcs: dbus_send (target + cmd).
-		//                PC_TI92p  CMD_RTS
-		link_incoming_queue.push(8, 0xC9); // standard variable header
 
 		var varname = new Array();
-		//varname.push(0x6d,0x61,0x69,0x6e,0x5c); // "main\"
 		for (var x = 0x0A; x < 0x12; x++)
 		{
 			if (buf[x] == 0) break;
@@ -3854,73 +3947,37 @@ function emu_main_loop()
 			if (buf[x] == 0) break;
 			varname.push(buf[x]);
 		}
-		var header_len = varname.length + 6 + 1;
-		var data_len = buf[0x57] + buf[0x56] * 256; // data length is big endian in file
-		var data_len_full = data_len + 2;
 
-		// libticalcs: dbus_send (length).
-		link_incoming_queue.push(header_len, 0); // header length, little endian to calc
-		// libticalcs: ti89_send_RTS.
-		link_incoming_queue.push(data_len_full % 256, data_len_full >>> 8, 0, 0); // data length, little endian to calc	
-		//link_incoming_queue.push(0x27); // XXX
-		link_incoming_queue.push(buf[0x48]); // variable type
-		link_incoming_queue.push(varname.length);
+		var vartype = buf[0x48];
 
-		// libticalcs: dbus_send (checksum computation) on the sole data after the 4 first bytes.
-		var header_checksum = varname.length + buf[0x48] + (data_len_full >>> 8) + (data_len_full % 256);
-		for (var x = 0; x < varname.length; x++)
-		{
-			link_incoming_queue.push(varname[x]);
-			header_checksum += varname[x];
+		var data_len = buf[0x57] + buf[0x56] * 256;
+
+		sendfile(varname, vartype, buf, data_len, 0x58, true); // Data starts at 0x58
+	}
+
+	if (newflashfileready)
+	{
+		var buf;
+		if (typeof(newflashfileready) == "object") { // The contents were loaded from a JS function further down
+			buf = new Uint8Array(newflashfileready.result);
 		}
-		link_incoming_queue.push(0);
-		//header_checksum += 6; // XXX
-
-		// libticalcs: dbus_send (sum).
-		link_incoming_queue.push(header_checksum % 256, header_checksum >>> 8); // header checksum, little endian to calc
-
-		// Equivalent of libticalcs: ti89_recv_ACK.
-		link_incoming_queue.push('WAIT_OK');
-		// Equivalent of libticalcs: ti89_recv_CTS.
-		link_incoming_queue.push('WAIT_CTS');
-		// libticalcs: ti89_send_ACK.
-		//                PC_TI92p  CMD_ACK
-		link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's CTS)
-
-		var data_section_len = data_len + 6; // 4 empty bytes, 2 length bytes
-		// libticalcs: ti89_send_XDP
-		//                PC_TI92p  CMD_XDP
-		link_incoming_queue.push(8, 0x15);
-		link_incoming_queue.push(data_section_len % 256, data_section_len >>> 8); // length, little endian to calc
-		// 4 empty bytes.
-		link_incoming_queue.push(0, 0, 0, 0);
-		link_incoming_queue.push(data_len >>> 8, data_len % 256); // length, this time big endian
-
-		var data_checksum = (data_len % 256) + (data_len >>> 8);
-		for (var x = 0x58; x < 0x58 + data_len; x++)
-		{
-			link_incoming_queue.push(buf[x]);
-			data_checksum += buf[x];
+		else if (typeof(newflashfileready) == "array") { // The contents were stored directly into an array
+			buf = newflashfileready;
 		}
-		link_incoming_queue.push(data_checksum % 256, (data_checksum >>> 8) % 256); // data checksum, little endian to calc
+		newflashfileready = false;
 
-		// Equivalent of libticalcs: ti89_recv_ACK.
-		link_incoming_queue.push('WAIT_OK');
-		// libticalcs: ti89_send_EOT.
-		//                PC_TI92p  CMD_EOT
-		link_incoming_queue.push(8, 0x92, 0, 0);
-		// Equivalent of libticalcs: ti89_recv_ACK.
-		link_incoming_queue.push('WAIT_OK');
-
-		console.log("finished processing variable");
-
-		var dump = "Incoming:";
-		for (var y = 0; y < link_incoming_queue.length; y++)
+		var varname = new Array();
+		for (var x = 0x11; x < 0x19; x++)
 		{
-			dump += to_hex(link_incoming_queue[y], 2) + " ";
+			if (buf[x] == 0) break;
+			varname.push(buf[x]);
 		}
-		console.log(dump);
 
+		var vartype = buf[0x31];
+
+		var data_len = buf[0x4A] + buf[0x4B] * 256 + buf[0x4C] * 65536 + buf[0x4D] * 16777216;
+
+		sendfile(varname, vartype, buf, data_len, 0x4E, false); // data starts at 0x4E
 	}
 }
 
@@ -3928,26 +3985,56 @@ function loadrom()
 {
 	var infile = document.getElementById("romfile").files[0];
 	console.log("starting to read file " + infile.name);
-	var extension = infile.name.toLowerCase().substr(-4) 
-	if (infile.size == 0x200000 && extension == ".rom")
+	var extension = infile.name.toLowerCase().substr(-4);
+	if ((infile.size == 0x200000 || infile.size == 0x400000) && extension == ".rom")
 	{
 		console.log("Loading as plain ROM");
 		var reader = new FileReader();
 		reader.onload = function() { newromready = reader; unhandled_count = 0; };
 		reader.readAsArrayBuffer(infile);
 	}
-	if (infile.size >= 1024 && infile.size < 0x200000 && (extension == ".tib" || extension == ".9xu"))
+	if (infile.size >= 1024 && infile.size < 0x200000 && (extension == ".tib" || extension == ".9xu" || extension == ".89u" || extension == ".v2u"))
 	{
-		console.log("Starting to load as TIB / 9XU");
+		console.log("Starting to load as TIB / OS upgrade");
 		var reader = new FileReader();
 		reader.onload = function() { newromready = reader; unhandled_count = 0; };
 		reader.readAsArrayBuffer(infile);
 	}
-	if (infile.size >= 80 && infile.size < 70000 && ".9xp.89p.9xf.89f.9xz.89z.9xy.89y.9xt.89t.9xi.89i.9xs.89s.9xe.89e".indexOf(extension) != -1)
-	{
+	if (   infile.size >= 80
+	    && infile.size < 70000
+	    && (   ".9xa.89a.v2a".indexOf(extension) != -1 // Figure, infrequent
+	        // TODO: handle .9xb.89b.v2b (Backup) some day.
+	        || ".9xc.89c.v2c".indexOf(extension) != -1 // Data, infrequent
+	        || ".9xd.89d.v2d".indexOf(extension) != -1 // GDB, infrequent
+	        || ".9xe.89e.v2e".indexOf(extension) != -1 // Expression
+	        || ".9xf.89f.v2f".indexOf(extension) != -1 // Function
+	        // TODO: handle .9xg.89g.v2g and .tig (Group) some day.
+	        || ".9xi.89i.v2i".indexOf(extension) != -1 // Image
+	        // .9xk.89k.v2k (FlashApp) handled below.
+	        || ".9xl.89l.v2l".indexOf(extension) != -1 // List
+	        || ".9xm.89m.v2m".indexOf(extension) != -1 // Matrix
+	        // .9xn.89n.v2n ?
+	        || ".9xp.89p.v2p".indexOf(extension) != -1 // Program
+	        // .9xq.89q.v2q (Certificate) handled below.
+	        || ".9xs.89s.v2s".indexOf(extension) != -1 // String
+	        || ".9xt.89t.v2t".indexOf(extension) != -1 // Text
+	        // .9xu.89u.v2u (OS upgrade) handled above
+	        || ".9xx.89x.v2x".indexOf(extension) != -1 // Macro, infrequent
+	        || ".9xy.89y.v2y".indexOf(extension) != -1 // Other
+	        || ".9xz.89z.v2z".indexOf(extension) != -1 // Assembly program
+	       )) {
 		console.log("Starting to load as variable");
 		var reader = new FileReader();
 		reader.onload = function() { newfileready = reader; unhandled_count = 0; };
+		reader.readAsArrayBuffer(infile);
+	}
+	if (   infile.size >= 80
+	    && (   ".9xk.89k.v2k".indexOf(extension) != -1 // FlashApp
+	        //|| ".9xq.89q.v2q".indexOf(extension) != -1 // Certificate - useless nowadays since we can resign FlashApps
+	       )) {
+		console.log("Starting to load as Flash variable - WIP");
+		var reader = new FileReader();
+		reader.onload = function() { newflashfileready = reader; unhandled_count = 0; };
 		reader.readAsArrayBuffer(infile);
 	}
 }
