@@ -3023,33 +3023,8 @@ function create_button(shape, coords, keynumber)
 	map.appendChild(area);
 }
 
-function initemu()
+function create_buttons_large_92p_skin()
 {
-	if (!checkemu()) {
-		console.log("Emulation checks failed");
-		return;
-	}
-
-	var elem = document.getElementById('screen');
-	context = elem.getContext('2d');
-
-	if (screen_scaling_ratio == 2) {
-		if (context.createImageData)
-			bitmap = context.createImageData(480, 256);
-		else if (context.getImageData)
-			bitmap = context.getImageData(0, 0, 960, 512);
-		else
-			bitmap = {'width' : 480, 'height' : 256, 'data' : new Uint8Array(480 * 256 * 4)};
-	}
-	else if (screen_scaling_ratio == 1) {
-		if (context.createImageData)
-			bitmap = context.createImageData(240, 128);
-		else if (context.getImageData)
-			bitmap = context.getImageData(0, 0, 960, 512);
-		else
-			bitmap = {'width' : 240, 'height' : 128, 'data' : new Uint8Array(240 * 128 * 4)};
-	}
-
 	create_button("rect", "140,52,193,112", 3); // LOCK (hand)
 	create_button("rect", "871,69,920,108", 5); // Up
 	create_button("rect", "871,157,920,196", 7); // Down
@@ -3129,6 +3104,36 @@ function initemu()
 	create_button("rect", "724,501,770,531", 77); // 0
 	create_button("rect", "784,502,830,532", 78); // .
 	create_button("rect", "845,501,891,531", 79); // (-)
+}
+
+function initemu()
+{
+	if (!checkemu()) {
+		console.log("Emulation checks failed");
+		return;
+	}
+
+	var elem = document.getElementById('screen');
+	context = elem.getContext('2d');
+
+	if (screen_scaling_ratio == 2) {
+		if (context.createImageData)
+			bitmap = context.createImageData(480, 256);
+		else if (context.getImageData)
+			bitmap = context.getImageData(0, 0, 960, 512);
+		else
+			bitmap = {'width' : 480, 'height' : 256, 'data' : new Uint8Array(480 * 256 * 4)};
+	}
+	else if (screen_scaling_ratio == 1) {
+		if (context.createImageData)
+			bitmap = context.createImageData(240, 128);
+		else if (context.getImageData)
+			bitmap = context.getImageData(0, 0, 960, 512);
+		else
+			bitmap = {'width' : 240, 'height' : 128, 'data' : new Uint8Array(240 * 128 * 4)};
+	}
+
+	create_buttons_large_92p_skin();
 
 	// set all alpha channels to 255 (fully opaque)
 	for (var x = 3; x < bitmap.data.length; x+= 4) bitmap.data[x] = 255;
@@ -3138,11 +3143,88 @@ function initemu()
 
 	for (var key = 0; key < 80; key++) keystatus[key] = 0;
 
-	document.onkeydown = handle_keys;
-	document.onkeyup = handle_keys;
+	if (calculator_model == 3 || calculator_model == 9) // 89 or 89T
+	{
+		document.onkeydown = handle_keys_89_89T;
+		document.onkeyup = handle_keys_89_89T;
+	}
+	else // 92+ or V200
+	{
+		document.onkeydown = handle_keys_92P_V200;
+		document.onkeyup = handle_keys_92P_V200;
+	}
 };
 
-function handle_keys(event)
+function handle_keys_89_89T(keyCode, value)
+{
+	var e = event || window.event;
+	e.preventDefault();
+	var value;
+	switch (e.type) {
+		case 'keydown':
+			value = 1;
+			break;
+		case 'keyup':
+			value = 0;
+			break;
+		default:
+			return true;
+	}
+
+	switch (e.keyCode)
+	{
+		case 113: keystatus[39] = value; break; // F2
+		case 112: keystatus[47] = value; break; // F1
+		case 114: keystatus[31] = value; break; // F3
+		case 115: keystatus[23] = value; break; // F4
+		case 116: keystatus[15] = value; break; // F5
+		case 27: keystatus[48] = value; break; // ESC
+
+		case 59: keystatus[16] = value; break; // ;, simulated (-) (Firefox, Opera)
+		case 186: keystatus[16] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
+
+		case 43: keystatus[9] = value; break; // + (Opera)
+		case 45: keystatus[10] = value; break; // -
+		case 42: keystatus[11] = value; break; // *
+		case 47: keystatus[12] = value; break; // /
+
+		case 107: keystatus[9] = value; break; // + (all browsers but Opera)
+		case 109: keystatus[10] = value; break; // - 
+		case 106: keystatus[11] = value; break; // *
+		case 111: keystatus[12] = value; break; // /
+
+		case 8: keystatus[22] = value; break; // backspace
+		case 192: keystatus[4] = value; break; // backquote, simulated 2nd
+		case 38: keystatus[0] = value; break; // up
+		case 40: keystatus[2] = value; break; // down
+		case 37: keystatus[1] = value; break; // left
+		case 39: keystatus[3] = value; break; // right
+		case 190: keystatus[24] = value; break; // . (decimal point)
+		case 13: keystatus[8] = value; break; // ENTER
+		case 117: keystatus[47] = value; break; // F6 is treated as F1
+		case 118: keystatus[39] = value; break; // F7 is treated as F2
+		case 119: keystatus[31] = value; break; // F8 is treated as F3
+		case 121: keystatus[5] = value; break; // F10 is treated as SHIFT
+		case 48: keystatus[32] = value; break; // 0
+		case 49: keystatus[33] = value; break; // 1
+		case 50: keystatus[25] = value; break; // 2
+		case 51: keystatus[17] = value; break; // 3
+		case 52: keystatus[34] = value; break; // 4
+		case 53: keystatus[26] = value; break; // 5
+		case 54: keystatus[18] = value; break; // 6
+		case 55: keystatus[35] = value; break; // 7
+		case 56: keystatus[27] = value; break; // 8
+		case 57: keystatus[19] = value; break; // 9
+		case 84: keystatus[21] = value; break; // T
+		case 88: keystatus[45] = value; break; // X
+		case 89: keystatus[37] = value; break; // Y
+		case 90: keystatus[29] = value; break; // Z
+	}
+
+	return true; // suppress default action
+}
+
+function handle_keys_92P_V200(event)
 {
 	var e = event || window.event;
 	e.preventDefault();
@@ -3157,133 +3239,79 @@ function handle_keys(event)
 		default:
 			return true;
 	}
-	if (calculator_model == 3 || calculator_model == 9) // 89 or 89T
-	{	switch (e.keyCode)
-		{
-			case 113: keystatus[39] = value; break; // F2
-			case 112: keystatus[47] = value; break; // F1
-			case 114: keystatus[31] = value; break; // F3
-			case 115: keystatus[23] = value; break; // F4
-			case 116: keystatus[15] = value; break; // F5
-			case 27: keystatus[48] = value; break; // ESC
-
-			case 59: keystatus[16] = value; break; // ;, simulated (-) (Firefox, Opera)
-			case 186: keystatus[16] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
-
-			case 43: keystatus[9] = value; break; // + (Opera)
-			case 45: keystatus[10] = value; break; // -
-			case 42: keystatus[11] = value; break; // *
-			case 47: keystatus[12] = value; break; // /
-
-			case 107: keystatus[9] = value; break; // + (all browsers but Opera)
-			case 109: keystatus[10] = value; break; // - 
-			case 106: keystatus[11] = value; break; // *
-			case 111: keystatus[12] = value; break; // /
-
-			case 8: keystatus[22] = value; break; // backspace
-			case 192: keystatus[4] = value; break; // backquote, simulated 2nd
-			case 38: keystatus[2] = value; break; // up
-			case 40: keystatus[4] = value; break; // down
-			case 37: keystatus[1] = value; break; // left
-			case 39: keystatus[3] = value; break; // right
-			case 190: keystatus[24] = value; break; // . (decimal point)
-			case 13: keystatus[8] = value; break; // ENTER
-			case 117: keystatus[47] = value; break; // F6 is treated as F1
-			case 118: keystatus[39] = value; break; // F7 is treated as F2
-			case 119: keystatus[31] = value; break; // F8 is treated as F3
-			case 121: keystatus[5] = value; break; // F10 is treated as SHIFT
-			case 48: keystatus[32] = value; break; // 0
-			case 49: keystatus[33] = value; break; // 1
-			case 50: keystatus[25] = value; break; // 2
-			case 51: keystatus[17] = value; break; // 3
-			case 52: keystatus[34] = value; break; // 4
-			case 53: keystatus[26] = value; break; // 5
-			case 54: keystatus[18] = value; break; // 6
-			case 55: keystatus[35] = value; break; // 7
-			case 56: keystatus[27] = value; break; // 8
-			case 57: keystatus[19] = value; break; // 9
-			case 84: keystatus[21] = value; break  // T
-			case 88: keystatus[45] = value; break  // X
-			case 89: keystatus[37] = value; break  // Y
-			case 90: keystatus[29] = value; break  // Z
-		}
-	}
-	else // 92+ or V200
+	switch (e.keyCode)
 	{
-		switch (e.keyCode)
-		{
-			case 113: keystatus[36] = value; break; // F2
-			case 112: keystatus[52] = value; break; // F1
-			case 114: keystatus[20] = value; break; // F3
-			case 115: keystatus[76] = value; break; // F4
-			case 116: keystatus[60] = value; break; // F5
-			case 117: keystatus[44] = value; break; // F6
-			case 118: keystatus[28] = value; break; // F7
-			case 119: keystatus[12] = value; break; // F1
-			case 27: keystatus[70] = value; break; // ESC
+		case 113: keystatus[36] = value; break; // F2
+		case 112: keystatus[52] = value; break; // F1
+		case 114: keystatus[20] = value; break; // F3
+		case 115: keystatus[76] = value; break; // F4
+		case 116: keystatus[60] = value; break; // F5
+		case 117: keystatus[44] = value; break; // F6
+		case 118: keystatus[28] = value; break; // F7
+		case 119: keystatus[12] = value; break; // F1
+		case 27: keystatus[70] = value; break; // ESC
 
-			case 59: keystatus[81] = value; break; // ;, simulated (-) (Firefox, Opera)
-			case 186: keystatus[81] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
+		case 59: keystatus[81] = value; break; // ;, simulated (-) (Firefox, Opera)
+		case 186: keystatus[81] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
 
-			case 43: keystatus[68] = value; break; // + (Opera)
-			case 45: keystatus[72] = value; break; // -
-			case 42: keystatus[63] = value; break; // *
-			case 47: keystatus[40] = value; break; // /
+		case 43: keystatus[68] = value; break; // + (Opera)
+		case 45: keystatus[72] = value; break; // -
+		case 42: keystatus[63] = value; break; // *
+		case 47: keystatus[40] = value; break; // /
 
-			case 107: keystatus[68] = value; break; // + (all browsers but Opera)
-			case 109: keystatus[72] = value; break; // - 
-			case 106: keystatus[63] = value; break; // *
-			case 111: keystatus[40] = value; break; // /
+		case 107: keystatus[68] = value; break; // + (all browsers but Opera)
+		case 109: keystatus[72] = value; break; // - 
+		case 106: keystatus[63] = value; break; // *
+		case 111: keystatus[40] = value; break; // /
 
-			case 32: keystatus[32] = value; break; // spacebar
-			case 8: keystatus[64] = value; break; // backspace
-			case 220: keystatus[3] = value; break; // backslash, simulated LOCK (hand)
-			case 192: keystatus[0] = value; break; // backquote, simulated 2nd
-			case 38: keystatus[5] = value; break; // up
-			case 40: keystatus[7] = value; break; // down
-			case 37: keystatus[4] = value; break; // left
-			case 39: keystatus[6] = value; break; // right
-			case 190: keystatus[78] = value; break; // . (decimal point)
-			case 13: keystatus[73] = value; break; // ENTER
-			case 120: keystatus[52] = value; break; // F9 is treated as F1
-			case 121: keystatus[2] = value; break; // F10 is treated as SHIFT
-			case 48: keystatus[77] = value; break; // 0
-			case 49: keystatus[13] = value; break; // 1
-			case 50: keystatus[14] = value; break; // 2
-			case 51: keystatus[15] = value; break; // 3
-			case 52: keystatus[21] = value; break; // 4
-			case 53: keystatus[22] = value; break; // 5
-			case 54: keystatus[23] = value; break; // 6
-			case 55: keystatus[29] = value; break; // 7
-			case 56: keystatus[30] = value; break; // 8
-			case 57: keystatus[31] = value; break; // 9
-			case 65: keystatus[74] = value; break // A - Z
-			case 66: keystatus[41] = value; break 
-			case 67: keystatus[25] = value; break 
-			case 68: keystatus[18] = value; break 
-			case 69: keystatus[19] = value; break 
-			case 70: keystatus[26] = value; break 
-			case 71: keystatus[34] = value; break 
-			case 72: keystatus[42] = value; break 
-			case 73: keystatus[59] = value; break 
-			case 74: keystatus[50] = value; break 
-			case 75: keystatus[58] = value; break 
-			case 76: keystatus[66] = value; break 
-			case 77: keystatus[57] = value; break 
-			case 78: keystatus[49] = value; break 
-			case 79: keystatus[67] = value; break 
-			case 80: keystatus[55] = value; break 
-			case 81: keystatus[75] = value; break 
-			case 82: keystatus[27] = value; break 
-			case 83: keystatus[10] = value; break 
-			case 84: keystatus[35] = value; break 
-			case 85: keystatus[51] = value; break 
-			case 86: keystatus[33] = value; break 
-			case 87: keystatus[11] = value; break 
-			case 88: keystatus[17] = value; break 
-			case 89: keystatus[43] = value; break 
-			case 90: keystatus[9] = value; break 
-		}
+		case 32: keystatus[32] = value; break; // spacebar
+		case 8: keystatus[64] = value; break; // backspace
+		case 220: keystatus[3] = value; break; // backslash, simulated LOCK (hand)
+		case 192: keystatus[0] = value; break; // backquote, simulated 2nd
+		case 38: keystatus[5] = value; break; // up
+		case 40: keystatus[7] = value; break; // down
+		case 37: keystatus[4] = value; break; // left
+		case 39: keystatus[6] = value; break; // right
+		case 190: keystatus[78] = value; break; // . (decimal point)
+		case 13: keystatus[73] = value; break; // ENTER
+		case 120: keystatus[52] = value; break; // F9 is treated as F1
+		case 121: keystatus[2] = value; break; // F10 is treated as SHIFT
+		case 48: keystatus[77] = value; break; // 0
+		case 49: keystatus[13] = value; break; // 1
+		case 50: keystatus[14] = value; break; // 2
+		case 51: keystatus[15] = value; break; // 3
+		case 52: keystatus[21] = value; break; // 4
+		case 53: keystatus[22] = value; break; // 5
+		case 54: keystatus[23] = value; break; // 6
+		case 55: keystatus[29] = value; break; // 7
+		case 56: keystatus[30] = value; break; // 8
+		case 57: keystatus[31] = value; break; // 9
+		case 65: keystatus[74] = value; break; // A - Z
+		case 66: keystatus[41] = value; break;
+		case 67: keystatus[25] = value; break;
+		case 68: keystatus[18] = value; break;
+		case 69: keystatus[19] = value; break;
+		case 70: keystatus[26] = value; break;
+		case 71: keystatus[34] = value; break;
+		case 72: keystatus[42] = value; break;
+		case 73: keystatus[59] = value; break;
+		case 74: keystatus[50] = value; break;
+		case 75: keystatus[58] = value; break;
+		case 76: keystatus[66] = value; break;
+		case 77: keystatus[57] = value; break;
+		case 78: keystatus[49] = value; break;
+		case 79: keystatus[67] = value; break;
+		case 80: keystatus[55] = value; break;
+		case 81: keystatus[75] = value; break;
+		case 82: keystatus[27] = value; break;
+		case 83: keystatus[10] = value; break;
+		case 84: keystatus[35] = value; break;
+		case 85: keystatus[51] = value; break;
+		case 86: keystatus[33] = value; break;
+		case 87: keystatus[11] = value; break;
+		case 88: keystatus[17] = value; break;
+		case 89: keystatus[43] = value; break;
+		case 90: keystatus[9] = value; break;
 	}
 
 	return true; // suppress default action
