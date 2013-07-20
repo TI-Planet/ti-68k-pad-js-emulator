@@ -66,8 +66,13 @@ var port_70001F = 0; // 0x70001F
 var stopped = false;
 var hardware_model = 1; // Only HW1 is emulated at the moment anyway.
 var calculator_model = 1;
+var pedrom = false;
+var punix = false;
+var jmp_tbl = 0;
 var ROM_base; // Deduced from calculator model
+var FlashMemorySize;
 var Protection_enabled = false; // The Protection with a capital P is not implemented, it slows down emulation.
+var hex_prefix = "$";
 
 // Flash memory state machine
 var flash_write_ready = 0;
@@ -128,15 +133,12 @@ function memory_dump(address, size, stride)
 
 function ROM_CALL(id)
 {
-	// Read jump table address, 32 bits at ROM_base + 0x12088 + 0xC8.
-	var jmp_tbl = rl(ROM_base + 0x12088 + 0xC8);
 	return rl(jmp_tbl + 4 * id);
 }
 
 // Special-casing for PedroM extracted from TIEmu, src/core/ti_sw/handles.c.
 function HeapTable()
 {
-	var pedrom = (ram[0x32 >>> 1] == 0x524F);
 	// Are we dealing with an old version of PedroM ?
 	if (pedrom && ram[0x30 >>> 1] <= 0x0080) {
 		return rl(0x5d58);
@@ -161,7 +163,7 @@ function HeapDeref(id)
 // Special-casing for PedroM extracted from TIEmu, src/core/ti_sw/handles.c.
 function HeapSizeAddress(address)
 {
-	if (ram[0x32 >>> 1] != 0x524F) { // AMS
+	if (!pedrom) { // AMS
 		// Read 2 bytes before addess, remove locked indication, subtract 1 byte, and multiply by 2.
 		return ((rw(address - 2) & 0x7FFF) - 1) << 1;
 	}
@@ -181,16 +183,151 @@ function HeapSize(id)
 }
 // TODO: Ptr2Hd ?
 
-// TODO: print handle table: ID, address, size.
 function PrintHeap()
 {
+	// 0 is an invalid HANDLE.
 	var address = HeapTable() + 4;
-	for (var i = 1; i < 2000; i++) { // 0 is an invalid HANDLE.
+	console.log("0\tFFFFFF\tN/A");
+	for (var i = 1; i < 2000; i++) {
 		var handle = rl(address);
 		if (handle != 0) {
 			console.log(i + "\t" + to_hex(handle, 6) + "\t" + to_hex(HeapSizeAddress(handle), 6));
 		}
 		address += 4;
+	}
+}
+
+function disassemble(address, count)
+{
+	while (count > 0) {
+		var opcode = rw(address);
+		var rawinstr = n[opcode];
+		var orig_address = address;
+		var leftside;
+		var rightside;
+		var idx = rawinstr.indexOf(",");
+//console.log("rawinstr:\t" + rawinstr);
+		if (idx == -1) { // Single-operand instruction
+			leftside = rawinstr;
+			rightside = "";
+		}
+		else {
+			leftside = rawinstr.substr(0, idx);
+			rightside = rawinstr.substr(idx + 1);
+		}
+//console.log("leftside:\t" + leftside);
+//console.log("rightside:\t" + rightside);
+		address += 2;
+		if (leftside != "") {
+			if (leftside.indexOf("#xxxxxx") != -1) { // Immediate long value
+				leftside = leftside.replace("#xxxxxx", "#" + hex_prefix + to_hex(rl(address), 8));
+				address += 4;
+			}
+			else if (leftside.indexOf("#xxx") != -1) { // Immediate short value
+				leftside = leftside.replace("#xxx", "#" + hex_prefix + to_hex(rw(address), 4));
+				address += 2;
+			}
+			else if (leftside.indexOf("#xx") != -1) { // Immediate byte value
+				leftside = leftside.replace("#xx", "#" + hex_prefix + to_hex(rw(address) & 0xFF, 2));
+				address += 2;
+			}
+			else if (leftside.indexOf("xxx.W") != -1) { // Immediate short address
+				leftside = leftside.replace("xxx.W", hex_prefix + to_hex(rw(address), 4) + ".W");
+				address += 2;
+			}
+			else if (leftside.indexOf("xxx.L") != -1) { // Immediate long address
+				leftside = leftside.replace("xxx.L", hex_prefix + to_hex(rl(address), 8) + ".L");
+				address += 4;
+			}
+			else if (leftside.indexOf("d(A") != -1) { // address register with displacement
+				var disp = rw(address);
+				leftside = leftside.replace("d(A", hex_prefix + to_hex(disp, 4) + "(A");
+				if (rightside.indexOf("Dn)") == 0) { // address register with displacement and index
+					leftside += "," + ((disp & 0x8000) ? "A" : "D") + (((disp & 0x7000) >>> 12) & 0x7) + ((((disp & 0x0800) >>> 11) & 1) ? ".L" : ".W") + ")"; // Adjust left side
+					rightside = rightside.substring(4); // Skip Dn),
+				}
+				address += 2;
+			}
+			else if (leftside.indexOf("d(PC") != -1) { // PC with displacement
+				// TODO: compute d(PC) address.
+				var disp = rw(address);
+				leftside = leftside.replace("d(PC", hex_prefix + to_hex(disp, 4) + "(PC");
+				if (rightside.indexOf("Dn)") == 0) { // PC with displacement and index
+					leftside += "," + ((disp & 0x8000) ? "A" : "D") + (((disp & 0x7000) >>> 12) & 0x7) + ((((disp & 0x0800) >>> 11) & 1) ? ".L" : ".W") + ")"; // Adjust left side
+					rightside = rightside.substring(4); // Skip Dn),
+				}
+				address += 2;
+			}
+			else if (leftside.indexOf(".W disp") != -1) { // Branch word displacement
+				var disp = rw(address) + 2;
+				if (disp & 0x8000) {
+					disp = 0x10000 - disp;
+					leftside = leftside.replace("disp", hex_prefix + "-" + to_hex(disp, 4) + " [" + to_hex(orig_address - disp, 6) + "]");
+				}
+				else {
+					leftside = leftside.replace("disp", hex_prefix + "+" + to_hex(disp, 4) + " [" + to_hex(orig_address + disp, 6) + "]");
+				}
+				address += 2;
+			}
+			else if (leftside.indexOf(".S disp") != -1) { // Branch short displacement
+				var disp = (opcode & 0xFF) + 2;
+				if (disp & 0x80) {
+					disp = 0x100 - disp;
+					leftside = leftside.replace("disp", hex_prefix + "-" + to_hex(disp, 2) + " [" + to_hex(orig_address - disp, 6) + "]");
+				}
+				else {
+					leftside = leftside.replace("disp", hex_prefix + "+" + to_hex(disp, 2) + " [" + to_hex(orig_address + disp, 6) + "]");
+				}
+			}
+			else if (leftside.indexOf("regs") != -1) { // Registers for movem
+				// TODO. Example: 412512 on AMS 2.09 92+.
+				address += 2;
+			}
+		}
+
+		if (rightside != "") {
+			// Immediate values forbidden as dest ea
+			if (rightside.indexOf("xxx.W") != -1) { // Immediate short address
+				rightside = rightside.replace("xxx.W", hex_prefix + to_hex(rw(address), 4) + ".W");
+				address += 2;
+			}
+			else if (rightside.indexOf("xxx.L") != -1) { // Immediate long address
+				rightside = rightside.replace("xxx.L", hex_prefix + to_hex(rl(address), 8) + ".L");
+				address += 4;
+			}
+			else if (rightside.indexOf("d(A") != -1) { // address register with displacement
+				rightside = rightside.replace("d(A", hex_prefix + to_hex(rw(address), 4) + "(A");
+
+WIP
+				if (rightside.indexOf("Dn)") == 0) { // address register with displacement and index
+					leftside += "," + ((disp & 0x8000) ? "A" : "D") + (((disp & 0x7000) >>> 12) & 0x7) + ((((disp & 0x0800) >>> 11) & 1) ? ".L" : ".W") + ")"; // Adjust left side
+					rightside = rightside.substring(4); // Skip Dn),
+				}
+				address += 2;
+			}
+			// PC with displacement is forbidden as dest ea (sadly, as it would be great for PC-relative / PIC programs...)
+			else if (rightside.indexOf("disp") != -1) { // Branch short displacement for DBcc
+				var disp = rw(address) + 2;
+				if (disp & 0x8000) {
+					disp = 0x10000 - disp;
+					rightside = rightside.replace("disp", hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address - disp, 6) + "]");
+				}
+				else {
+					rightside = rightside.replace("disp", hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address + disp, 6) + "]");
+				}
+				address += 2;
+			}
+			else if (rightside.indexOf("regs") != -1)  { // Registers for movem
+				// TODO. Example: 412536 on AMS 2.09 92+.
+				address += 2;
+			}
+
+			console.log(to_hex(orig_address, 6) + "\t" + leftside + "," + rightside);
+		}
+		else {
+			console.log(to_hex(orig_address, 6) + "\t" + leftside);
+		}
+		count--;
 	}
 }
 
@@ -839,7 +976,7 @@ function get_write(size)
 }
 
 // Return friendly text description of the addressing mode
-function amode_name(mode, reg)
+function amode_name(mode, reg, size)
 {
 	if (mode==MODE_DREG) return "D" + (reg)
 	if (mode==1) return "A" + (reg)
@@ -852,8 +989,20 @@ function amode_name(mode, reg)
 	if (mode==7 && reg==1) return "xxx.L"
 	if (mode==7 && reg==2) return "d(PC)"
 	if (mode==7 && reg==3) return "d(PC,Dn)"
-	if (mode==7 && reg==4) return "#xxx"
+	if (mode==7 && reg==4) {
+		if (size == 0) return "#xx";
+		else if (size == 1) return "#xxx";
+		else if (size == 2) return "#xxxxxx";
+	}
 	return "unk"
+}
+
+function size_imm(size)
+{
+	if (size == 0) return " #xx,";
+	else if (size == 1) return " #xxx,";
+	else if (size == 2) return " #xxxxxx,";
+	// else do nothing
 }
 
 // Generate code to read bytes after the pc into the specified variable.  Advances the PC unless the
@@ -1153,14 +1302,14 @@ function build_addsubq()
 							opcode = 0x5000 + (offset << 9)
 							if (offset == 8) opcode = 0x5000
 							opcode += (size << 6) + (mode << 3) + reg
-							name = "ADDQ" + size_name(size) + " #" + offset + "," + amode_name(mode, reg)
+							name = "ADDQ" + size_name(size) + " #" + offset + "," + amode_name(mode, reg, 0)
 						}
 						else
 						{
 							opcode = 0x5100 + ((-offset) << 9)
 							if (offset == -8) opcode = 0x5100
 							opcode += (size << 6) + (mode << 3) + reg
-							name = "SUBQ" + size_name(size) + " #" + (-offset) + "," + amode_name(mode, reg)
+							name = "SUBQ" + size_name(size) + " #" + (-offset) + "," + amode_name(mode, reg, 0)
 						}
 						var actualsize = (mode == MODE_AREG) ? 2 : size; // for address registers, always treat as long
 						var code = amode_read(mode, reg, actualsize, false);
@@ -1210,9 +1359,9 @@ function build_conditionals(condition, name, bits)
 		if (iname == "BF")
 			iname = "BSR"
 		if (o == 0)
-			iname = iname + ".W"
+			iname = iname + ".W disp"
 		else
-			iname = iname + ".S"
+			iname = iname + ".S disp"
 		var code = "";
 		if (o == 0)
 		{
@@ -1259,7 +1408,7 @@ function build_conditionals(condition, name, bits)
 		code +=  "pc+=2;"
 		code +=  "else "
 		code +=  "pc=(pc+ewl(rw(pc)))%4294967296;}"
-		insert_inst(opcode, code, "DB" + name + " D" + reg)
+		insert_inst(opcode, code, "DB" + name + " D" + reg + ",disp")
 	}
 
 	// Scc
@@ -1273,7 +1422,7 @@ function build_conditionals(condition, name, bits)
 				code += "} else {"
 				code += amode_write(mode, reg, 0, "0")
 				code += "}"
-				insert_inst(opcode, code, "S" + name + " " + amode_name(mode,reg))
+				insert_inst(opcode, code, "S" + name + " " + amode_name(mode, reg, 0))
 			}
 }
 
@@ -1289,7 +1438,7 @@ function build_moves(name, size, pattern)
 					if (valid_source(srcmode, srcreg) && valid_dest(dstmode, dstreg))
 					{
 						var opcode = pattern + (dstreg << 9) + (dstmode << 6) + (srcmode << 3) + srcreg
-						var fullname = name + " " + amode_name(srcmode, srcreg) + "," + amode_name(dstmode, dstreg)
+						var fullname = name + " " + amode_name(srcmode, srcreg, size) + "," + amode_name(dstmode, dstreg, size)
 						var code = amode_read(srcmode, srcreg, size, true)
 						code += amode_write(dstmode, dstreg, size, "s")
 						// set condition codes, except when writing to a registers
@@ -1335,7 +1484,7 @@ function build_calc(name, bits)
 					// generate version with EA as source
 					if (valid_source(mode, reg) && name != "EOR") // EA as source does work for EOR
 					{
-						var iname = + name + size_name(size) + " " + amode_name(mode,reg) + ",D" + dreg
+						var iname = + name + size_name(size) + " " + amode_name(mode, reg, size) + ",D" + dreg
 						var code = amode_read(mode, reg, size, true)
 						code += build_operation(name, size, "s", "d" + dreg + "")
 						code += amode_write(MODE_DREG, dreg, size, "r")
@@ -1345,7 +1494,7 @@ function build_calc(name, bits)
 					if (valid_dest(mode, reg) && (mode != MODE_DREG || name == "EOR") && mode != MODE_AREG) //EA as dest does not work for registers
 					{
 						opcode = opcode + 0x100
-						var iname = name + size_name(size) + " D" + dreg + "," + amode_name(mode,reg)
+						var iname = name + size_name(size) + " D" + dreg + "," + amode_name(mode, reg, size)
 						var code = amode_read(mode, reg, size, false)
 						code += build_operation(name, size, "d" + dreg, "s")
 						code += amode_write(mode, reg, size, "r")
@@ -1363,7 +1512,7 @@ function build_muldiv(name, bits, calcfunc)
 				if (valid_source(mode, reg) && mode != MODE_AREG)
 				{
 					var opcode = bits + (dreg << 9) + (mode << 3) + reg
-					var iname = name + " " + amode_name(mode,reg) + ",D" + dreg
+					var iname = name + " " + amode_name(mode, reg, 1) + ",D" + dreg
 					var code = amode_read(mode, reg, 1, true)
 					code += "d" + dreg + " = " + calcfunc + "(s,d" + dreg +");"
 					insert_inst(opcode, code, iname)
@@ -1384,12 +1533,12 @@ function build_bit_operation(name, bits)
 					if (dreg == 8)
 					{
 						opcode = bits + (srcmode << 3) + srcreg;
-						iname = name + " #xxx," + amode_name(srcmode, srcreg)
+						iname = name + " #xxx," + amode_name(srcmode, srcreg, 0)
 					}
 					else
 					{
 						opcode = bits + (srcmode << 3) + srcreg - 0x700 + (dreg << 9);
-						iname = name + " D" + dreg + "," + amode_name(srcmode, srcreg)
+						iname = name + " D" + dreg + "," + amode_name(srcmode, srcreg, 0)
 					}
 					if (dreg == 8)
 						code = read_pc(1, "b", true)
@@ -1446,7 +1595,7 @@ function build_cmp()
 					if (valid_source(srcmode, srcreg))
 					{
 						var opcode = 0xB000 + (firstreg << 9) + (size << 6) + (srcmode << 3) + srcreg;
-						var iname = "CMP" + size_name(size) + " " + amode_name(srcmode, srcreg) + ",D" + firstreg
+						var iname = "CMP" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",D" + firstreg
 						var code = amode_read(srcmode, srcreg, size, true)
 						code += "m=d" + firstreg + ";"
 						if (size == 1) code += "m=m&0xFFFF;"
@@ -1467,7 +1616,7 @@ function build_adest()
 					if (valid_source(srcmode, srcreg))
 					{
 						var opcode = 0x90C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
-						var iname = "SUBA" + size_name(size) + " " + amode_name(srcmode, srcreg) + ",A" + areg
+						var iname = "SUBA" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",A" + areg
 						var code = amode_read(srcmode, srcreg, size, true)
 						if (size == 1) code += " s = ewl(s);"
 						code += "var r=a" + areg + " - s;"
@@ -1476,14 +1625,14 @@ function build_adest()
 						insert_inst(opcode, code, iname)
 
 						opcode = 0xB0C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
-						iname = "CMPA" + size_name(size) + " " + amode_name(srcmode, srcreg) + ",A" + areg
+						iname = "CMPA" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",A" + areg
 						code = amode_read(srcmode, srcreg, size, true)
 						if (size == 1) code += "s=ewl(s);"
 						code += "cmpl(s,a" + areg + ");"
 						insert_inst(opcode, code, iname)
 
 						opcode = 0xD0C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
-						iname = "ADDA" + size_name(size) + " " + amode_name(srcmode, srcreg) + ",A" + areg
+						iname = "ADDA" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",A" + areg
 						code = amode_read(srcmode, srcreg, size, true)
 						if (size == 1) code += "s=ewl(s);"
 						code += "var r=a" + areg + "+s;"
@@ -1528,7 +1677,7 @@ function build_shifts(name, mask, altmask, namelower)
 			if (valid_dest(mode, reg) && mode != MODE_DREG && mode != MODE_AREG)
 			{
 				var opcode = altmask + (mode << 3) + reg;
-				var iname = name + ".W " + amode_name(mode, reg)
+				var iname = name + ".W " + amode_name(mode, reg, 1)
 				var code = amode_read(mode, reg, 1, false)
 				code += amode_write(mode, reg, 1, namelower + "(s,1,1)")
 				insert_inst(opcode, code, iname)
@@ -1543,10 +1692,10 @@ function build_immediate(name, mask, operation)
 				if ((valid_dest(mode, reg) && mode != MODE_AREG) || (mode == MODE_MISC && reg == 4 && size < 2 && operation != ""))
 				{
 					var opcode = mask + (size << 6) + (mode << 3) + reg
-					var mode_name = amode_name(mode, reg)
+					var mode_name = amode_name(mode, reg, size)
 					if (mode == MODE_MISC && reg == 4 && size == 0) mode_name = "CCR"
 					if (mode == MODE_MISC && reg == 4 && size == 1) mode_name = "SR"
-					var iname = name + size_name(size) + " #xxx," + mode_name
+					var iname = name + size_name(size) + size_imm(size) + mode_name
 					var code = read_pc(size, "m", true)
 					if (mode == MODE_MISC && reg == 4)
 					{
@@ -1603,7 +1752,7 @@ function build_not_neg()
 				if (valid_dest(srcmode, srcreg))
 				{
 					var opcode = 0x4600 + (size << 6) + (srcmode << 3) + srcreg;
-					var iname = "NOT" + size_name(size) + " " + amode_name(srcmode, srcreg)
+					var iname = "NOT" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					var code = amode_read(srcmode, srcreg, size, false)
 					if (size == 0) code += "s=255-s;"
 					if (size == 1) code += "s=65535-s;"
@@ -1614,7 +1763,7 @@ function build_not_neg()
 					
 					// *** should fix overflow here sometime
 					opcode = 0x4400 + (size << 6) + (srcmode << 3) + srcreg;
-					iname = "NEG" + size_name(size) + " " + amode_name(srcmode, srcreg)
+					iname = "NEG" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					code = amode_read(srcmode, srcreg, size, false)
 					code += "sr &= 0xFFE0;"
 					if (size == 0) code += "var r=s==0?0:256-s;if(r>127)sr|=8;"
@@ -1625,7 +1774,7 @@ function build_not_neg()
 					insert_inst(opcode, code, iname)
 					
 					opcode = 0x4000 + (size << 6) + (srcmode << 3) + srcreg;
-					iname = "NEGX" + size_name(size) + " " + amode_name(srcmode, srcreg)
+					iname = "NEGX" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					code = amode_read(srcmode, srcreg, size, false)
 					code += "	if(sr&0x10)s++;"
 					if (size == 0) code += "var r=256-s;"
@@ -1645,13 +1794,13 @@ function build_clr_tst_tas()
 				if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
 				{
 					var opcode = 0x4200 + (size << 6) + (srcmode << 3) + srcreg;
-					var iname =  "CLR" + size_name(size) + " " + amode_name(srcmode, srcreg)
+					var iname =  "CLR" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					var code = amode_write(srcmode, srcreg, size, "0")
 					code += "sr|=4;"
 					insert_inst(opcode, code, iname)
 
 					opcode = 0x4a00 + (size << 6) + (srcmode << 3) + srcreg;
-					iname = "TST" + size_name(size) + " " + amode_name(srcmode, srcreg)
+					iname = "TST" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					code = amode_read(srcmode, srcreg, size, true)
 					code += set_condition_flags_data(size, "s")
 					insert_inst(opcode, code, iname)
@@ -1660,7 +1809,7 @@ function build_clr_tst_tas()
 					if (size == 0)
 					{
 						opcode = 0x4ac0 + (srcmode << 3) + srcreg;
-						iname = "TAS.B" + " " + amode_name(srcmode, srcreg)
+						iname = "TAS.B" + " " + amode_name(srcmode, srcreg, size)
 						code = amode_read(srcmode, srcreg, size, true)
 						code += set_condition_flags_data(size, "s")
 						code += amode_write(srcmode, srcreg, size, "s | 0x80")
@@ -1677,7 +1826,7 @@ function build_lea()
 				if (valid_calc_effective_address(srcmode, srcreg))
 				{
 					var opcode = 0x41C0 + (reg << 9) + (srcmode << 3) + srcreg;
-					var iname = "LEA " + amode_name(srcmode, srcreg) + ",A" + reg
+					var iname = "LEA " + amode_name(srcmode, srcreg, 1) + ",A" + reg
 					var code = effective_address_calc(srcmode, srcreg)
 					code += "a" + reg + "=z;"
 					insert_inst(opcode, code, iname)
@@ -1692,7 +1841,7 @@ function build_cmpi()
 				if (valid_dest(srcmode, srcreg))
 				{
 					var opcode = 0xC00 + (size << 6) + (srcmode << 3) + srcreg;
-					var iname = "CMPI" + size_name(size) + " #xxx," + amode_name(srcmode, srcreg)
+					var iname = "CMPI" + size_name(size) + size_imm(size) + amode_name(srcmode, srcreg, size)
 					var code = read_pc(size, "subtrahend",true)
 					code += amode_read(srcmode, srcreg, size, true)
 					if (size==0) code += "cmpb(subtrahend, s);"
@@ -1721,7 +1870,7 @@ function build_movem()
 						 reg == MISCMODE_PC_INDEX)))
 				{
 					var opcode = 0x4c80 + ((size - 1) << 6) + (mode << 3) + reg
-					var iname = "MOVEM" + size_name(size + 1) + " " + amode_name(mode, reg) + ",regs"
+					var iname = "MOVEM" + size_name(size + 1) + " " + amode_name(mode, reg, size) + ",regs"
 					var code = read_pc(1, "regs", true)
 					if (mode == MODE_AREG_POSTINC)
 						code += "var newval = load_multiple_postinc(a" + reg + ", regs, " + size + "); a" + reg + " = newval;";
@@ -1743,7 +1892,7 @@ function build_movem()
 						 reg == MISCMODE_LONG)))
 				{
 					var opcode = 0x4880 + ((size - 1) << 6) + (mode << 3) + reg
-					var iname = "MOVEM" + size_name(size) + " regs," + amode_name(mode, reg)
+					var iname = "MOVEM" + size_name(size) + " regs," + amode_name(mode, reg, size)
 					var code = read_pc(1, "regs", true)
 					if (mode == MODE_AREG_PREDEC)
 						code += "var newval = store_multiple_predec(a" + reg + ", regs, " + size + "); a" + reg + " = newval;";
@@ -1815,17 +1964,17 @@ function build_movesrccr()
 			if (valid_source(srcmode, srcreg) && srcmode != MODE_AREG)
 			{
 				var opcode = 0x46C0 + (srcmode << 3) + srcreg;
-				var iname = "'MOVE " + amode_name(srcmode, srcreg) + ",SR"
+				var iname = "MOVE " + amode_name(srcmode, srcreg, 1) + ",SR"
 				insert_inst(opcode, amode_read(srcmode, srcreg, 1, true) + "update_sr(s);", iname)
 
 				opcode = 0x44C0 + (srcmode << 3) + srcreg;
-				iname = "MOVE " + amode_name(srcmode, srcreg) + ",CCR"
+				iname = "MOVE " + amode_name(srcmode, srcreg, 0) + ",CCR"
 				insert_inst(opcode, amode_read(srcmode, srcreg, 0, true) + "sr = (sr&0xFF00) + s;", iname)
 			}
 			if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
 			{
 				var opcode = 0x40C0 + (srcmode << 3) + srcreg;
-				var iname = "MOVE SR," + amode_name(srcmode, srcreg)
+				var iname = "MOVE SR," + amode_name(srcmode, srcreg, 1)
 				insert_inst(opcode, amode_write(srcmode, srcreg, 1, "sr"), iname)
 			}
 		}
@@ -1855,7 +2004,7 @@ function build_jmpjsr()
 				for (var jsr = 1; jsr >= 0; jsr--)
 				{
 					var opcode = 0x4EC0 + (mode << 3) + reg - jsr * 0x40;
-					var iname = (jsr == 1 ? "JSR" : "JMP") + amode_name(mode, reg)
+					var iname = (jsr == 1 ? "JSR " : "JMP ") + amode_name(mode, reg, 0)
 					var code = effective_address_calc(mode, reg)
 					if (jsr == 1)
 						code += amode_write(4, 7, 2, "pc")
@@ -1871,7 +2020,7 @@ function build_pea()
 			if (valid_calc_effective_address(srcmode, srcreg))
 			{
 				var opcode = 0x4840 + (srcmode << 3) + srcreg;
-				var iname = "PEA " + amode_name(srcmode, srcreg)
+				var iname = "PEA " + amode_name(srcmode, srcreg, 0)
 				insert_inst(opcode, effective_address_calc(srcmode, srcreg) + amode_write(4, 7, 2, "z"), iname)
 			}
 }
@@ -1895,7 +2044,7 @@ function build_chk()
 				if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
 				{
 					var opcode = 0x4180 + (reg << 9) + (srcmode << 3) + srcreg;
-					var iname = "CHK " + amode_name(srcmode, srcreg) + ",D" + reg
+					var iname = "CHK.W " + amode_name(srcmode, srcreg, 1) + ",D" + reg
 					var code = amode_read(srcmode, srcreg, 1, true)
 					code += "if (d" + reg + "<0) { sr |= 8; raise_cpu_exception(6); } if(d" + reg + "> s) { sr &= 0xFFF7; raise_cpu_exception(6); }"
 					insert_inst(opcode, code, iname)
@@ -1996,7 +2145,7 @@ build_exchange("D", "D", 0xC140)
 build_exchange("A", "A", 0xC148)
 build_exchange("D", "A", 0xC188)
 insert_inst(0x4E71, "", "NOP")
-insert_inst(0x4E72, "pc+=2", "STOP #xxx") // TODO: proper implementation
+insert_inst(0x4E72, "pc+=2", "STOP #xxx") // TODO: proper implementation, instead of a 4-byte NOP
 insert_inst(0x4E73, "var s=rw(a7);a7+=2;pc=rl(a7);a7+=4;update_sr(s)", "RTE")
 insert_inst(0x4E75, "pc=rl(a7);a7+=4;", "RTS")
 insert_inst(0x4E76, "if(sr&2)fire_cpu_exception(7)", "TRAPV")
@@ -2420,7 +2569,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
 "		if (flash_write_phase == 0x90) {" + // Read identifier codes mode
 "			switch (address & 0xffff) {" +
-"				case 0:  return (calculator_model == 8 || calculator_model == 9) ? 0x00b0 : 0x0089;" + // manufacturer code
+"				case 0:  return " + ((suffix == 8 || suffix == 9) ? "0x00b0" : "0x0089") + ";" + // manufacturer code
 "				case 2:  return 0x00b5;" + // device code
 "				default: return 0xffff;" +
 "			}" +
@@ -2449,7 +2598,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "		if (flash_write_phase == 0x90) {" + // Read identifier codes mode; not sure anyone uses it under byte form...
 "			switch (address & 0xffff) {" +
 "				case 0:  return 0x00;" +
-"				case 1:  return (calculator_model == 8 || calculator_model == 9) ? 0xb0 : 0x89;" + // manufacturer code
+"				case 1:  return " + ((suffix == 8 || suffix == 9) ? "0xb0" : "0x89") + ";" + // manufacturer code
 "				case 2:  return 0x00;" +
 "				case 3:  return 0xb5;" + // device code
 "				default: return 0xff;" +
@@ -3108,8 +3257,14 @@ function create_buttons_large_92p_skin()
 
 function initemu()
 {
+	sr = 0;
 	if (!checkemu()) {
 		console.log("Emulation checks failed");
+		return;
+	}
+
+	if (!detect_calculator_model()) {
+		console.log("Couldn't detect calculator model");
 		return;
 	}
 
@@ -3155,7 +3310,7 @@ function initemu()
 	}
 };
 
-function handle_keys_89_89T(keyCode, value)
+function handle_keys_89_89T(event)
 {
 	var e = event || window.event;
 	e.preventDefault();
@@ -3317,6 +3472,91 @@ function handle_keys_92P_V200(event)
 	return true; // suppress default action
 }
 
+// Detecting the calculator model in a generic way is harder than it could seem.
+// There are many special cases, and here, we can't rely on libtifiles preparing the work for us...
+// In TIEmu, see src/core/images.c::ti68k_get_rom_infos() and src/core/hwpm.c::ti68k_get_hw_param_block().
+function detect_calculator_model()
+{
+	jmp_tbl = rom[(0x12088 + 0xC8) >>> 1] * 65536 + rom[((0x12088 + 0xC8) >>> 1) + 1]; // Jump table, if any
+	pedrom = (rom[(0x12088 + 0x32) >>> 1] == 0x524F); // PedroM has kernel type "RO", AMS and Punix have no kernel type.
+	punix = (jmp_tbl == 0); // Punix doesn't have an AMS-style jump table.
+	var OSsize;
+
+	switch (rom[0x12000 >>> 1]) {
+		case 0x800F: // Size on 4 bytes
+		{
+			OSsize = rom[0x12002 >>> 1] * 65536 + rom[0x12004 >>> 1];
+			if (rom[0x12006 >>> 1] == 0x8011) { // Calculator model
+				calculator_model = (rom[0x12008 >>> 1] & 0xFF00) >>> 8;
+			}
+			else {
+				console.log("Unhandled calculator model scheme or invalid data");
+				return false;
+			}
+			break;
+		}
+		case 0x800E: // Size on 2 bytes
+		{
+			OSsize = rom[0x12002 >>> 1];
+			if (rom[0x12004 >>> 1] == 0x8011) { // Calculator model
+				calculator_model = (rom[0x12006 >>> 1] & 0xFF00) >>> 8;
+			}
+			else {
+				console.log("Unhandled calculator model scheme or invalid data");
+				return false;
+			}
+			break;
+		}
+		default: // Probably invalid data, since valid OS upgrades are unlikely to have less than 256 bytes of code+data.
+		{
+			console.log("Unhandled OS size scheme or invalid data");
+			return false;
+		}
+	}
+	//console.log("OS size is " + OSsize + " bytes (+ header and signature)");
+
+	switch (calculator_model) {
+		case 1: ROM_base = 0x400000; FlashMemorySize = 0x200000; break; // 92+
+		case 3: ROM_base = 0x200000; FlashMemorySize = 0x200000; break; // 89
+		case 8: ROM_base = 0x200000; FlashMemorySize = 0x400000; break; // V200
+		case 9: ROM_base = 0x800000; FlashMemorySize = 0x400000; break; // 89T
+		default: return false;
+	}
+
+	// Post-process hardware model from the information contained in HWPB, if any.
+	var hwpbaddress = rom[0x104 / 2] * 65536 + rom[0x106 / 2]; // Address of HWPB, if any.
+	if (hwpbaddress != 0xFFFFFFFF) {
+		// There's a HWPB in this image.
+		var hwpboffset = (hwpbaddress - ROM_base) >>> 1;
+		var hwpbsize = rom[hwpboffset]; // Read size bytes.
+		//console.log("hwpbaddress=" + to_hex(hwpbaddress, 6) + " hwpboffset=" + to_hex(hwpboffset, 6) + " hwpbsize=" + to_hex(hwpbsize, 4));
+		if (hwpbsize >= 6) {
+			// There's a hardware ID field in this HWPB.
+			calculator_model = rom[hwpboffset + 1] * 65536 + rom[hwpboffset + 2];
+			console.log("calculator_model=" + calculator_model);
+			if (calculator_model == 8 && ROM_base == 0x400000) {
+				console.log("Detected V200 ROM patched as 92+, forcing 92+ model");
+				calculator_model = 1; FlashMemorySize = 0x200000;
+			}
+			else if (calculator_model == 9 && ROM_base == 0x200000) {
+				console.log("Detected 89T ROM patched as 89, forcing 89 model");
+				calculator_model = 3; FlashMemorySize = 0x200000;
+			}
+		}
+
+		if (hwpbsize >= 0x18) {
+			// There's a gate array field in this HWPB.
+			hardware_model = rom[hwpboffset + 11] * 65536 + rom[hwpboffset + 12];
+		}
+		else {
+			hardware_model = (calculator_model == 9) ? 3 : ((calculator_model == 8) ? 2 : 1); // Assume HW3 for 89T, HW2 for V200 (always correct), HW1 for 89 & 92+.
+		}
+	}
+
+	console.log("Detected a supported OS, calculator model is " + calculator_model + ", hardware model is " + hardware_model);
+	return true;
+}
+
 function initialize_calculator()
 {
 	reset_calculator();
@@ -3339,19 +3579,15 @@ function reset_calculator()
 	// Redefine memory read / write functions
 	if (calculator_model == 1) { // 92+
 		rb = rb_1_normal; rw = rw_1_normal; wb = wb_1_normal; ww = ww_1_normal;
-		ROM_base = 0x400000;
 	}
 	else if (calculator_model == 3) { // 89
 		rb = rb_3_normal; rw = rw_3_normal; wb = wb_3_normal; ww = ww_3_normal;
-		ROM_base = 0x200000;
 	}
 	else if (calculator_model == 8) { // V200
 		rb = rb_8_normal; rw = rw_8_normal; wb = wb_8_normal; ww = ww_8_normal;
-		ROM_base = 0x200000;
 	}
 	else if (calculator_model == 9) { // 89T
 		rb = rb_9_normal; rw = rw_9_normal; wb = wb_9_normal; ww = ww_9_normal;
-		ROM_base = 0x800000;
 	}
 	else {
 		console.log("Invalid calculator type");
@@ -3912,22 +4148,18 @@ function emu_main_loop()
 		if (inputrom.byteLength == 0x200000 || inputrom.byteLength == 0x400000)
 		{
 			console.log("Processing plain ROM image");
-			// TODO: fix this to cope with typed arrays.
-			rom = new Array();
+			rom = new Uint16Array(inputrom.byteLength / 2);
 			for (var x = 0; x < inputrom.byteLength; x += 2)
 			{
-				rom.push(buf[x] * 256 + buf[x + 1]);
+				rom[x / 2] = buf[x] * 256 + buf[x + 1];
 			}
-			reset_calculator();
+			initemu();
 		}
 		else
 		{
 			console.log("Processing TIB/9XU image");
-			rom = new Array();
-			for (var y = 0; y < 0x12000; y += 2) { rom.push(0x1400); }
-
 			var start = 0;
-			if (buf[0] == 0x2a && buf[4] == 0x46)
+			if (buf[0] == 0x2A && buf[1] == 0x2A && buf[2] == 0x54 && buf[3] == 0x49 && buf[4] == 0x46 && buf[5] == 0x4C && buf[6] == 0x2A && buf[7] == 0x2A)
 			{
 				for (var test = 0; test < inputrom.byteLength - 8; test++)
 				{
@@ -3940,18 +4172,28 @@ function emu_main_loop()
 				}
 			}
 			console.log("Offset = " + start);
-			
+
+			rom = new Uint16Array(0x400000 / 2); // Allocate an array of maximum size.
+			var offset = 0;
+			for (offset = 0; offset < 0x12000 / 2; offset++) {
+				rom[offset] = 5120;  // 0x1400
+			}
+
 			for (var x = start; x < inputrom.byteLength; x += 2)
 			{
-				rom.push(buf[x] * 256 + buf[x + 1]);
+				rom[offset] = buf[x] * 256 + buf[x + 1];
+				offset++;
 			}
-			while (rom.length < 0x100000) rom.push(0xFFFF);
-			reset_calculator();
-			overall = 150; tracecount = 50;
+			while (offset < rom.length) {
+				rom[offset] = 0xFFFF;
+				offset++;
+			}
+			initemu();
+			rom = rom.subarray(0, FlashMemorySize / 2); // Reduce array size if possible.
+			//overall = 150; tracecount = 50;
 		}
 	}
 
-	// WIP: refactor code, moving parts to an external function.
 	if (newfileready)
 	{
 		var buf;
