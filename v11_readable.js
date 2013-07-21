@@ -58,6 +58,7 @@ var timer_current = 0; // 0x600017
 var keystatus = new Uint8Array(80); // status of each key is at ROW * 8 + COLUMN
 var keymaskhigh = 0xFF; // 0x600018
 var keymasklow = 0xFF; // 0x600019: which key rows are selected to read
+var port_60001A = 0x02; // 0x60001A: ON key not pressed
 var port_60001D = 0; // 0x60001D
 var port_70001D = 0; // 0x70001D
 var port_70001F = 0; // 0x70001F
@@ -2250,7 +2251,7 @@ function read_hreg(reg)
 
 		case 0x60001a: // 0x60001a
 		{
-			return 0xFF; // ON key read - treat as not pressed
+			return port_60001A; // ON key read
 		}
 
 		case 0x60001b: // 0x60001b
@@ -2423,7 +2424,7 @@ function write_hreg(reg, value)
 
 		case 0x60001a: // 0x60001a: acknowledge AUTO_INT_6
 		{
-			// TODO: implement this.
+			port_60001A = value;
 			break;
 		}
 
@@ -3172,6 +3173,19 @@ function create_button(shape, coords, keynumber)
 	map.appendChild(area);
 }
 
+function create_on_button(shape, coords)
+{
+	var map = document.getElementById('map');
+	var area = document.createElement('area');
+	area.shape = shape;
+	area.coords = coords;
+	area.onmousedown = function() { port_60001A = 0x00; fire_cpu_exception(30); }
+	area.ontouchdown = function() { port_60001A = 0x00; fire_cpu_exception(30); }
+	area.onmouseup = function() { port_60001A = 0x02; }
+	area.ontouchup = function() { port_60001A = 0x02; }
+	map.appendChild(area);
+}
+
 function create_buttons_large_92p_skin()
 {
 	create_button("rect", "140,52,193,112", 3); // LOCK (hand)
@@ -3253,6 +3267,8 @@ function create_buttons_large_92p_skin()
 	create_button("rect", "724,501,770,531", 77); // 0
 	create_button("rect", "784,502,830,532", 78); // .
 	create_button("rect", "845,501,891,531", 79); // (-)
+
+	create_on_button("rect", "74,497,120,527"); // ON: left of DIAMOND, below SHIFT
 }
 
 function initemu()
@@ -3640,6 +3656,36 @@ function fire_cpu_exception(e)
 	}
 }
 
+function dump_incoming_queue(header)
+{
+	var dump = header;
+	for (var y = 0; y < link_incoming_queue.length; y++)
+	{
+		if (typeof(link_incoming_queue[y]) == "number") {
+			dump += to_hex(link_incoming_queue[y], 2) + " ";
+		}
+		else {
+			dump += link_incoming_queue[y] + " ";
+		}
+	}
+	console.log(dump);
+}
+
+function dump_outgoing_queue(header)
+{
+	var dump = header;
+	for (var y = 0; y < link_outgoing_queue.length; y++)
+	{
+		if (typeof(link_outgoing_queue[y]) == "number") {
+			dump += to_hex(link_outgoing_queue[y], 2) + " ";
+		}
+		else {
+			dump += link_outgoing_queue[y] + " ";
+		}
+	}
+	console.log(dump);
+}
+
 function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_and_length)
 {
 	// Initial RTS.
@@ -3678,7 +3724,7 @@ function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_a
 		var chunk_len = Math.min(65536, data_len);
 
 		// Equivalent of libticalcs: ti89_recv_ACK.
-		link_incoming_queue.push('WAIT_OK');
+		link_incoming_queue.push('WAIT_ACK');
 		// Equivalent of libticalcs: ti89_recv_CTS.
 		link_incoming_queue.push('WAIT_CTS');
 		// libticalcs: ti89_send_ACK.
@@ -3710,7 +3756,7 @@ function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_a
 		link_incoming_queue.push(data_checksum % 256, (data_checksum >>> 8) % 256); // data checksum, little endian to calc
 
 		// Equivalent of libticalcs: ti89_recv_ACK.
-		link_incoming_queue.push('WAIT_OK');
+		link_incoming_queue.push('WAIT_ACK');
 
 		if (chunk_len == 65536) {
 			// libticalcs: ti89_send_CNT.
@@ -3729,16 +3775,92 @@ function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_a
 
 	// Wait for final ACK.
 	// Equivalent of libticalcs: ti89_recv_ACK.
-	link_incoming_queue.push('WAIT_OK');
+	link_incoming_queue.push('WAIT_ACK');
 
-	console.log("finished processing variable");
+	console.log("finished processing for sending variable");
 
-	var dump = "Incoming: " + link_incoming_queue.length + " (pseudo-)bytes\n";
-	for (var y = 0; y < link_incoming_queue.length; y++)
+	dump_incoming_queue("Incoming: " + link_incoming_queue.length + " (pseudo-)bytes\n");
+}
+
+// WIP BROKEN !
+// NOTE: for now, varname must be an array of integers ! For instance:
+/*
+maina = new Array();
+maina.push(0x6D); // m
+maina.push(0x61); // a
+maina.push(0x69); // i
+maina.push(0x6E); // n
+maina.push(0x5C); // \
+maina.push(0x61); // a
+*/
+// For vartype, see http://debrouxl.github.io/gcc4ti/link.html#LIO_CTX .
+function recvfile(varname, vartype)
+{
+	link_recv_loop_again = false;
+
+	// Initial REQ.
+	// libticalcs: dbus_send (target + cmd), called by ti89_send_REQ.
+	//                PC_TI92p  CMD_REQ
+	link_incoming_queue.push(8, 0xA2); // standard variable header
+
+	var header_len = varname.length + 6; // No +1 this time, according to libticalcs: ti89_send_REQ.
+
+	// libticalcs: dbus_send (length).
+	link_incoming_queue.push(header_len, 0); // header length, little endian to calc
+	// libticalcs: ti89_send_REQ.
+	link_incoming_queue.push(0, 0, 0, 0); // data length = 0
+	link_incoming_queue.push(vartype); // variable type
+	link_incoming_queue.push(varname.length);
+
+	// libticalcs: dbus_send (checksum computation) on the sole data after the 4 first bytes.
+	var header_checksum = varname.length + vartype;
+	for (var x = 0; x < varname.length; x++)
 	{
-		dump += to_hex(link_incoming_queue[y], 2) + " ";
+		link_incoming_queue.push(varname[x]);
+		header_checksum += varname[x];
 	}
-	console.log(dump);
+
+	// libticalcs: dbus_send (sum).
+	link_incoming_queue.push(header_checksum % 256, header_checksum >>> 8); // header checksum, little endian to calc
+
+	// Equivalent of libticalcs: ti89_recv_ACK.
+	link_incoming_queue.push('WAIT_ACK');
+	// Equivalent of libticalcs: ti89_recv_VAR.
+	link_incoming_queue.push('WAIT_VAR');
+
+	// Loop until all chunks have been received.
+	do {
+		// libticalcs: ti89_send_ACK.
+		//                PC_TI92p  CMD_ACK
+		link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's VAR)
+
+		// libticalcs: ti89_send_CTS.
+		//                PC_TI92p  CMD_CTS
+		link_incoming_queue.push(8, 0x09, 0, 0); // CTS packet
+
+		// Equivalent of libticalcs: ti89_recv_ACK.
+		link_incoming_queue.push('WAIT_ACK');
+
+		// Equivalent of libticalcs: ti89_recv_ACK.
+		link_incoming_queue.push('WAIT_XDP');
+
+		// libticalcs: ti89_send_ACK.
+		//                PC_TI92p  CMD_ACK
+		link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's XDP)
+
+		// Equivalent of libticalcs: ti89_recv_CNT. If EOT is received instead, link_recv_loop_again will be set to false.
+		link_incoming_queue.push('WAIT_CNT');
+
+	} while (link_recv_loop_again); // FIXME loop condition.
+
+	// Push final ACK
+	// libticalcs: ti89_send_ACK.
+	//                PC_TI92p  CMD_ACK
+	link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's XDP)
+
+	console.log("finished processing for receiving variable");
+
+	dump_incoming_queue("Incoming: " + link_incoming_queue.length + " (pseudo-)bytes\n");
 }
 
 // Extracted out of main_loop to help profiling.
@@ -3786,37 +3908,35 @@ function link_handling()
 	
 	if (link_incoming_queue.length > 0)
 	{
-		if (link_incoming_queue[0] == 'WAIT_OK')
+		if (link_incoming_queue[0] == 'WAIT_ACK')
 		{
-			//console.log("Begin WAIT_OK, outgoing queue length:", link_outgoing_queue.length);
+			//console.log("Begin WAIT_ACK, outgoing queue length:", link_outgoing_queue.length);
 			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
 			{
 				//                                TI92p_PC / V200_PC                  CMD_ACK
-				if (   (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x56 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0)
+				if (   (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x56)
 				//                                TI89_PC / TI89t_PC                  CMD_ACK
-				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x56 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0))
+				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x56))
 				{
-					var dump = "Before:";
-					for (var y = 0; y < link_outgoing_queue.length; y++)
-					{
-						dump += to_hex(link_outgoing_queue[y], 2) + " ";
+					// libticalcs: ti89_recv_ACK indicates that length can be nonzero for failure
+					// FIXME: better error handling !
+					if (link_outgoing_queue[x+2] != 0 || link_outgoing_queue[x+3] != 0) {
+						link_incoming_queue = new Array();
+						link_outgoing_queue = new Array();
+						fire_cpu_exception(30); // AUTO_INT_6
 					}
-					console.log(dump);
+					else {
+						dump_outgoing_queue("Before: ");
 
-					//link_outgoing_queue = link_outgoing_queue.splice(0, x+4);
-					link_outgoing_queue.splice(0, x+4); // x, 4
-					link_incoming_queue.shift();
-					console.log("Eaten an item in WAIT_OK", x);
+						link_outgoing_queue.splice(0, x+4);
+						link_incoming_queue.shift();
+						console.log("Eaten an item in WAIT_ACK", x);
 
-					dump = "After:";
-					for (var y = 0; y < link_outgoing_queue.length; y++)
-					{
-						dump += to_hex(link_outgoing_queue[y], 2) + " ";
+						dump_outgoing_queue("After: ");
 					}
-					console.log(dump);
 				}
 			}
-			//console.log("End WAIT_OK, outgoing queue length:", link_outgoing_queue.length);
+			//console.log("End WAIT_ACK, outgoing queue length:", link_outgoing_queue.length);
 		}
 		else if (link_incoming_queue[0] == 'WAIT_CTS')
 		{
@@ -3824,31 +3944,116 @@ function link_handling()
 			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
 			{
 				//                                TI92p_PC / V200_PC                  CMD_CTS
-				if (   (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x09 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0)
+				if (   (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x09)
 				//                                TI89_PC / TI89t_PC                  CMD_CTS
-				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x09 && link_outgoing_queue[x+2] == 0 && link_outgoing_queue[x+3] == 0))
+				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x09))
 				{
-					var dump = "Before:";
-					for (var y = 0; y < link_outgoing_queue.length; y++)
-					{
-						dump += to_hex(link_outgoing_queue[y], 2) + " ";
+					// libticalcs: ti89_recv_CTS indicates that length can be nonzero for failure
+					// FIXME: better error handling !
+					if (link_outgoing_queue[x+2] != 0 || link_outgoing_queue[x+3] != 0) {
+						link_incoming_queue = new Array();
+						link_outgoing_queue = new Array();
+						fire_cpu_exception(30); // AUTO_INT_6
 					}
-					console.log(dump);
+					else {
+						dump_outgoing_queue("Before: ");
 
-					//link_outgoing_queue = link_outgoing_queue.splice(0, x+4);
-					link_outgoing_queue.splice(0, x+4); // x, 4
-					link_incoming_queue.shift();
-					console.log("Eaten an item in WAIT_CTS", x);
+						link_outgoing_queue.splice(0, x+4);
+						link_incoming_queue.shift();
+						console.log("Eaten an item in WAIT_CTS", x);
 
-					dump = "After:";
-					for (var y = 0; y < link_outgoing_queue.length; y++)
-					{
-						dump += to_hex(link_outgoing_queue[y], 2) + " ";
+						dump_outgoing_queue("After: ");
 					}
-					console.log(dump);
 				}
 			}
 			//console.log("End WAIT_CTS, outgoing queue length:", link_outgoing_queue.length);
+		}
+		else if (link_incoming_queue[0] == 'WAIT_VAR')
+		{
+			// WIP
+			//console.log("Begin WAIT_VAR, outgoing queue length:", link_outgoing_queue.length);
+			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
+			{
+				//                                TI92p_PC / V200_PC                  CMD_VAR
+				if (   (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x06)
+				//                                TI89_PC / TI89t_PC                  CMD_VAR
+				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x06))
+				{
+					// TODO: error handling
+					var length = link_outgoing_queue[x+2] + link_outgoing_queue[x+3] * 256;
+					dump_outgoing_queue("Before: ");
+
+					// For now, skip everything (which may not have been received entirely yet).
+					link_outgoing_queue.splice(0, x+4+length+2); // 2 checksum bytes
+					link_incoming_queue.shift();
+					console.log("Eaten an item in WAIT_VAR", x);
+
+					dump_outgoing_queue("After: ");
+				}
+			}
+			//console.log("End WAIT_VAR, outgoing queue length:", link_outgoing_queue.length);
+		}
+		else if (link_incoming_queue[0] == 'WAIT_XDP')
+		{
+			// WIP
+			//console.log("Begin WAIT_XDP, outgoing queue length:", link_outgoing_queue.length);
+			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
+			{
+				//                                TI92p_PC / V200_PC                  CMD_XDP
+				if (   (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x15)
+				//                                TI89_PC / TI89t_PC                  CMD_XDP
+				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x15))
+				{
+					// TODO: error handling
+					var length = link_outgoing_queue[x+2] + link_outgoing_queue[x+3] * 256;
+					dump_outgoing_queue("Before: ");
+
+					// TODO: process the contents of the VAR packet.
+					// For now, skip everything (which may not have been received entirely yet).
+					link_outgoing_queue.splice(0, x+4+length+2); // 2 checksum bytes
+					link_incoming_queue.shift();
+					console.log("Eaten an item in WAIT_XDP", x);
+
+					dump_outgoing_queue("After: ");
+				}
+			}
+			//console.log("End WAIT_XDP, outgoing queue length:", link_outgoing_queue.length);
+		}
+		else if (link_incoming_queue[0] == 'WAIT_CNT')
+		{
+			// WIP
+			//console.log("Begin WAIT_CNT, outgoing queue length:", link_outgoing_queue.length);
+			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
+			{
+				//                                TI92p_PC / V200_PC                  CMD_CNT
+				if (   (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x78)
+				//                                TI89_PC / TI89t_PC                  CMD_CNT
+				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x78)
+				//                                TI92p_PC / V200_PC                  CMD_EOT
+				    || (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x92)
+				//                                TI89_PC / TI89t_PC                  CMD_EOT
+				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x92))
+				{
+					// TODO: error handling
+					dump_outgoing_queue("Before: ");
+
+					// TODO: process the contents of the XDP packet.
+
+					link_outgoing_queue.splice(0, x+4);
+					link_incoming_queue.shift();
+					console.log("Eaten an item in WAIT_CNT", x);
+
+					if (link_outgoing_queue[x+1] == 0x92) {
+						link_recv_loop_again = false; // EOT, we need to break out of the loop in recvfile().
+					}
+					else {
+						link_recv_loop_again = true; // CNT, we need to restart the loop in recvfile().
+					}
+
+					dump_outgoing_queue("After: ");
+				}
+			}
+			//console.log("End WAIT_CNT, outgoing queue length:", link_outgoing_queue.length);
 		}
 	}
 };
