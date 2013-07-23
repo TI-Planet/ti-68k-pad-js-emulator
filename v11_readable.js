@@ -200,6 +200,93 @@ function PrintHeap()
 	}
 }
 
+function disassemble_indexed_disp(disp)
+{
+	return ((disp & 0x8000) ? "A" : "D") + (((disp & 0x7000) >>> 12) & 0x7) + ((((disp & 0x0800) >>> 11) & 1) ? ".L" : ".W") + ")";
+}
+
+function disassemble_regs_mask(regs8, prefix)
+{
+	var str = "";
+	var previous = 0;
+	var current;
+	var start = -1;
+	var end = -1;
+
+	for (i = 0; i < 8; i++) {
+		current = regs8 & 1;
+
+		if (previous == 0 && current == 1) start = i;
+		if (previous == 1 && current == 0) end = i - 1;
+
+		if (start == end && start != -1) {
+			str += prefix + (i - 1) + "/";
+			end = -1; start = -1;
+		}
+		else if (end > start) {
+			str += prefix + start + "-" + prefix + end + "/";
+			end = -1; start = -1;
+		}
+
+		previous = current;
+		regs8 >>>= 1;
+	}
+
+	end = i - 1;
+	if (end > (start + 1) && start != -1) {
+		str += prefix + start + "-" + end;
+	}
+	else if (start > 0 && end > 0) {
+		str += prefix + start;
+	}
+	else {
+		str = str.substring(0, str.length-1);
+	}
+
+	return str;
+}
+
+function disassemble_regs_predec_mask(regs8, prefix)
+{
+	var str = "";
+	var previous = 0;
+	var current;
+	var start = -1;
+	var end = -1;
+
+	for (i = 0; i < 8; i++) {
+		current = (regs8 & (1 << 7)) >> 7;
+
+		if (previous == 0 && current == 1) start = i;
+		if (previous == 1 && current == 0) end = i - 1;
+
+		if (start == end && start != -1) {
+			str += prefix + (i - 1) + "/";
+			end = -1; start = -1;
+		}
+		else if (end > start) {
+			str += prefix + start + "-" + prefix + end + "/";
+			end = -1; start = -1;
+		}
+
+		previous = current;
+		regs8 <<= 1;
+	}
+
+	end = i - 1;
+	if (end > (start + 1) && start != -1) {
+		str += prefix + start + "-" + end;
+	}
+	else if (start > 0 && end > 0) {
+		str += prefix + start;
+	}
+	else {
+		str = str.substring(0, str.length-1);
+	}
+
+	return str;
+}
+
 function disassemble(address, count)
 {
 	while (count > 0) {
@@ -244,20 +331,25 @@ function disassemble(address, count)
 			}
 			else if (leftside.indexOf("d(A") != -1) { // address register with displacement
 				var disp = rw(address);
-				leftside = leftside.replace("d(A", hex_prefix + to_hex(disp, 4) + "(A");
 				if (rightside.indexOf("Dn)") == 0) { // address register with displacement and index
-					leftside += "," + ((disp & 0x8000) ? "A" : "D") + (((disp & 0x7000) >>> 12) & 0x7) + ((((disp & 0x0800) >>> 11) & 1) ? ".L" : ".W") + ")"; // Adjust left side
+					leftside = leftside.replace("d(A", hex_prefix + to_hex(disp & 0xFF, 2) + "(A");
+					leftside += "," + disassemble_indexed_disp(disp); // Adjust left side
 					rightside = rightside.substring(4); // Skip Dn),
+				}
+				else { 
+					leftside = leftside.replace("d(A", hex_prefix + to_hex(disp, 4) + "(A");
 				}
 				address += 2;
 			}
 			else if (leftside.indexOf("d(PC") != -1) { // PC with displacement
-				// TODO: compute d(PC) address.
 				var disp = rw(address);
-				leftside = leftside.replace("d(PC", hex_prefix + to_hex(disp, 4) + "(PC");
 				if (rightside.indexOf("Dn)") == 0) { // PC with displacement and index
-					leftside += "," + ((disp & 0x8000) ? "A" : "D") + (((disp & 0x7000) >>> 12) & 0x7) + ((((disp & 0x0800) >>> 11) & 1) ? ".L" : ".W") + ")"; // Adjust left side
+					leftside = leftside.replace("d(PC", hex_prefix + to_hex(disp & 0xFF, 2) + "(PC");
+					leftside += "," + disassemble_indexed_disp(disp); // Adjust left side
 					rightside = rightside.substring(4); // Skip Dn),
+				}
+				else {
+					leftside = leftside.replace("d(PC", hex_prefix + to_hex(disp, 4) + "(PC");
 				}
 				address += 2;
 			}
@@ -265,10 +357,10 @@ function disassemble(address, count)
 				var disp = rw(address) + 2;
 				if (disp & 0x8000) {
 					disp = 0x10000 - disp;
-					leftside = leftside.replace("disp", hex_prefix + "-" + to_hex(disp, 4) + " [" + to_hex(orig_address - disp, 6) + "]");
+					leftside = leftside.replace("disp", "-" + hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address - disp, 6) + "]");
 				}
 				else {
-					leftside = leftside.replace("disp", hex_prefix + "+" + to_hex(disp, 4) + " [" + to_hex(orig_address + disp, 6) + "]");
+					leftside = leftside.replace("disp", "+" + hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address + disp, 6) + "]");
 				}
 				address += 2;
 			}
@@ -276,21 +368,51 @@ function disassemble(address, count)
 				var disp = (opcode & 0xFF) + 2;
 				if (disp & 0x80) {
 					disp = 0x100 - disp;
-					leftside = leftside.replace("disp", hex_prefix + "-" + to_hex(disp, 2) + " [" + to_hex(orig_address - disp, 6) + "]");
+					leftside = leftside.replace("disp", "-" + hex_prefix + to_hex(disp, 2) + " [" + to_hex(orig_address - disp, 6) + "]");
 				}
 				else {
-					leftside = leftside.replace("disp", hex_prefix + "+" + to_hex(disp, 2) + " [" + to_hex(orig_address + disp, 6) + "]");
+					leftside = leftside.replace("disp", "+" + hex_prefix + to_hex(disp, 2) + " [" + to_hex(orig_address + disp, 6) + "]");
 				}
 			}
-			else if (leftside.indexOf("regs") != -1) { // Registers for movem
-				// TODO. Example: 412512 on AMS 2.09 92+.
+			else if (leftside.indexOf("regspredec") != -1) { // Registers for movem from regs to memory, predecremented write
+				// a7 is least significant bit.
+				var regsan = rb(address + 1);
+				var regsdn = rb(address);
+				var str = "";
+				if (regsdn != 0) {
+					str = disassemble_regs_predec_mask(regsdn, "D");
+					str += "/";
+				}
+				if (regsan != 0) {
+					str += disassemble_regs_predec_mask(regsan, "A");
+				}
+				leftside = leftside.replace("regspredec", str);
+				address += 2;
+			}
+			else if (leftside.indexOf("regs") != -1) { // Registers for movem from regs to memory, normal write
+				// d0 is least significant bit.
+				var regsdn = rb(address + 1);
+				var regsan = rb(address);
+				var str = "";
+				if (regsdn != 0) {
+					str = disassemble_regs_mask(regsdn, "D");
+					str += "/";
+				}
+				if (regsan != 0) {
+					str += disassemble_regs_mask(regsan, "A");
+				}
+				leftside = leftside.replace("regs", str);
 				address += 2;
 			}
 		}
 
 		if (rightside != "") {
-			// Immediate values forbidden as dest ea
-			if (rightside.indexOf("xxx.W") != -1) { // Immediate short address
+			// Immediate values usually forbidden as dest ea, except for LINK
+			if (rightside.indexOf("#xxx") != -1) { // Immediate short value
+				rightside = rightside.replace("#xxx", "#" + hex_prefix + to_hex(rw(address), 4));
+				address += 2;
+			}
+			else if (rightside.indexOf("xxx.W") != -1) { // Immediate short address
 				rightside = rightside.replace("xxx.W", hex_prefix + to_hex(rw(address), 4) + ".W");
 				address += 2;
 			}
@@ -299,12 +421,15 @@ function disassemble(address, count)
 				address += 4;
 			}
 			else if (rightside.indexOf("d(A") != -1) { // address register with displacement
-				rightside = rightside.replace("d(A", hex_prefix + to_hex(rw(address), 4) + "(A");
-
-WIP
-				if (rightside.indexOf("Dn)") == 0) { // address register with displacement and index
-					leftside += "," + ((disp & 0x8000) ? "A" : "D") + (((disp & 0x7000) >>> 12) & 0x7) + ((((disp & 0x0800) >>> 11) & 1) ? ".L" : ".W") + ")"; // Adjust left side
-					rightside = rightside.substring(4); // Skip Dn),
+				//console.log(leftside);
+				//console.log(rightside);
+				var disp = rw(address);
+				if (rightside.indexOf(",Dn)") != -1) { // address register with displacement and index
+					rightside = rightside.replace("d(A", hex_prefix + to_hex(disp & 0xFF, 2) + "(A");
+					rightside = rightside.replace("Dn)", disassemble_indexed_disp(disp));
+				}
+				else {
+					rightside = rightside.replace("d(A", hex_prefix + to_hex(disp, 4) + "(A");
 				}
 				address += 2;
 			}
@@ -313,15 +438,26 @@ WIP
 				var disp = rw(address) + 2;
 				if (disp & 0x8000) {
 					disp = 0x10000 - disp;
-					rightside = rightside.replace("disp", hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address - disp, 6) + "]");
+					rightside = rightside.replace("disp", "-" + hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address - disp, 6) + "]");
 				}
 				else {
-					rightside = rightside.replace("disp", hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address + disp, 6) + "]");
+					rightside = rightside.replace("disp", "+" + hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address + disp, 6) + "]");
 				}
 				address += 2;
 			}
-			else if (rightside.indexOf("regs") != -1)  { // Registers for movem
-				// TODO. Example: 412536 on AMS 2.09 92+.
+			else if (rightside.indexOf("regs") != -1)  { // Registers for movem from memory to regs
+				// d0 is least significant bit.
+				var regsdn = rb(address + 1);
+				var regsan = rb(address);
+				var str = "";
+				if (regsdn != 0) {
+					str = disassemble_regs_mask(regsdn, "D");
+					str += "/";
+				}
+				if (regsan != 0) {
+					str += disassemble_regs_mask(regsan, "A");
+				}
+				rightside = rightside.replace("regs", str);
 				address += 2;
 			}
 
@@ -1046,7 +1182,7 @@ function build_moveq()
 			}
 			else 
 				code += (data + 0xFFFFFF00) + "; sr|=8; ";
-			insert_inst(opcode, code, "MOVEQ #" + (data >= 128 ? data - 256 : data) + ", D" + reg);
+			insert_inst(opcode, code, "MOVEQ #" + hex_prefix + (data >= 128 ? to_hex(data - 256, 2) : to_hex(data, 2)) + ", D" + reg);
 		}
 	}
 }
@@ -1436,7 +1572,7 @@ function build_moves(name, size, pattern)
 		for (var srcreg = 0; srcreg < 8; srcreg++)
 			for (var dstmode = 0; dstmode < 8; dstmode++)
 			{
-				if (size == 0 && dstmode == 1) continue // no byte moves to a registers
+				if (size == 0 && (dstmode == 1 || srcmode == 1)) continue; // no byte moves from and to address registers
 				for (var dstreg = 0; dstreg < 8; dstreg++)
 					if (valid_source(srcmode, srcreg) && valid_dest(dstmode, dstreg))
 					{
@@ -1487,7 +1623,7 @@ function build_calc(name, bits)
 					// generate version with EA as source
 					if (valid_source(mode, reg) && name != "EOR") // EA as source does work for EOR
 					{
-						var iname = + name + size_name(size) + " " + amode_name(mode, reg, size) + ",D" + dreg
+						var iname = name + size_name(size) + " " + amode_name(mode, reg, size) + ",D" + dreg
 						var code = amode_read(mode, reg, size, true)
 						code += build_operation(name, size, "s", "d" + dreg + "")
 						code += amode_write(MODE_DREG, dreg, size, "r")
@@ -1527,9 +1663,9 @@ function build_bit_operation(name, bits)
 {
 	for (var srcmode = 0; srcmode < 8; srcmode++)
 		for (var srcreg = 0; srcreg < 8; srcreg++)
-			if (valid_dest(srcmode, srcreg) || 
+			if (srcmode != 1 && (valid_dest(srcmode, srcreg) || // No bit operations to address registers.
 				(name == 'BTST' && srcmode == MODE_MISC && 
-				(srcreg == MISCMODE_PC_OFFSET || srcreg == MISCMODE_PC_INDEX)))
+				(srcreg == MISCMODE_PC_OFFSET || srcreg == MISCMODE_PC_INDEX))))
 				for (var dreg = 0; dreg <= 8; dreg++) // if this value is 8, use bit number static version
 				{
 					var opcode, iname, code = "";
@@ -1898,7 +2034,10 @@ function build_movem()
 					var iname = "MOVEM" + size_name(size) + " regs," + amode_name(mode, reg, size)
 					var code = read_pc(1, "regs", true)
 					if (mode == MODE_AREG_PREDEC)
+					{
+						iname = iname.replace("regs", "regspredec");
 						code += "var newval = store_multiple_predec(a" + reg + ", regs, " + size + "); a" + reg + " = newval;";
+					}
 					else
 					{
 						code += effective_address_calc(mode, reg)
@@ -1941,7 +2080,7 @@ function build_bcd()
 					if (m != 0)
 					{
 						opcode += 8
-						iname = operation + " -(A" + src + "),-(A" + dest
+						iname = operation + " -(A" + src + "),-(A" + dest + ")"
 					}
 					else
 						iname = operation + " D" + src + ",D" + dest
@@ -2168,7 +2307,7 @@ for (var reg = 0; reg < 8; reg++)
 	insert_inst(0x4880 + reg, "d" + reg + "=((d" + reg + ">>>16)*65536)+ebw(d" + reg + ")", "EXT.W D" + reg)
 	insert_inst(0x48C0 + reg, "d" + reg + "=ewl(d" + reg + ")", "EXT.L D" + reg)
 	var linkcode = "a7-=4; wl(a7,a" + reg + "); var o=rw(pc); pc+=2; a" + reg + "=a7; a7+=(o<0x8000?o:o-0x10000);"
-	insert_inst(0x4e50 + reg, linkcode, "LINK #xxx,A" + reg)
+	insert_inst(0x4e50 + reg, linkcode, "LINK A" + reg + ",#xxx")
 	var unlkcode ="a7 = a" + reg + "; var s=rl(a7); a7+=4; a" + reg + " = s;"
 	insert_inst(0x4e58 + reg, unlkcode, "UNLK A " + reg)
 }
@@ -2176,9 +2315,12 @@ eval(instruction_list);
 
 
 var unknown = 0
-for (var i = 0; i < 65536; i++)
-	if (n[i] == "UNKNOWN")
+for (var i = 0; i < 65536; i++) {
+	if (n[i] == "UNKNOWN") {
 		unknown++;
+		n[i] = "DC.W " + hex_prefix + to_hex(i, 4);
+	}
+}
 console.log("number of unknown opcodes is " + unknown)
 
 
@@ -3273,6 +3415,8 @@ function create_buttons_large_92p_skin()
 	create_on_button("rect", "74,497,120,527"); // ON: left of DIAMOND, below SHIFT
 }
 
+var create_buttons = create_buttons_large_92p_skin;
+
 function initemu()
 {
 	sr = 0;
@@ -3306,7 +3450,7 @@ function initemu()
 			bitmap = {'width' : 240, 'height' : 128, 'data' : new Uint8Array(240 * 128 * 4)};
 	}
 
-	create_buttons_large_92p_skin();
+	create_buttons();
 
 	// set all alpha channels to 255 (fully opaque)
 	for (var x = 3; x < bitmap.data.length; x+= 4) bitmap.data[x] = 255;
@@ -3792,7 +3936,7 @@ function recvfile(varname, vartype)
 
 	// If varname is a string, let's convert it into an array of numbers.
 	if (typeof(varname) == "string") {
-		bytes = new Array();
+		var bytes = new Array();
 		for (var i = 0; i < varname.length; ++i) {
 			bytes.push(varname.charCodeAt(i) & 0xFF);
 		}
