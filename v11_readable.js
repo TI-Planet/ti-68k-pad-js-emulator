@@ -42,6 +42,8 @@ var newfileready = false;
 var newflashfileready = false;
 var screen_scaling_ratio = 2; // 2:1 by default
 
+var link_recv_loop_again = false;
+
 // Hardware ports and variables deduced from them.
 var port_600000 = 0x04;
 var vectorprotect = false; // 0x600001
@@ -2618,7 +2620,6 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "		return read_hreg(address);" +
 "	}" +
 "}";
-// WIP: support for special Flash mode.
 }
 
 build_memory_read_functions("1", 0x400000, 0x200000); // 92+
@@ -2769,6 +2770,7 @@ var movem_handlers = "";
 
 // MOVEM handlers. We generate them because eval() takes a severe toll on performance (about an order of magnitude).
 // Might optimize them further (on average) by splitting all loops in 2, and returning if mask == 0.
+// NOTE: constant-propagating size into the functions' body (splitting each movem handler in two) _slows down_ emulation, for some reason, at least on Firefox. Yes, really.
 function build_movem_handlers() {
 	var reg;
 
@@ -2776,7 +2778,7 @@ function build_movem_handlers() {
 	movem_handlers += "function store_multiple(address, mask, size) {" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
-	movem_handlers += "		if (mask & 1) {" +
+		movem_handlers += "		if (mask & 1) {" +
 "			ww(address, d" + reg + ");" +
 "			address += 2;" +
 "		}" +
@@ -2884,7 +2886,7 @@ function build_movem_handlers() {
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
 		movem_handlers += "		if (mask & 1) {" +
-"			var value = ewl(rw(address, size));" +
+"			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			d" + reg + "= value;" +
 "		}" +
@@ -2892,7 +2894,7 @@ function build_movem_handlers() {
 	}
 	for (reg = 0; reg <= 3; reg++) {
 		movem_handlers += "		if (mask & 1) {" +
-"			var value = ewl(rw(address, size));" +
+"			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			a" + reg + "= value;" +
 "		}" +
@@ -2901,7 +2903,7 @@ function build_movem_handlers() {
 	movem_handlers += "if (!mask) return;";
 	for (reg = 4; reg <= 7; reg++) {
 		movem_handlers += "		if (mask & 1) {" +
-"			var value = ewl(rw(address, size));" +
+"			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			a" + reg + "= value;" +
 "		}" +
@@ -2911,7 +2913,7 @@ function build_movem_handlers() {
 "	else {";
 	for (reg = 0; reg <= 7; reg++) {
 		movem_handlers += "		if (mask & 1) {" +
-"			var value = rl(address, size);" +
+"			var value = rl(address);" +
 "			address += 4;" +
 "			d" + reg + "= value;" +
 "		}" +
@@ -2919,7 +2921,7 @@ function build_movem_handlers() {
 	}
 	for (reg = 0; reg <= 3; reg++) {
 		movem_handlers += "		if (mask & 1) {" +
-"			var value = rl(address, size);" +
+"			var value = rl(address);" +
 "			address += 4;" +
 "			a" + reg + "= value;" +
 "		}" +
@@ -2928,7 +2930,7 @@ function build_movem_handlers() {
 	movem_handlers += "if (!mask) return;";
 	for (reg = 4; reg <= 7; reg++) {
 		movem_handlers += "		if (mask & 1) {" +
-"			var value = rl(address, size);" +
+"			var value = rl(address);" +
 "			address += 4;" +
 "			a" + reg + "= value;" +
 "		}" +
@@ -3782,21 +3784,20 @@ function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_a
 	dump_incoming_queue("Incoming: " + link_incoming_queue.length + " (pseudo-)bytes\n");
 }
 
-// WIP BROKEN !
-// NOTE: for now, varname must be an array of integers ! For instance:
-/*
-maina = new Array();
-maina.push(0x6D); // m
-maina.push(0x61); // a
-maina.push(0x69); // i
-maina.push(0x6E); // n
-maina.push(0x5C); // \
-maina.push(0x61); // a
-*/
+// BROKEN !
 // For vartype, see http://debrouxl.github.io/gcc4ti/link.html#LIO_CTX .
 function recvfile(varname, vartype)
 {
 	link_recv_loop_again = false;
+
+	// If varname is a string, let's convert it into an array of numbers.
+	if (typeof(varname) == "string") {
+		bytes = new Array();
+		for (var i = 0; i < varname.length; ++i) {
+			bytes.push(varname.charCodeAt(i) & 0xFF);
+		}
+		varname = bytes;
+	}
 
 	// Initial REQ.
 	// libticalcs: dbus_send (target + cmd), called by ti89_send_REQ.
