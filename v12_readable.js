@@ -42,7 +42,10 @@ var newfileready = false;
 var newflashfileready = false;
 var screen_scaling_ratio = 2; // 2:1 by default
 
-var link_recv_loop_again = false;
+var link_recv_varsize = 0;
+var link_recv_vartype = 0;
+var link_recv_filename = 0;
+var link_recv_filedata = new Array();
 
 // Hardware ports and variables deduced from them.
 var port_600000 = 0x04;
@@ -286,7 +289,16 @@ function disassemble_regs_predec_mask(regs8, prefix)
 
 	return str;
 }
-
+ 
+// Data areas, such as 440000 on AMS 2.09 92+, are excellent mine fields :)
+// TIEmu's disassembler is not perfect either, e.g. it disassembles:
+// * CHK.L instructions, which exist only on 68020+ (at 440098 and 4401BC);
+// * address register indexed with base displacement, which exist only on CPU32+ (at 440110 and 4401BE);
+// * ORI.B #byte, CCR as ORI.B #word,SR (at 44017A).
+//
+// NOTE: this emulator handles address register / PC indexed with scale / base displacement / outer displacement as if there were none of those.
+// At least for scale, that's what a 68000 is supposed to do, according to M68000PRM, page 2-21. It's less clear for bd / od (no mention on pages 2-22 and later).
+// For the format of the second word in such instructions, see M68000PRM, page 2-2.
 function disassemble(address, count)
 {
 	while (count > 0) {
@@ -672,13 +684,13 @@ function abcd(x,y)
 {
 	var lowsum = (x & 0xF) + (y & 0xF);
 	if (sr & 0x10) lowsum++; // carry in from the x register
-	
+
 	var carrymid = 0;
 	if (lowsum >= 10) {
 		lowsum -= 10;
 		carrymid = 0x10;
 	}
-	
+
 	var highsum = (x & 0xF0) + (y & 0xF0) + carrymid;
 	sr &= 0xFFE4;
 	if (highsum >= 0xA0) {
@@ -694,8 +706,8 @@ function sbcd(dst,src)
 {
 	src &= 0xFF;
 	dst &= 0xFF;
-	var subtrahend = (src >> 4) * 10 + (src & 0xF);
-	var minuend = (dst >> 4) * 10 + (dst & 0xF);
+	var subtrahend = (src >>> 4) * 10 + (src & 0xF);
+	var minuend = (dst >>> 4) * 10 + (dst & 0xF);
 	var result = minuend - subtrahend;
 	if (sr & 1) result--; // borrow from previous subtraction
 	sr &= 0xFFE4; // clear all condition codes but Z
@@ -707,13 +719,25 @@ function sbcd(dst,src)
 	var lowdigit = result % 10;
 	var highdigit = (result - lowdigit) / 10;
 	var finalresult = highdigit * 16 + lowdigit;
-	//console.log("SBCD " + minuend + " minus " + subtrahend + " = " + result + " with A1 = " + aregs[1]);
 	return finalresult;
 }
 
-function nbcd(x,y)
+function nbcd(src)
 {
-	// TODO: implement this infrequent instruction.
+	src &= 0xFF;
+	var subtrahend = (src >>> 4) * 10 + (src & 0xF);
+	var result = 0 - subtrahend;
+	if (sr & 1) result--; // borrow from previous subtraction
+	sr &= 0xFFE4; // clear all condition codes but Z
+	if (result < 0) {
+		result = result + 100;
+		sr |= 0x11; // set carry and extend if we had a borrow;
+	}
+	if (finalresult != 0) sr &= 0xFFFB; // clear zero flag
+	var lowdigit = result % 10;
+	var highdigit = (result - lowdigit) / 10;
+	var finalresult = highdigit * 16 + lowdigit;
+	return finalresult;
 }
 
 function addx(x,y,size)
@@ -1182,7 +1206,7 @@ function build_moveq()
 			}
 			else 
 				code += (data + 0xFFFFFF00) + "; sr|=8; ";
-			insert_inst(opcode, code, "MOVEQ #" + hex_prefix + (data >= 128 ? to_hex(data - 256, 2) : to_hex(data, 2)) + ", D" + reg);
+			insert_inst(opcode, code, "MOVEQ #" + hex_prefix + (data >= 128 ? to_hex(data - 256, 2) : to_hex(data, 2)) + ",D" + reg);
 		}
 	}
 }
@@ -1588,6 +1612,34 @@ function build_moves(name, size, pattern)
 			}
 }
 
+function build_movep()
+{
+	// TODO: emulate this instruction properly instead of a 4-byte NOP.
+	// From memory to register
+	for (var opmode = 4; opmode < 6; opmode++)
+		for (var areg = 0; areg < 8; areg++)
+			for (var dreg = 0; dreg < 8; dreg++)
+			{
+				var opcode = 0x0008 + (dreg << 9) + (opmode << 6) + areg
+				var fullname = "MOVEP" + ((opmode & 1) ? ".L " : ".W ") + "d(A" + areg + "),D" + dreg;
+				var code = "pc += 2" // TODO
+				// condition codes not affected.
+				insert_inst(opcode, code, fullname)
+			}
+
+	// From register to memory
+	for (var opmode = 6; opmode < 8; opmode++)
+		for (var areg = 0; areg < 8; areg++)
+			for (var dreg = 0; dreg < 8; dreg++)
+			{
+				var opcode = 0x0008 + (dreg << 9) + (opmode << 6) + areg
+				var fullname = "MOVEP" + ((opmode & 1) ? ".L " : ".W ") + "D" + dreg + ",d(A" + areg + ")"
+				var code = "pc += 2" // TODO
+				// condition codes not affected.
+				insert_inst(opcode, code, fullname)
+			}
+}
+
 // perform a standard operation of given size between given source and dest
 function build_operation(name, size, source, dest)
 {
@@ -1899,7 +1951,7 @@ function build_not_neg()
 					code += set_condition_flags_data(size, "s")
 					code += amode_write(srcmode, srcreg, size, "s")
 					insert_inst(opcode, code, iname)
-					
+
 					// *** should fix overflow here sometime
 					opcode = 0x4400 + (size << 6) + (srcmode << 3) + srcreg;
 					iname = "NEG" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
@@ -1911,11 +1963,11 @@ function build_not_neg()
 					code += "if(r==0)sr|=4;else sr|=17;" // set zero flag for zero, extend and carry otherwise
 					code += amode_write(srcmode, srcreg, size, "r")
 					insert_inst(opcode, code, iname)
-					
+
 					opcode = 0x4000 + (size << 6) + (srcmode << 3) + srcreg;
 					iname = "NEGX" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					code = amode_read(srcmode, srcreg, size, false)
-					code += "	if(sr&0x10)s++;"
+					code += "if(sr&0x10)s++;"
 					if (size == 0) code += "var r=256-s;"
 					if (size == 1) code += "var r=0x10000-s;"
 					if (size == 2) code += "var r=0x100000000-s;if(r>0xffffffff)r=0;"
@@ -1948,10 +2000,10 @@ function build_clr_tst_tas()
 					if (size == 0)
 					{
 						opcode = 0x4ac0 + (srcmode << 3) + srcreg;
-						iname = "TAS.B" + " " + amode_name(srcmode, srcreg, size)
-						code = amode_read(srcmode, srcreg, size, true)
-						code += set_condition_flags_data(size, "s")
-						code += amode_write(srcmode, srcreg, size, "s | 0x80")
+						iname = "TAS.B" + " " + amode_name(srcmode, srcreg, 0)
+						code = amode_read(srcmode, srcreg, 0, true)
+						code += set_condition_flags_data(0, "s")
+						code += amode_write(srcmode, srcreg, 0, "s | 0x80")
 						insert_inst(opcode, code, iname)
 					}
 				}
@@ -2068,6 +2120,7 @@ function build_cmpm()
 
 function build_bcd()
 {
+	// ABCD, SBCD
 	for (var src = 0; src < 8; src++)
 		for (var dest = 0; dest < 8; dest++)
 			for (var m = 1; m >= 0; m--)
@@ -2093,9 +2146,25 @@ function build_bcd()
 						code += amode_write(MODE_AREG_INDIRECT, dest, 0, operation.toLowerCase() + "(s,other)")
 					}
 					else
+					{
 						code = "d" + dest + "+=" + operation.toLowerCase() + "(d" + dest + ",d" + src + ")-d" + dest + "&0xFF;"
+					}
 					insert_inst(opcode, code, iname)
 				}
+
+	// NBCD, more similar to NEG and NOT (more different EAs are allowed).
+	for (var srcmode = 0; srcmode < 8; srcmode++)
+		for (var srcreg = 0; srcreg < 8; srcreg++)
+			if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
+			{
+				opcode = 0x4800 + (srcmode << 3) + srcreg;
+				iname = "NBCD " + amode_name(srcmode, srcreg, 0)
+				code = amode_read(srcmode, srcreg, 0, false)
+				code += "var r=nbcd(s);"
+				code += amode_write(srcmode, srcreg, 0, "r")
+				insert_inst(opcode, code, iname)
+			}
+
 }
 
 function build_movesrccr()
@@ -2229,7 +2298,7 @@ build_addsubq();
 build_moves("MOVE.L", 2, 0x2000);
 build_moves("MOVE.W", 1, 0x3000);
 build_moves("MOVE.B", 0, 0x1000);
-// TODO: the strange movep
+build_movep(); // TODO: proper implementation, instead of a 4-byte NOP
 build_conditionals("if(true)", "T", 0)
 build_conditionals("if(false)", "F", 1)
 build_conditionals("if(!(sr&5))", "HI", 2)
@@ -2291,7 +2360,7 @@ insert_inst(0x4E72, "pc+=2", "STOP #xxx") // TODO: proper implementation, instea
 insert_inst(0x4E73, "var s=rw(a7);a7+=2;pc=rl(a7);a7+=4;update_sr(s)", "RTE")
 insert_inst(0x4E75, "pc=rl(a7);a7+=4;", "RTS")
 insert_inst(0x4E76, "if(sr&2)fire_cpu_exception(7)", "TRAPV")
-insert_inst(0x4E77, "var s=rw(a7);a7+=2;pc=rl(a7);a7+=4;sr=(sr & 0xFFE0)|(s&0x001F)", "RTR")
+insert_inst(0x4E77, "var s=rw(a7);a7+=2;pc=rl(a7);a7+=4;sr=(sr&0xFFE0)|(s&0x001F)", "RTR")
 insert_inst(0x4AFC, "fire_cpu_exception(4)", "ILLEGAL")
 build_movesrccr()
 build_jmpjsr()
@@ -3175,54 +3244,6 @@ console.log("18172\t" +n[18172]);*/
 var bitmap = false;
 var context = false;
 
-// Just an experiment: faster as expected, but flickers, obviously.
-/*function draw_screen()
-{
-	var address = (lcd_address_low + (lcd_address_high << 8)) << 2;
-	var buff = bitmap.data;
-
-	var pixel = 0;
-	var p = 0;
-	for (var y = 0; y < 128; y++) {
-		for (var x = 0; x < 15; x++) {
-			var b = ram[address++];
-			for (var bit = 15; bit >= 0; bit--) {
-				var color = calcscreen[pixel];
-				if ((b & 0x8000)) {
-					color -= 0x50;
-					calcscreen[pixel] = color;
-				}
-
-				buff[p] = color;
-				buff[p + 1] = color;
-				buff[p + 2] = color;
-				buff[p + 4] = color;
-				buff[p + 5] = color;
-				buff[p + 6] = color;
-				buff[p + 1920] = color;
-				buff[p + 1921] = color;
-				buff[p + 1922] = color;
-				buff[p + 1924] = color;
-				buff[p + 1925] = color;
-				buff[p + 1926] = color;
-				p+=8;
-
-				pixel++;
-				b <<= 1;
-			}
-		}
-		p += 1920;
-	}
-
-	frame++;
-	if (frame == 3) {
-		frame = 0;
-		for (p = 0; p < calcscreen.length; calcscreen[p++] = 0xF0) {};
-	}
-
-	context.putImageData(bitmap, 0, 0);
-};*/
-
 function draw_calcscreen()
 {
 	var address = (lcd_address_low + (lcd_address_high << 8)) << 2;
@@ -3928,11 +3949,39 @@ function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_a
 	dump_incoming_queue("Incoming: " + link_incoming_queue.length + " (pseudo-)bytes\n");
 }
 
+// This code was moved out to an external function, so that it can be called multiple times, in order to retrigger reception of one chunk.
+function recvfile_requestchunk()
+{
+	// libticalcs: ti89_send_ACK.
+	//                PC_TI92p  CMD_ACK
+	link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's VAR)
+
+	// libticalcs: ti89_send_CTS.
+	//                PC_TI92p  CMD_CTS
+	link_incoming_queue.push(8, 0x09, 0, 0); // CTS packet
+
+	// Equivalent of libticalcs: ti89_recv_ACK.
+	link_incoming_queue.push('WAIT_ACK');
+
+	// Equivalent of libticalcs: ti89_recv_ACK.
+	link_incoming_queue.push('WAIT_XDP');
+
+	// libticalcs: ti89_send_ACK.
+	//                PC_TI92p  CMD_ACK
+	link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's XDP)
+
+	// Equivalent of libticalcs: ti89_recv_CNT. If EOT is received instead of CNT, we have reached the end of the transfer.
+	link_incoming_queue.push('WAIT_CNT');
+}
+
 // BROKEN !
 // For vartype, see http://debrouxl.github.io/gcc4ti/link.html#LIO_CTX .
 function recvfile(varname, vartype)
 {
-	link_recv_loop_again = false;
+	link_recv_varsize = 0;
+	link_recv_vartype = 0;
+	link_recv_filename = "";
+	link_recv_filedata = new Array();
 
 	// If varname is a string, let's convert it into an array of numbers.
 	if (typeof(varname) == "string") {
@@ -3973,37 +4022,15 @@ function recvfile(varname, vartype)
 	// Equivalent of libticalcs: ti89_recv_VAR.
 	link_incoming_queue.push('WAIT_VAR');
 
-	// Loop until all chunks have been received.
-	do {
-		// libticalcs: ti89_send_ACK.
-		//                PC_TI92p  CMD_ACK
-		link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's VAR)
+	// At first, this code was written as do { [the contents of recvfile_requestchunk()] } while (link_recv_loop_again); [push final ACK]
+	// However, recvfile_requestchunk() finished long before the emulated calculator had a chance to send data, and as a consequence,
+	// long before the linking emulation code had a chance to set link_recv_loop_again to true.
+	// The only thing we can do is queue transfer for the first chunk, and when we have received it:
+	// * if the calculator sends a CNT packet, queue transfer for the next chunk;
+	// * if the calculator sends an EOT packet, send final ACK.
+	recvfile_requestchunk();
 
-		// libticalcs: ti89_send_CTS.
-		//                PC_TI92p  CMD_CTS
-		link_incoming_queue.push(8, 0x09, 0, 0); // CTS packet
-
-		// Equivalent of libticalcs: ti89_recv_ACK.
-		link_incoming_queue.push('WAIT_ACK');
-
-		// Equivalent of libticalcs: ti89_recv_ACK.
-		link_incoming_queue.push('WAIT_XDP');
-
-		// libticalcs: ti89_send_ACK.
-		//                PC_TI92p  CMD_ACK
-		link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's XDP)
-
-		// Equivalent of libticalcs: ti89_recv_CNT. If EOT is received instead, link_recv_loop_again will be set to false.
-		link_incoming_queue.push('WAIT_CNT');
-
-	} while (link_recv_loop_again); // FIXME loop condition.
-
-	// Push final ACK
-	// libticalcs: ti89_send_ACK.
-	//                PC_TI92p  CMD_ACK
-	link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's XDP)
-
-	console.log("finished processing for receiving variable");
+	console.log("finished processing for receiving variable (first chunk)");
 
 	dump_incoming_queue("Incoming: " + link_incoming_queue.length + " (pseudo-)bytes\n");
 }
@@ -4042,6 +4069,136 @@ function timer_interrupts()
 	}
 };
 
+function link_reset_state(packettype)
+{
+	console.log("Receiving " + packettype + " failed, resetting link state !");
+	link_incoming_queue = new Array();
+	link_outgoing_queue = new Array();
+	fire_cpu_exception(30); // AUTO_INT_6
+	link_recv_varsize = 0;
+	link_recv_vartype = 0
+	link_recv_filename = "";
+	link_recv_filedata = new Array();
+}
+
+// For vartype, see http://debrouxl.github.io/gcc4ti/link.html#LIO_CTX .
+function link_magic_number()
+{
+	if (link_recv_vartype >= 35) return "**TIFL**"; // (OS) FlashApp (Certificate)
+
+	if (calculator_model == 1 || calculator_model == 9) return "**TI89**";
+	else return "**TI92P*";
+}
+
+// Simplified version of libtifiles: ti9x_file_write_regular.
+function link_build_output_file()
+{
+	/*var dump = "";
+	for (var y = 0; y < link_recv_filedata.length; y++)
+	{
+		dump += to_hex(link_recv_filedata[y], 2) + " ";
+	}
+	console.log(dump);*/
+
+	// 1) Magic number (8 bytes)
+	var output_file = new Array();
+	var magic = link_magic_number();
+	for (var i = 0; i < magic.length; i++) {
+		output_file.push(magic.charCodeAt(i));
+	}
+
+	// 2) 2 additional bytes (maybe file format revision, but TI never used more than one ?).
+	output_file.push(0x01);
+	output_file.push(0x00);
+
+	// 3) Folder name, if any (up to 8 chars)
+	var foldername = "main";
+	var varname = link_recv_filename;
+	var separatoroffset = link_recv_filename.indexOf("\\");
+
+	if (separatoroffset != -1) {
+		foldername = link_recv_filename.substr(0, Math.min(separatoroffset, 8-1));
+		varname = link_recv_filename.substr(separatoroffset + 1);
+		if (varname.length > 8) {
+			console.log("Invalid varname, clamping to 8 characters");
+			varname = varname.substr(0, 7);
+		}
+	}
+	for (var i = 0; i < foldername.length; i++) {
+		output_file.push(foldername.charCodeAt(i));
+	}
+	// Pad to 8 chars with 0x00.
+	for (var i = 8 - foldername.length; i > 0; i--) {
+		output_file.push(0);
+	}
+
+	// 4) 40 x 0x00.
+	for (var i = 0; i < 40; i++) {
+		output_file.push(0);
+	}
+
+	// 5) A single entry in this file.
+	output_file.push(0x01);
+	output_file.push(0x00);
+
+	// 6) Offset of data in file (can be hard-coded to 0x52 in this case).
+	output_file.push(0x52);
+	output_file.push(0x00);
+	output_file.push(0x00);
+	output_file.push(0x00);
+
+	// 7) Variable name
+	for (var i = 0; i < varname.length; i++) {
+		output_file.push(varname.charCodeAt(i));
+	}
+	// Pad to 8 chars with 0x00.
+	for (var i = 8 - varname.length; i > 0; i--) {
+		output_file.push(0);
+	}
+
+	// 8) Variable type
+	output_file.push(link_recv_vartype);
+
+	// 9) Variable attribute (archived and friends)
+	// Hard-code unarchived and unlocked, as the variable attribute information is not available in the packet sequence (we'd need to implement dirlist for that).
+	output_file.push(0x00);
+
+	// 10) 2 x 0x00
+	output_file.push(0x00);
+	output_file.push(0x00);
+
+	// 11) Total size of file on the computer side (including checksum)
+	var varsize = link_recv_varsize + 0x52 + 4 + 2;
+	output_file.push(varsize & 0xFF);
+	output_file.push((varsize >>> 8) & 0xFF);
+	output_file.push((varsize >>> 16) & 0xFF);
+	output_file.push((varsize >>> 24) & 0xFF);
+
+	// 12) Marker
+	output_file.push(0xA5);
+	output_file.push(0x5A);
+
+	// 13) 4 x 0x00
+	output_file.push(0x00);
+	output_file.push(0x00);
+	output_file.push(0x00);
+	output_file.push(0x00);
+
+	// 14) Data (at last :P)
+	var checksum = 0;
+	for (var i = 0; i < link_recv_filedata.length; i++) {
+		output_file.push(link_recv_filedata[i]);
+		checksum += link_recv_filedata[i];
+	}
+
+	// 15) Checksum
+	output_file.push(checksum & 0xFF);
+	output_file.push((checksum >>> 8) & 0xFF);
+
+	// Finally, replace file data.
+	link_recv_filedata = new Uint8Array(output_file);
+}
+
 // Extracted out of main_loop to help profiling.
 function link_handling()
 {
@@ -4066,14 +4223,12 @@ function link_handling()
 					// libticalcs: ti89_recv_ACK indicates that length can be nonzero for failure
 					// FIXME: better error handling !
 					if (link_outgoing_queue[x+2] != 0 || link_outgoing_queue[x+3] != 0) {
-						link_incoming_queue = new Array();
-						link_outgoing_queue = new Array();
-						fire_cpu_exception(30); // AUTO_INT_6
+						link_reset_state("ACK");
 					}
 					else {
-						dump_outgoing_queue("Before: ");
+						dump_outgoing_queue("WAIT_ACK Before: ");
 
-						link_outgoing_queue.splice(0, x+4);
+						link_outgoing_queue.splice(x, x+4);
 						link_incoming_queue.shift();
 						console.log("Eaten an item in WAIT_ACK", x);
 
@@ -4096,12 +4251,10 @@ function link_handling()
 					// libticalcs: ti89_recv_CTS indicates that length can be nonzero for failure
 					// FIXME: better error handling !
 					if (link_outgoing_queue[x+2] != 0 || link_outgoing_queue[x+3] != 0) {
-						link_incoming_queue = new Array();
-						link_outgoing_queue = new Array();
-						fire_cpu_exception(30); // AUTO_INT_6
+						link_reset_state("CTS");
 					}
 					else {
-						dump_outgoing_queue("Before: ");
+						dump_outgoing_queue("WAIT_CTS Before: ");
 
 						link_outgoing_queue.splice(0, x+4);
 						link_incoming_queue.shift();
@@ -4126,10 +4279,10 @@ function link_handling()
 				{
 					// TODO: error handling
 					var length = link_outgoing_queue[x+2] + link_outgoing_queue[x+3] * 256;
-					dump_outgoing_queue("Before: ");
+					dump_outgoing_queue("WAIT_VAR Before: ");
 
-					// For now, skip everything (which may not have been received entirely yet).
-					link_outgoing_queue.splice(0, x+4+length+2); // 2 checksum bytes
+					// Skip 4-byte header.
+					link_outgoing_queue.splice(0, x+4); // 2 checksum bytes
 					link_incoming_queue.shift();
 					console.log("Eaten an item in WAIT_VAR", x);
 
@@ -4151,11 +4304,31 @@ function link_handling()
 				{
 					// TODO: error handling
 					var length = link_outgoing_queue[x+2] + link_outgoing_queue[x+3] * 256;
-					dump_outgoing_queue("Before: ");
+					dump_outgoing_queue("WAIT_XDP Before: ");
 
-					// TODO: process the contents of the VAR packet.
-					// For now, skip everything (which may not have been received entirely yet).
-					link_outgoing_queue.splice(0, x+4+length+2); // 2 checksum bytes
+					// Process contents of VAR packet, now that it was received entirely (libticalcs: ti89_recv_VAR).
+					var computed_checksum = link_outgoing_queue[0] + link_outgoing_queue[1] + link_outgoing_queue[2] + link_outgoing_queue[3]; // varsize
+					link_recv_varsize = link_outgoing_queue[0] + link_outgoing_queue[1] * 256 + link_outgoing_queue[2] * 65536 + link_outgoing_queue[3] * 16777216;
+					link_recv_vartype = link_outgoing_queue[4];
+					computed_checksum += link_outgoing_queue[4] + link_outgoing_queue[5]; // vartype + strl
+					var strl = link_outgoing_queue[5];
+					for (var i = 0; i < strl; i++) {
+						link_recv_filename += String.fromCharCode(link_outgoing_queue[6+i]);
+						computed_checksum += link_outgoing_queue[6+i];
+					}
+					console.log("link_recv_varsize = " + link_recv_varsize);
+					console.log("link_recv_vartype = " + link_recv_vartype);
+					console.log("strl = " + strl);
+					console.log("link_recv_filename = " + link_recv_filename);
+
+					link_recv_filedata = new Uint8Array(link_recv_varsize);
+					var packet_checksum = link_outgoing_queue[x-2] + link_outgoing_queue[x-1] * 256;
+					if (computed_checksum != packet_checksum) {
+						console.log("WAIT_XDP: Wrong checksum: computed=" + to_hex(computed_checksum, 4) + " packet=" + to_hex(packet_checksum, 4) + "!");
+					}
+
+					// Skip what we processed.
+					link_outgoing_queue.splice(0, x+4);
 					link_incoming_queue.shift();
 					console.log("Eaten an item in WAIT_XDP", x);
 
@@ -4180,19 +4353,41 @@ function link_handling()
 				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x92))
 				{
 					// TODO: error handling
-					dump_outgoing_queue("Before: ");
+					dump_outgoing_queue("WAIT_CNT Before: ");
+					var packet_type = link_outgoing_queue[x+1];
 
-					// TODO: process the contents of the XDP packet.
+					// Process contents of XDP packet, now that it was received entirely (libticalcs: ti89_recv_XDP + clients): build output file.
+					// Skip 4 first bytes.
+					var computed_checksum = 0;
+					for (var i = 4; i < link_recv_varsize + 4; i++) {
+						link_recv_filedata[i-4] = link_outgoing_queue[i];
+						computed_checksum += link_outgoing_queue[i];
+					}
+
+					var packet_checksum = link_outgoing_queue[x-2] + link_outgoing_queue[x-1] * 256;
+					if (computed_checksum != packet_checksum) {
+						console.log("WAIT_CNT: Wrong checksum: computed=" + to_hex(computed_checksum, 4) + " packet=" + to_hex(packet_checksum, 4) + "!");
+					}
+
+					console.log("link_recv_filedata has length " + link_recv_filedata.length);
 
 					link_outgoing_queue.splice(0, x+4);
 					link_incoming_queue.shift();
 					console.log("Eaten an item in WAIT_CNT", x);
 
-					if (link_outgoing_queue[x+1] == 0x92) {
-						link_recv_loop_again = false; // EOT, we need to break out of the loop in recvfile().
+					if (packet_type == 0x92) {
+						// EOT, we'll be able to create the target file.
+
+						// Push final ACK, so that transfer terminates on the calculator side.
+						// libticalcs: ti89_send_ACK.
+						//                PC_TI92p  CMD_ACK
+						link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's XDP)
+
+						// Create the target file.
+						link_build_output_file();
 					}
 					else {
-						link_recv_loop_again = true; // CNT, we need to restart the loop in recvfile().
+						recvfile_requestchunk(); // CNT, queue transfers for next chunk.
 					}
 
 					dump_outgoing_queue("After: ");
@@ -4620,6 +4815,8 @@ function loadrom()
 		reader.onload = function() { newromready = reader; unhandled_count = 0; };
 		reader.readAsArrayBuffer(infile);
 	}
+	// tilp: MIME types definition.
+	// libtifiles: types89.c.
 	if (   infile.size >= 80
 	    && infile.size < 70000
 	    && (   ".9xa.89a.v2a".indexOf(extension) != -1 // Figure, infrequent
@@ -4667,9 +4864,50 @@ function getPNG()
 	document.getElementById('pngimage').style.display='inline';
 	document.getElementById('hideButton').style.display='inline'
 }
+
 function pngButtons()
 {
 	document.getElementById('pngimage').style.display='none';
 	document.getElementById('hideButton').style.display='none';
 	document.getElementById('pngButton').style.display='inline';
+}
+
+// libtifiles: types89.c
+function buildFileExtensionFromVartype()
+{
+	var prefix = (calculator_model == 1 || calculator_model == 9) ? ".89" : ((calculator_model == 8) ? ".v2" : ".9x");
+	var suffix = "";
+	switch (link_recv_vartype) {
+		case 0:  suffix = "e"; break; // Expression
+		case 4:  suffix = "l"; break; // List
+		case 6:  suffix = "m"; break; // Matrix
+		case 10: suffix = "c"; break; // Data
+		case 11: suffix = "t"; break; // Text
+		case 12: suffix = "s"; break; // String
+		case 13: suffix = "d"; break; // GDB (infrequent)
+		case 14: suffix = "a"; break; // Geometry figure (infrequent)
+		case 16: suffix = "i"; break; // Picture
+		case 18: suffix = "p"; break; // Program
+		case 19: suffix = "f"; break; // Function
+		case 20: suffix = "x"; break; // Macro (infrequent)
+		case 28: suffix = "y"; break; // Other
+		//case 29: suffix = "g"; break; // Group
+		case 33: suffix = "z"; break; // Assembly program
+		//case 35: suffix = "u"; break; // OS Upgrade
+		case 36: suffix = "k"; break; // FlashApp
+		//case 37: suffix = "q"; break; // Certificate file
+		default: suffix = "?"; break;
+	}
+	return prefix + suffix;
+}
+
+function getFileData()
+{
+	// http://stackoverflow.com/a/16213045
+	var blob = new Blob([link_recv_filedata], {type: "application/octet-binary"});
+	var url = URL.createObjectURL(blob);
+	var a = document.querySelector("#downloadFile");
+	a.href = url;
+	a.download = link_recv_filename + buildFileExtensionFromVartype();
+	a.style.display='inline';
 }
