@@ -3261,21 +3261,16 @@ function initemu()
 	ui.initemu();
 
 	initialize_calculator();
-	interval = stdlib.setInterval(this.emu_main_loop, 11);
+	interval = stdlib.setInterval(emu_main_loop, 11);
 
 	for (var key = 0; key < 80; key++) keystatus[key] = 0;
 
 	ui.initkeyhandlers();
 };
 
-function setKeyPressed(keynumber)
+function setKey(keynumber, status)
 {
-	keystatus[keynumber] = 1;
-}
-
-function setKeyReleased(keynumber)
-{
-	keystatus[keynumber] = 0;
+	keystatus[keynumber] = status;
 }
 
 function setONKeyPressed(keynumber)
@@ -4604,8 +4599,7 @@ return {
 	setUI : setUI,
 
 	// Setter functions called by the UI.
-	setKeyPressed : setKeyPressed,
-	setKeyReleased : setKeyReleased,
+	setKey : setKey,
 	setONKeyPressed : setONKeyPressed,
 	setONKeyReleased : setONKeyReleased,
 
@@ -4743,10 +4737,10 @@ function create_button(shape, coords, keynumber)
 	var area = document.createElement('area');
 	area.shape = shape;
 	area.coords = coords;
-	area.onmousedown = function() { emu.setKeyPressed(keynumber); }
-	area.ontouchdown = function() { emu.setKeyPressed(keynumber); }
-	area.onmouseup = function() { emu.setKeyReleased(keynumber); }
-	area.ontouchup = function() { emu.setKeyReleased(keynumber); }
+	area.onmousedown = function() { emu.setKey(keynumber, 1); }
+	area.ontouchdown = function() { emu.setKey(keynumber, 1); }
+	area.onmouseup = function() { emu.setKey(keynumber, 0); }
+	area.ontouchup = function() { emu.setKey(keynumber, 0); }
 	map.appendChild(area);
 }
 
@@ -4781,52 +4775,52 @@ function handle_keys_89_89T(event)
 
 	switch (e.keyCode)
 	{
-		case 113: keystatus[39] = value; break; // F2
-		case 112: keystatus[47] = value; break; // F1
-		case 114: keystatus[31] = value; break; // F3
-		case 115: keystatus[23] = value; break; // F4
-		case 116: keystatus[15] = value; break; // F5
-		case 27: keystatus[48] = value; break; // ESC
+		case 113: emu.setKey(39, value); break; // F2
+		case 112: emu.setKey(47, value); break; // F1
+		case 114: emu.setKey(31, value); break; // F3
+		case 115: emu.setKey(23, value); break; // F4
+		case 116: emu.setKey(15, value); break; // F5
+		case 27: emu.setKey(48, value); break; // ESC
 
-		case 59: keystatus[16] = value; break; // ;, simulated (-) (Firefox, Opera)
-		case 186: keystatus[16] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
+		case 59: emu.setKey(16, value); break; // ;, simulated (-) (Firefox, Opera)
+		case 186: emu.setKey(16, value); break; // ;, simulated (-) (Chrome, IE, Safari)
 
-		case 43: keystatus[9] = value; break; // + (Opera)
-		case 45: keystatus[10] = value; break; // -
-		case 42: keystatus[11] = value; break; // *
-		case 47: keystatus[12] = value; break; // /
+		case 43: emu.setKey(9, value); break; // + (Opera)
+		case 45: emu.setKey(10, value); break; // -
+		case 42: emu.setKey(11, value); break; // *
+		case 47: emu.setKey(12, value); break; // /
 
-		case 107: keystatus[9] = value; break; // + (all browsers but Opera)
-		case 109: keystatus[10] = value; break; // - 
-		case 106: keystatus[11] = value; break; // *
-		case 111: keystatus[12] = value; break; // /
+		case 107: emu.setKey(9, value); break; // + (all browsers but Opera)
+		case 109: emu.setKey(10, value); break; // - 
+		case 106: emu.setKey(11, value); break; // *
+		case 111: emu.setKey(12, value); break; // /
 
-		case 8: keystatus[22] = value; break; // backspace
-		case 192: keystatus[4] = value; break; // backquote, simulated 2nd
-		case 38: keystatus[0] = value; break; // up
-		case 40: keystatus[2] = value; break; // down
-		case 37: keystatus[1] = value; break; // left
-		case 39: keystatus[3] = value; break; // right
-		case 190: keystatus[24] = value; break; // . (decimal point)
-		case 13: keystatus[8] = value; break; // ENTER
-		case 117: keystatus[47] = value; break; // F6 is treated as F1
-		case 118: keystatus[39] = value; break; // F7 is treated as F2
-		case 119: keystatus[31] = value; break; // F8 is treated as F3
-		case 121: keystatus[5] = value; break; // F10 is treated as SHIFT
-		case 48: keystatus[32] = value; break; // 0
-		case 49: keystatus[33] = value; break; // 1
-		case 50: keystatus[25] = value; break; // 2
-		case 51: keystatus[17] = value; break; // 3
-		case 52: keystatus[34] = value; break; // 4
-		case 53: keystatus[26] = value; break; // 5
-		case 54: keystatus[18] = value; break; // 6
-		case 55: keystatus[35] = value; break; // 7
-		case 56: keystatus[27] = value; break; // 8
-		case 57: keystatus[19] = value; break; // 9
-		case 84: keystatus[21] = value; break; // T
-		case 88: keystatus[45] = value; break; // X
-		case 89: keystatus[37] = value; break; // Y
-		case 90: keystatus[29] = value; break; // Z
+		case 8: emu.setKey(22, value); break; // backspace
+		case 192: emu.setKey(4, value); break; // backquote, simulated 2nd
+		case 38: emu.setKey(0, value); break; // up
+		case 40: emu.setKey(2, value); break; // down
+		case 37: emu.setKey(1, value); break; // left
+		case 39: emu.setKey(3, value); break; // right
+		case 190: emu.setKey(24, value); break; // . (decimal point)
+		case 13: emu.setKey(8, value); break; // ENTER
+		case 117: emu.setKey(47, value); break; // F6 is treated as F1
+		case 118: emu.setKey(39, value); break; // F7 is treated as F2
+		case 119: emu.setKey(31, value); break; // F8 is treated as F3
+		case 121: emu.setKey(5, value); break; // F10 is treated as SHIFT
+		case 48: emu.setKey(32, value); break; // 0
+		case 49: emu.setKey(33, value); break; // 1
+		case 50: emu.setKey(25, value); break; // 2
+		case 51: emu.setKey(17, value); break; // 3
+		case 52: emu.setKey(34, value); break; // 4
+		case 53: emu.setKey(26, value); break; // 5
+		case 54: emu.setKey(18, value); break; // 6
+		case 55: emu.setKey(35, value); break; // 7
+		case 56: emu.setKey(27, value); break; // 8
+		case 57: emu.setKey(19, value); break; // 9
+		case 84: emu.setKey(21, value); break; // T
+		case 88: emu.setKey(45, value); break; // X
+		case 89: emu.setKey(37, value); break; // Y
+		case 90: emu.setKey(29, value); break; // Z
 	}
 
 	return true; // suppress default action
@@ -4849,77 +4843,77 @@ function handle_keys_92P_V200(event)
 	}
 	switch (e.keyCode)
 	{
-		case 113: keystatus[36] = value; break; // F2
-		case 112: keystatus[52] = value; break; // F1
-		case 114: keystatus[20] = value; break; // F3
-		case 115: keystatus[76] = value; break; // F4
-		case 116: keystatus[60] = value; break; // F5
-		case 117: keystatus[44] = value; break; // F6
-		case 118: keystatus[28] = value; break; // F7
-		case 119: keystatus[12] = value; break; // F1
-		case 27: keystatus[70] = value; break; // ESC
+		case 113: emu.setKey(36, value); break; // F2
+		case 112: emu.setKey(52, value); break; // F1
+		case 114: emu.setKey(20, value); break; // F3
+		case 115: emu.setKey(76, value); break; // F4
+		case 116: emu.setKey(60, value); break; // F5
+		case 117: emu.setKey(44, value); break; // F6
+		case 118: emu.setKey(28, value); break; // F7
+		case 119: emu.setKey(12, value); break; // F1
+		case 27: emu.setKey(70, value); break; // ESC
 
-		case 59: keystatus[81] = value; break; // ;, simulated (-) (Firefox, Opera)
-		case 186: keystatus[81] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
+		case 59: emu.setKey(81, value); break; // ;, simulated (-) (Firefox, Opera)
+		case 186: emu.setKey(81, value); break; // ;, simulated (-) (Chrome, IE, Safari)
 
-		case 43: keystatus[68] = value; break; // + (Opera)
-		case 45: keystatus[72] = value; break; // -
-		case 42: keystatus[63] = value; break; // *
-		case 47: keystatus[40] = value; break; // /
+		case 43: emu.setKey(68, value); break; // + (Opera)
+		case 45: emu.setKey(72, value); break; // -
+		case 42: emu.setKey(63, value); break; // *
+		case 47: emu.setKey(40, value); break; // /
 
-		case 107: keystatus[68] = value; break; // + (all browsers but Opera)
-		case 109: keystatus[72] = value; break; // - 
-		case 106: keystatus[63] = value; break; // *
-		case 111: keystatus[40] = value; break; // /
+		case 107: emu.setKey(68, value); break; // + (all browsers but Opera)
+		case 109: emu.setKey(72, value); break; // - 
+		case 106: emu.setKey(63, value); break; // *
+		case 111: emu.setKey(40, value); break; // /
 
-		case 32: keystatus[32] = value; break; // spacebar
-		case 8: keystatus[64] = value; break; // backspace
-		case 220: keystatus[3] = value; break; // backslash, simulated LOCK (hand)
-		case 192: keystatus[0] = value; break; // backquote, simulated 2nd
-		case 38: keystatus[5] = value; break; // up
-		case 40: keystatus[7] = value; break; // down
-		case 37: keystatus[4] = value; break; // left
-		case 39: keystatus[6] = value; break; // right
-		case 190: keystatus[78] = value; break; // . (decimal point)
-		case 13: keystatus[73] = value; break; // ENTER
-		case 120: keystatus[52] = value; break; // F9 is treated as F1
-		case 121: keystatus[2] = value; break; // F10 is treated as SHIFT
-		case 48: keystatus[77] = value; break; // 0
-		case 49: keystatus[13] = value; break; // 1
-		case 50: keystatus[14] = value; break; // 2
-		case 51: keystatus[15] = value; break; // 3
-		case 52: keystatus[21] = value; break; // 4
-		case 53: keystatus[22] = value; break; // 5
-		case 54: keystatus[23] = value; break; // 6
-		case 55: keystatus[29] = value; break; // 7
-		case 56: keystatus[30] = value; break; // 8
-		case 57: keystatus[31] = value; break; // 9
-		case 65: keystatus[74] = value; break; // A - Z
-		case 66: keystatus[41] = value; break;
-		case 67: keystatus[25] = value; break;
-		case 68: keystatus[18] = value; break;
-		case 69: keystatus[19] = value; break;
-		case 70: keystatus[26] = value; break;
-		case 71: keystatus[34] = value; break;
-		case 72: keystatus[42] = value; break;
-		case 73: keystatus[59] = value; break;
-		case 74: keystatus[50] = value; break;
-		case 75: keystatus[58] = value; break;
-		case 76: keystatus[66] = value; break;
-		case 77: keystatus[57] = value; break;
-		case 78: keystatus[49] = value; break;
-		case 79: keystatus[67] = value; break;
-		case 80: keystatus[55] = value; break;
-		case 81: keystatus[75] = value; break;
-		case 82: keystatus[27] = value; break;
-		case 83: keystatus[10] = value; break;
-		case 84: keystatus[35] = value; break;
-		case 85: keystatus[51] = value; break;
-		case 86: keystatus[33] = value; break;
-		case 87: keystatus[11] = value; break;
-		case 88: keystatus[17] = value; break;
-		case 89: keystatus[43] = value; break;
-		case 90: keystatus[9] = value; break;
+		case 32: emu.setKey(32, value); break; // spacebar
+		case 8: emu.setKey(64, value); break; // backspace
+		case 220: emu.setKey(3, value); break; // backslash, simulated LOCK (hand)
+		case 192: emu.setKey(0, value); break; // backquote, simulated 2nd
+		case 38: emu.setKey(5, value); break; // up
+		case 40: emu.setKey(7, value); break; // down
+		case 37: emu.setKey(4, value); break; // left
+		case 39: emu.setKey(6, value); break; // right
+		case 190: emu.setKey(78, value); break; // . (decimal point)
+		case 13: emu.setKey(73, value); break; // ENTER
+		case 120: emu.setKey(52, value); break; // F9 is treated as F1
+		case 121: emu.setKey(2, value); break; // F10 is treated as SHIFT
+		case 48: emu.setKey(77, value); break; // 0
+		case 49: emu.setKey(13, value); break; // 1
+		case 50: emu.setKey(14, value); break; // 2
+		case 51: emu.setKey(15, value); break; // 3
+		case 52: emu.setKey(21, value); break; // 4
+		case 53: emu.setKey(22, value); break; // 5
+		case 54: emu.setKey(23, value); break; // 6
+		case 55: emu.setKey(29, value); break; // 7
+		case 56: emu.setKey(30, value); break; // 8
+		case 57: emu.setKey(31, value); break; // 9
+		case 65: emu.setKey(74, value); break; // A - Z
+		case 66: emu.setKey(41, value); break;
+		case 67: emu.setKey(25, value); break;
+		case 68: emu.setKey(18, value); break;
+		case 69: emu.setKey(19, value); break;
+		case 70: emu.setKey(26, value); break;
+		case 71: emu.setKey(34, value); break;
+		case 72: emu.setKey(42, value); break;
+		case 73: emu.setKey(59, value); break;
+		case 74: emu.setKey(50, value); break;
+		case 75: emu.setKey(58, value); break;
+		case 76: emu.setKey(66, value); break;
+		case 77: emu.setKey(57, value); break;
+		case 78: emu.setKey(49, value); break;
+		case 79: emu.setKey(67, value); break;
+		case 80: emu.setKey(55, value); break;
+		case 81: emu.setKey(75, value); break;
+		case 82: emu.setKey(27, value); break;
+		case 83: emu.setKey(10, value); break;
+		case 84: emu.setKey(35, value); break;
+		case 85: emu.setKey(51, value); break;
+		case 86: emu.setKey(33, value); break;
+		case 87: emu.setKey(11, value); break;
+		case 88: emu.setKey(17, value); break;
+		case 89: emu.setKey(43, value); break;
+		case 90: emu.setKey(9, value); break;
 	}
 
 	return true; // suppress default action
@@ -5140,3 +5134,6 @@ return {
 };
 
 }
+
+var emu = EmulatorCoreModule(window);
+var ui = EmulatorUIModule(window);
