@@ -44,7 +44,8 @@ var screen_scaling_ratio = 2; // 2:1 by default
 
 var link_recv_varsize = 0;
 var link_recv_vartype = 0;
-var link_recv_filename = 0;
+var link_recv_varname = "";
+var link_recv_foldername = "";
 var link_recv_filedata = new Array();
 
 // Hardware ports and variables deduced from them.
@@ -2543,7 +2544,7 @@ function write_hreg(reg, value)
 		case 0x600005: // 0x600005
 		{
 			wakemask = value;
-			//throw "STOP";
+			throw "STOP";
 			break;
 		}
 
@@ -3788,14 +3789,19 @@ function fire_cpu_exception(e)
 	if (stopped)
 	{
 		// these always resume
-		if (e == 31 || e == 30) stopped = false;
+		if (e == 31 || e == 30) {
+			console.log("Resuming from stop due to AUTO_INT_6 or AUTO_INT_7");
+			stopped = false;
+			// Return immediately, to prevent the emulator from failing to wake up from power off code executed at SR = 2700.
+			return;
+		}
 		// these only resume if the right bit is set
 		if (e >= 25 && e <= 29 && (wakemask & (1 << e - 25))) stopped = false;
 	}
 	if (stopped) return;
 
 	// skip auto interrupt if current level too high
-	if (e >= 25 && e <= 30) 
+	if (e >= 25 && e <= 30)
 	{
 		var interrupt_level = e - 24;
 		var current_level = (sr & 0x700) >> 8;
@@ -3975,12 +3981,13 @@ function recvfile_requestchunk()
 }
 
 // BROKEN !
-// For vartype, see http://debrouxl.github.io/gcc4ti/link.html#LIO_CTX .
+// For vartype, see http://debrouxl.github.io/gcc4ti/link.html#LIO_CTX and libtifiles:types89.c.
 function recvfile(varname, vartype)
 {
 	link_recv_varsize = 0;
 	link_recv_vartype = 0;
-	link_recv_filename = "";
+	link_recv_varname = "";
+	link_recv_foldername = "";
 	link_recv_filedata = new Array();
 
 	// If varname is a string, let's convert it into an array of numbers.
@@ -4077,11 +4084,12 @@ function link_reset_state(packettype)
 	fire_cpu_exception(30); // AUTO_INT_6
 	link_recv_varsize = 0;
 	link_recv_vartype = 0
-	link_recv_filename = "";
+	link_recv_varname = "";
+	link_recv_foldername = "";
 	link_recv_filedata = new Array();
 }
 
-// For vartype, see http://debrouxl.github.io/gcc4ti/link.html#LIO_CTX .
+// For vartype, see http://debrouxl.github.io/gcc4ti/link.html#LIO_CTX and libtifiles:types89.c.
 function link_magic_number()
 {
 	if (link_recv_vartype >= 35) return "**TIFL**"; // (OS) FlashApp (Certificate)
@@ -4112,23 +4120,22 @@ function link_build_output_file()
 	output_file.push(0x00);
 
 	// 3) Folder name, if any (up to 8 chars)
-	var foldername = "main";
-	var varname = link_recv_filename;
-	var separatoroffset = link_recv_filename.indexOf("\\");
+	link_recv_foldername = "main";
+	var separatoroffset = link_recv_varname.indexOf("\\");
 
 	if (separatoroffset != -1) {
-		foldername = link_recv_filename.substr(0, Math.min(separatoroffset, 8-1));
-		varname = link_recv_filename.substr(separatoroffset + 1);
-		if (varname.length > 8) {
+		link_recv_foldername = link_recv_varname.substr(0, Math.min(separatoroffset, 8-1));
+		link_recv_varname = link_recv_varname.substr(separatoroffset + 1);
+		if (link_recv_varname.length > 8) {
 			console.log("Invalid varname, clamping to 8 characters");
-			varname = varname.substr(0, 7);
+			link_recv_varname = link_recv_varname.substr(0, 7);
 		}
 	}
-	for (var i = 0; i < foldername.length; i++) {
-		output_file.push(foldername.charCodeAt(i));
+	for (var i = 0; i < link_recv_foldername.length; i++) {
+		output_file.push(link_recv_foldername.charCodeAt(i));
 	}
 	// Pad to 8 chars with 0x00.
-	for (var i = 8 - foldername.length; i > 0; i--) {
+	for (var i = 8 - link_recv_foldername.length; i > 0; i--) {
 		output_file.push(0);
 	}
 
@@ -4148,11 +4155,11 @@ function link_build_output_file()
 	output_file.push(0x00);
 
 	// 7) Variable name
-	for (var i = 0; i < varname.length; i++) {
-		output_file.push(varname.charCodeAt(i));
+	for (var i = 0; i < link_recv_varname.length; i++) {
+		output_file.push(link_recv_varname.charCodeAt(i));
 	}
 	// Pad to 8 chars with 0x00.
-	for (var i = 8 - varname.length; i > 0; i--) {
+	for (var i = 8 - link_recv_varname.length; i > 0; i--) {
 		output_file.push(0);
 	}
 
@@ -4313,17 +4320,17 @@ function link_handling()
 					computed_checksum += link_outgoing_queue[4] + link_outgoing_queue[5]; // vartype + strl
 					var strl = link_outgoing_queue[5];
 					for (var i = 0; i < strl; i++) {
-						link_recv_filename += String.fromCharCode(link_outgoing_queue[6+i]);
+						link_recv_varname += String.fromCharCode(link_outgoing_queue[6+i]);
 						computed_checksum += link_outgoing_queue[6+i];
 					}
 					console.log("link_recv_varsize = " + link_recv_varsize);
 					console.log("link_recv_vartype = " + link_recv_vartype);
 					console.log("strl = " + strl);
-					console.log("link_recv_filename = " + link_recv_filename);
+					console.log("link_recv_varname = " + link_recv_varname);
 
 					link_recv_filedata = new Uint8Array(link_recv_varsize);
 					var packet_checksum = link_outgoing_queue[x-2] + link_outgoing_queue[x-1] * 256;
-					if (computed_checksum != packet_checksum) {
+					if ((computed_checksum & 0xFFFF) != packet_checksum) {
 						console.log("WAIT_XDP: Wrong checksum: computed=" + to_hex(computed_checksum, 4) + " packet=" + to_hex(packet_checksum, 4) + "!");
 					}
 
@@ -4365,7 +4372,7 @@ function link_handling()
 					}
 
 					var packet_checksum = link_outgoing_queue[x-2] + link_outgoing_queue[x-1] * 256;
-					if (computed_checksum != packet_checksum) {
+					if ((computed_checksum & 0xFFFF) != packet_checksum) {
 						console.log("WAIT_CNT: Wrong checksum: computed=" + to_hex(computed_checksum, 4) + " packet=" + to_hex(packet_checksum, 4) + "!");
 					}
 
@@ -4908,6 +4915,6 @@ function getFileData()
 	var url = URL.createObjectURL(blob);
 	var a = document.querySelector("#downloadFile");
 	a.href = url;
-	a.download = link_recv_filename + buildFileExtensionFromVartype();
+	a.download = link_recv_foldername + "." + link_recv_varname + buildFileExtensionFromVartype();
 	a.style.display='inline';
 }
