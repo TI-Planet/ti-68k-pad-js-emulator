@@ -1,3 +1,5 @@
+function EmulatorCoreModule(stdlib) {
+
 // Registers
 var d0 = 0; // data registers, treat as 32 bit ints
 var d1 = 0;
@@ -19,17 +21,16 @@ var a8 = 0;
 var sr = 0; // status register, treat as 16 bit int
 var pc = 0; // program counter, treat as 32 bit int
 
-// Emulator arrays (rom defined elsewhere).
+// Emulator arrays (rom usually redefined elsewhere).
+var rom = new Uint16Array(0x200000);
 var ram = new Uint16Array(131072); // 256K of RAM, treat as array of words
 //var ramflag = new Array(131072);
 var t = new Array(65536); // Instruction handlers.
 var n = new Array(65536); // Instruction names.
-var calcscreen = new Uint8Array(240 * 128 * 3); // stores three frames of pixel data for averaging
 var link_incoming_queue = new Array();
 var link_outgoing_queue = new Array();
 
 // Emulator variables, part 1.
-var frame = 0;
 var unhandled_count = 0; // number of unhandled instructions encountered
 var interval = 0; // interval ID of main timer
 var tracecount = 20; // number of instructions to trace in console
@@ -40,7 +41,7 @@ var total_time = 0;
 var newromready = false;
 var newfileready = false;
 var newflashfileready = false;
-var screen_scaling_ratio = 2; // 2:1 by default
+var ui = false;
 
 var link_recv_varsize = 0;
 var link_recv_vartype = 0;
@@ -1706,7 +1707,8 @@ function build_muldiv(name, bits, calcfunc)
 					var opcode = bits + (dreg << 9) + (mode << 3) + reg
 					var iname = name + " " + amode_name(mode, reg, 1) + ",D" + dreg
 					var code = amode_read(mode, reg, 1, true)
-					code += "d" + dreg + " = " + calcfunc + "(s,d" + dreg +");"
+					code += "d" + dreg + " = " + calcfunc + "(s,d" + dreg +");";
+//					code += "if(d" + dreg + "<0)d" + dreg + "+=4294967296; if(d" + dreg + ">4294967295)d" + dreg + "-=4294967296;"
 					insert_inst(opcode, code, iname)
 				}
 }
@@ -3241,204 +3243,6 @@ console.log("8316\t" +n[8316]);
 console.log("12306\t" +n[12306]);
 console.log("18172\t" +n[18172]);*/
 
-
-var bitmap = false;
-var context = false;
-
-function draw_calcscreen()
-{
-	var address = (lcd_address_low + (lcd_address_high << 8)) << 2;
-
-	var pixel = frame;
-	for (var y = 0; y < 128; y++)
-		for (var x = 0; x < 15; x++) {
-			var b = ram[address++];
-			for (var bit = 15; bit >= 0; bit--) {
-				var color = b & 0x8000 ? 0 : 0x50;
-				b <<= 1;
-				calcscreen[pixel] = color;
-				pixel += 3;
-			}
-		}
-
-	frame++;
-	if (frame == 3) frame = 0;
-};
-
-function output_calcscreen_to_bitmap_scale1()
-{
-	var pixel = 0;
-	var p = 0;
-	var buff = bitmap.data;
-
-	for (var y = 0; y < 3840 * 128; y += 3840) {
-		for (var x = 0; x < 240; x++) {
-			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
-			buff[p] = color;
-			buff[p + 1] = color;
-			buff[p + 2] = color;
-			p+=4;
-		}
-	}
-
-	context.putImageData(bitmap, 0, 0);
-};
-
-function output_calcscreen_to_bitmap_scale2()
-{
-	var pixel = 0;
-	var p = 0;
-	var buff = bitmap.data;
-
-	for (var y = 0; y < 3840 * 128; y += 3840) {
-		for (var x = 0; x < 240; x++) {
-			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
-			buff[p] = color;
-			buff[p + 1] = color;
-			buff[p + 2] = color;
-			buff[p + 4] = color;
-			buff[p + 5] = color;
-			buff[p + 6] = color;
-			buff[p + 1920] = color;
-			buff[p + 1921] = color;
-			buff[p + 1922] = color;
-			buff[p + 1924] = color;
-			buff[p + 1925] = color;
-			buff[p + 1926] = color;
-			p+=8;
-		}
-		p += 1920;
-	}
-
-	context.putImageData(bitmap, 0, 0);
-};
-
-// Split the function to help with profiling.
-function draw_screen()
-{
-	draw_calcscreen();
-	if (screen_scaling_ratio == 2) {
-		output_calcscreen_to_bitmap_scale2();
-	}
-	else if (screen_scaling_ratio == 1) {
-		output_calcscreen_to_bitmap_scale1();
-	}
-	// else do nothing.
-};
-
-function create_button(shape, coords, keynumber)
-{
-	var map = document.getElementById('map');
-	var area = document.createElement('area');
-	area.shape = shape;
-	area.coords = coords;
-	area.onmousedown = function() { keystatus[keynumber] = 1; }
-	area.ontouchdown = function() { keystatus[keynumber] = 1; }
-	area.onmouseup = function() { keystatus[keynumber] = 0; }
-	area.ontouchup = function() { keystatus[keynumber] = 0; }
-	map.appendChild(area);
-}
-
-function create_on_button(shape, coords)
-{
-	var map = document.getElementById('map');
-	var area = document.createElement('area');
-	area.shape = shape;
-	area.coords = coords;
-	area.onmousedown = function() { port_60001A = 0x00; fire_cpu_exception(30); }
-	area.ontouchdown = function() { port_60001A = 0x00; fire_cpu_exception(30); }
-	area.onmouseup = function() { port_60001A = 0x02; }
-	area.ontouchup = function() { port_60001A = 0x02; }
-	map.appendChild(area);
-}
-
-function create_buttons_large_92p_skin()
-{
-	create_button("rect", "140,52,193,112", 3); // LOCK (hand)
-	create_button("rect", "871,69,920,108", 5); // Up
-	create_button("rect", "871,157,920,196", 7); // Down
-	create_button("rect", "834,110,872,156", 4); // Left
-	create_button("rect", "921,110,971,156", 6); // Right
-	create_button("rect", "724,55,768,95", 0); // 2nd (by cursor pad)
-	create_button("rect", "200,497,246,527", 0); // 2nd (lower left) 46,30
-	create_button("rect", "137,497,183,527", 1); // diamond
-	create_button("rect", "74,450,120,480", 2); // shift
-	create_button("rect", "137,451,183,481", 9); // Z
-	create_button("rect", "168,401,214,431", 10); // S
-	create_button("rect", "136,353,182,393", 11); // W
-	create_button("rect", "141,271,184,311", 12); // F8 42,40
-	create_button("rect", "724,453,770,483", 13); // 1
-	create_button("rect", "784,453,830,483", 14); // 2
-	create_button("rect", "845,453,891,483", 15); // 3
-	create_button("rect", "200,450,246,480", 17); // X
-	create_button("rect", "232,402,278,432", 18); // D
-	create_button("rect", "199,354,245,384", 19); // E
-	create_button("rect", "75,218,184,259", 20); // F3
-	create_button("rect", "724,405,770,435", 21); // 4
-	create_button("rect", "785,405,830,435", 22); // 5
-	create_button("rect", "845,405,891,431", 23); // 6
-	create_button("rect", "264,499,310,529", 24); // STO
-	create_button("rect", "263,450,309,480", 25); // C
-	create_button("rect", "294,403,340,433", 26); // F
-	create_button("rect", "264,354,310,384", 27); // R
-	create_button("rect", "141,219,184,259", 28); // F7
-	create_button("rect", "724,357,770,387", 29); // 7
-	create_button("rect", "785,357,830,387", 30); // 8
-	create_button("rect", "845,357,891,387", 31); // 9
-	create_button("rect", "327,499,495,529", 32); // SPACE
-	create_button("rect", "326,450,372,480", 33); // V
-	create_button("rect", "357,403,403,433", 34); // G
-	create_button("rect", "327,354,373,384", 35); // T
-	create_button("rect", "75,168,118,208", 36); // F2
-	create_button("rect", "723,306,768,336", 37); // (
-	create_button("rect", "784,306,830,336", 38); // )
-	create_button("rect", "844,307,890,337", 39); // ,
-	create_button("rect", "904,307,950,337", 40); // /
-	create_button("rect", "388,452,434,483", 41); // B
-	create_button("rect", "421,403,467,433", 42); // H
-	create_button("rect", "389,355,435,385", 43); // Y
-	create_button("rect", "141,168,184,208", 44); // F6
-	create_button("rect", "724,260,770,290", 45); // SIN
-	create_button("rect", "784,260,830,290", 46); // COS
-	create_button("rect", "844,260,890,290", 47); // TAN
-	create_button("rect", "905,260,951,290", 48); // ^
-	create_button("rect", "453,451,499,481", 49); // N
-	create_button("rect", "484,403,530,433", 50); // J
-	create_button("rect", "452,355,498,385", 51); // U
-	create_button("rect", "75,119,118,159", 52); // F1
-	create_button("rect", "723,211,769,241", 53); // LN
-	create_button("rect", "846,201,949,239", 54); // ENTER2 (by cursor pad)
-	create_button("rect", "642,356,688,386", 55); // P
-	create_button("rect", "516,500,562,530", 56); // =
-	create_button("rect", "515,451,561,481", 57); // M
-	create_button("rect", "547,403,593,433", 58); // K
-	create_button("rect", "516,356,562,386", 59); // I
-	create_button("rect", "141,119,284,159", 60); // F5
-	create_button("rect", "724,163,790,193", 61); // CLEAR
-	create_button("rect", "785,164,828,237", 62); // APPS
-	create_button("rect", "905,357,951,387", 63); // *
-	create_button("rect", "579,499,625,529", 64); // BACKSPACE
-	create_button("rect", "578,451,624,481", 65); // THETA
-	create_button("rect", "610,403,656,433", 66); // L
-	create_button("rect", "579,356,623,386", 67); // O
-	create_button("rect", "905,453,961,483", 68); // +
-	create_button("rect", "724,115,770,145", 69); // MODE
-	create_button("rect", "785,59,825,139", 70); // ESC
-	create_button("rect", "904,404,950,434", 72); // -
-	create_button("rect", "905,500,938,538", 73); // ENTER1 (numeric)
-	create_button("rect", "624,454,685,528", 73); // ENTER1 (alphabetic)
-	create_button("rect", "106,401,152,431", 74); // A
-	create_button("rect", "74,353,120,383", 75); // Q
-	create_button("rect", "75,271,118,311", 76); // F4
-	create_button("rect", "724,501,770,531", 77); // 0
-	create_button("rect", "784,502,830,532", 78); // .
-	create_button("rect", "845,501,891,531", 79); // (-)
-
-	create_on_button("rect", "74,497,120,527"); // ON: left of DIAMOND, below SHIFT
-}
-
-var create_buttons = create_buttons_large_92p_skin;
-
 function initemu()
 {
 	sr = 0;
@@ -3452,208 +3256,36 @@ function initemu()
 		return;
 	}
 
-	var elem = document.getElementById('screen');
-	context = elem.getContext('2d');
-
-	if (screen_scaling_ratio == 2) {
-		if (context.createImageData)
-			bitmap = context.createImageData(480, 256);
-		else if (context.getImageData)
-			bitmap = context.getImageData(0, 0, 960, 512);
-		else
-			bitmap = {'width' : 480, 'height' : 256, 'data' : new Uint8Array(480 * 256 * 4)};
-	}
-	else if (screen_scaling_ratio == 1) {
-		if (context.createImageData)
-			bitmap = context.createImageData(240, 128);
-		else if (context.getImageData)
-			bitmap = context.getImageData(0, 0, 960, 512);
-		else
-			bitmap = {'width' : 240, 'height' : 128, 'data' : new Uint8Array(240 * 128 * 4)};
-	}
-
-	create_buttons();
-
-	// set all alpha channels to 255 (fully opaque)
-	for (var x = 3; x < bitmap.data.length; x+= 4) bitmap.data[x] = 255;
+	ui.setCalculatorModel(calculator_model);
+	ui.initscreen();
+	ui.initemu();
 
 	initialize_calculator();
-	interval = setInterval("emu_main_loop()", 11);
+	interval = stdlib.setInterval(this.emu_main_loop, 11);
 
 	for (var key = 0; key < 80; key++) keystatus[key] = 0;
 
-	if (calculator_model == 3 || calculator_model == 9) // 89 or 89T
-	{
-		document.onkeydown = handle_keys_89_89T;
-		document.onkeyup = handle_keys_89_89T;
-	}
-	else // 92+ or V200
-	{
-		document.onkeydown = handle_keys_92P_V200;
-		document.onkeyup = handle_keys_92P_V200;
-	}
+	ui.initkeyhandlers();
 };
 
-function handle_keys_89_89T(event)
+function setKeyPressed(keynumber)
 {
-	var e = event || window.event;
-	e.preventDefault();
-	var value;
-	switch (e.type) {
-		case 'keydown':
-			value = 1;
-			break;
-		case 'keyup':
-			value = 0;
-			break;
-		default:
-			return true;
-	}
-
-	switch (e.keyCode)
-	{
-		case 113: keystatus[39] = value; break; // F2
-		case 112: keystatus[47] = value; break; // F1
-		case 114: keystatus[31] = value; break; // F3
-		case 115: keystatus[23] = value; break; // F4
-		case 116: keystatus[15] = value; break; // F5
-		case 27: keystatus[48] = value; break; // ESC
-
-		case 59: keystatus[16] = value; break; // ;, simulated (-) (Firefox, Opera)
-		case 186: keystatus[16] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
-
-		case 43: keystatus[9] = value; break; // + (Opera)
-		case 45: keystatus[10] = value; break; // -
-		case 42: keystatus[11] = value; break; // *
-		case 47: keystatus[12] = value; break; // /
-
-		case 107: keystatus[9] = value; break; // + (all browsers but Opera)
-		case 109: keystatus[10] = value; break; // - 
-		case 106: keystatus[11] = value; break; // *
-		case 111: keystatus[12] = value; break; // /
-
-		case 8: keystatus[22] = value; break; // backspace
-		case 192: keystatus[4] = value; break; // backquote, simulated 2nd
-		case 38: keystatus[0] = value; break; // up
-		case 40: keystatus[2] = value; break; // down
-		case 37: keystatus[1] = value; break; // left
-		case 39: keystatus[3] = value; break; // right
-		case 190: keystatus[24] = value; break; // . (decimal point)
-		case 13: keystatus[8] = value; break; // ENTER
-		case 117: keystatus[47] = value; break; // F6 is treated as F1
-		case 118: keystatus[39] = value; break; // F7 is treated as F2
-		case 119: keystatus[31] = value; break; // F8 is treated as F3
-		case 121: keystatus[5] = value; break; // F10 is treated as SHIFT
-		case 48: keystatus[32] = value; break; // 0
-		case 49: keystatus[33] = value; break; // 1
-		case 50: keystatus[25] = value; break; // 2
-		case 51: keystatus[17] = value; break; // 3
-		case 52: keystatus[34] = value; break; // 4
-		case 53: keystatus[26] = value; break; // 5
-		case 54: keystatus[18] = value; break; // 6
-		case 55: keystatus[35] = value; break; // 7
-		case 56: keystatus[27] = value; break; // 8
-		case 57: keystatus[19] = value; break; // 9
-		case 84: keystatus[21] = value; break; // T
-		case 88: keystatus[45] = value; break; // X
-		case 89: keystatus[37] = value; break; // Y
-		case 90: keystatus[29] = value; break; // Z
-	}
-
-	return true; // suppress default action
+	keystatus[keynumber] = 1;
 }
 
-function handle_keys_92P_V200(event)
+function setKeyReleased(keynumber)
 {
-	var e = event || window.event;
-	e.preventDefault();
-	var value;
-	switch(e.type) {
-		case 'keydown':
-			value = 1;
-			break;
-		case 'keyup':
-			value = 0;
-			break;
-		default:
-			return true;
-	}
-	switch (e.keyCode)
-	{
-		case 113: keystatus[36] = value; break; // F2
-		case 112: keystatus[52] = value; break; // F1
-		case 114: keystatus[20] = value; break; // F3
-		case 115: keystatus[76] = value; break; // F4
-		case 116: keystatus[60] = value; break; // F5
-		case 117: keystatus[44] = value; break; // F6
-		case 118: keystatus[28] = value; break; // F7
-		case 119: keystatus[12] = value; break; // F1
-		case 27: keystatus[70] = value; break; // ESC
+	keystatus[keynumber] = 0;
+}
 
-		case 59: keystatus[81] = value; break; // ;, simulated (-) (Firefox, Opera)
-		case 186: keystatus[81] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
+function setONKeyPressed(keynumber)
+{
+	port_60001A = 0x00; fire_cpu_exception(30);
+}
 
-		case 43: keystatus[68] = value; break; // + (Opera)
-		case 45: keystatus[72] = value; break; // -
-		case 42: keystatus[63] = value; break; // *
-		case 47: keystatus[40] = value; break; // /
-
-		case 107: keystatus[68] = value; break; // + (all browsers but Opera)
-		case 109: keystatus[72] = value; break; // - 
-		case 106: keystatus[63] = value; break; // *
-		case 111: keystatus[40] = value; break; // /
-
-		case 32: keystatus[32] = value; break; // spacebar
-		case 8: keystatus[64] = value; break; // backspace
-		case 220: keystatus[3] = value; break; // backslash, simulated LOCK (hand)
-		case 192: keystatus[0] = value; break; // backquote, simulated 2nd
-		case 38: keystatus[5] = value; break; // up
-		case 40: keystatus[7] = value; break; // down
-		case 37: keystatus[4] = value; break; // left
-		case 39: keystatus[6] = value; break; // right
-		case 190: keystatus[78] = value; break; // . (decimal point)
-		case 13: keystatus[73] = value; break; // ENTER
-		case 120: keystatus[52] = value; break; // F9 is treated as F1
-		case 121: keystatus[2] = value; break; // F10 is treated as SHIFT
-		case 48: keystatus[77] = value; break; // 0
-		case 49: keystatus[13] = value; break; // 1
-		case 50: keystatus[14] = value; break; // 2
-		case 51: keystatus[15] = value; break; // 3
-		case 52: keystatus[21] = value; break; // 4
-		case 53: keystatus[22] = value; break; // 5
-		case 54: keystatus[23] = value; break; // 6
-		case 55: keystatus[29] = value; break; // 7
-		case 56: keystatus[30] = value; break; // 8
-		case 57: keystatus[31] = value; break; // 9
-		case 65: keystatus[74] = value; break; // A - Z
-		case 66: keystatus[41] = value; break;
-		case 67: keystatus[25] = value; break;
-		case 68: keystatus[18] = value; break;
-		case 69: keystatus[19] = value; break;
-		case 70: keystatus[26] = value; break;
-		case 71: keystatus[34] = value; break;
-		case 72: keystatus[42] = value; break;
-		case 73: keystatus[59] = value; break;
-		case 74: keystatus[50] = value; break;
-		case 75: keystatus[58] = value; break;
-		case 76: keystatus[66] = value; break;
-		case 77: keystatus[57] = value; break;
-		case 78: keystatus[49] = value; break;
-		case 79: keystatus[67] = value; break;
-		case 80: keystatus[55] = value; break;
-		case 81: keystatus[75] = value; break;
-		case 82: keystatus[27] = value; break;
-		case 83: keystatus[10] = value; break;
-		case 84: keystatus[35] = value; break;
-		case 85: keystatus[51] = value; break;
-		case 86: keystatus[33] = value; break;
-		case 87: keystatus[11] = value; break;
-		case 88: keystatus[17] = value; break;
-		case 89: keystatus[43] = value; break;
-		case 90: keystatus[9] = value; break;
-	}
-
-	return true; // suppress default action
+function setONKeyReleased(keynumber)
+{
+	port_60001A = 0x02;
 }
 
 // Detecting the calculator model in a generic way is harder than it could seem.
@@ -3753,8 +3385,7 @@ function reset_calculator()
 	for (var b = 0; b < 131072; b++)
 		ram[b] = 0;
 
-	//for (var p = 0; p < calcscreen.length; calcscreen[p++] = 0xF0) {};
-	for (var p = 0; p < calcscreen.length; calcscreen[p++] = 0x50) {};
+	ui.reset();
 
 	// start here to skip the boot code (which is missing in TIB based images)
 
@@ -4045,7 +3676,7 @@ function recvfile(varname, vartype)
 // Extracted out of main_loop to help profiling.
 function timer_interrupts()
 {
-	osc2_counter += 32;
+	osc2_counter += 128; // XXX 32
 
 	if (osc2_counter >= 0x1000000) osc2_counter -= 0x1000000;
 
@@ -4405,263 +4036,52 @@ function link_handling()
 	}
 };
 
+function execute_instructions(number)
+{
+	for (var inner = 0; inner < number; inner++) {
+		var opcode = rw(pc);
+		if (tracecount > 0) {
+			tracecount--;
+			if (overall > 0) {
+				overall--;
+				print_status();
+			}
+		}
+		pc += 2;
+
+		t[opcode]();
+	}
+}
+
 function emu_main_loop()
 {
 	if (unhandled_count >= 10) return;
 
 	var starttime = (new Date).getTime();
 	var started = false;
-	var prev_pc = 0;
 
 	// The cost of exception handling is noticeable. For most of the emulator's operation, it can, in fact, be removed.
 	try {
-	// The LCD refreshes every 8192 OSC2 cycles (by default)
-	for (var outer = 0; outer < (256 - screen_height) * 2 /*&& unhandled_count < 10*/; outer++)
-	{
-		if (!stopped)
-		// Assume we can run 2 instructions per OSC2 cycle, so 64 instructions between programmable interrupt counts (every 32 cycles).
-		// We get about 744khz OSC2 rate here, which comes out to around 1.49 million instructions per second, 
-		// which is fairly reasonable depending on your instruction mix.
-
-		for (var inner = 0; inner < 64; inner++) {
-
-			/*a0 &= 4294967295;
-			a1 &= 4294967295;
-			a2 &= 4294967295;
-			a3 &= 4294967295;
-			a4 &= 4294967295;
-			a5 &= 4294967295;
-			a6 &= 4294967295;
-			a7 &= 4294967295;
-			a8 &= 4294967295;
-			d0 &= 4294967295;
-			d1 &= 4294967295;
-			d2 &= 4294967295;
-			d3 &= 4294967295;
-			d4 &= 4294967295;
-			d5 &= 4294967295;
-			d6 &= 4294967295;
-			d7 &= 4294967295;
-			pc &= 4294967295;*/
-
-			/*if (a0 < 0) { a0 += 4294967296; } if (a0 > 4294967295) { a0 -= 4294967296; }
-			if (a1 < 0) { a1 += 4294967296; } if (a1 > 4294967295) { a1 -= 4294967296; }
-			if (a2 < 0) { a2 += 4294967296; } if (a2 > 4294967295) { a2 -= 4294967296; }
-			if (a3 < 0) { a3 += 4294967296; } if (a3 > 4294967295) { a3 -= 4294967296; }
-			if (a4 < 0) { a4 += 4294967296; } if (a4 > 4294967295) { a4 -= 4294967296; }
-			if (a5 < 0) { a5 += 4294967296; } if (a5 > 4294967295) { a5 -= 4294967296; }
-			if (a6 < 0) { a6 += 4294967296; } if (a6 > 4294967295) { a6 -= 4294967296; }
-			if (a7 < 0) { a7 += 4294967296; } if (a7 > 4294967295) { a7 -= 4294967296; }
-			if (a8 < 0) { a8 += 4294967296; } if (a8 > 4294967295) { a8 -= 4294967296; }
-			if (d0 < 0) { d0 += 4294967296; } if (d0 > 4294967295) { d0 -= 4294967296; }
-			if (d1 < 0) { d1 += 4294967296; } if (d1 > 4294967295) { d1 -= 4294967296; }
-			if (d2 < 0) { d2 += 4294967296; } if (d2 > 4294967295) { d2 -= 4294967296; }
-			if (d3 < 0) { d3 += 4294967296; } if (d3 > 4294967295) { d3 -= 4294967296; }
-			if (d4 < 0) { d4 += 4294967296; } if (d4 > 4294967295) { d4 -= 4294967296; }
-			if (d5 < 0) { d5 += 4294967296; } if (d5 > 4294967295) { d5 -= 4294967296; }
-			if (d6 < 0) { d6 += 4294967296; } if (d6 > 4294967295) { d6 -= 4294967296; }
-			if (d7 < 0) { d7 += 4294967296; } if (d7 > 4294967295) { d7 -= 4294967296; }
-			if (pc < 0) { pc += 4294967296; } if (pc > 4294967295) { pc -= 4294967296; }*/
-
-			// if (pc == 0x56ea6c) tracecount = 50; // end of a memory filling loop
-			// if (pc == 0x49BBAC) tracecount = 50; // end of a check
-			// if (pc == 0x49af08) tracecount = 50; // should have set 88fc to ffffffff but did not due to MOVEQ bug, now fixed
-			//if (pc == 0x49bbca) tracecount = 50; // tst.l (A2) that had set condition codes incorrectly
-			//if (pc == 0x49b680) tracecount = 50; // previous problem with ADD writing to wrong register
-			//if (pc == 0x49bDa6) tracecount = 50; //  somewhere earlier, tracing source of wrong D0 value
-			//if (pc == 0x49be00) tracecount = 50; // first use of indexing as destination ea
-			//if (pc == 0x49af24) tracecount = 50; // first encounter of BLE at which point D0 had wrong value, later went wrong way
-			//if (pc == 0x509a36) tracecount =100; // first ADDA
-			//if (pc == 0x455102) tracecount = 50; // first MULS instruction (but shouldn't be run at all!)
-			//if (pc == 0x421d84) tracecount = 50; // a BSR that once hit the wrong target
-			//if (pc == 0x41225c) tracecount = 100; // should have written ff to 5cf1 (but only sometimes!)
-			//if (pc == 0x422192) tracecount = 100; // first use of TRAP
-			//if (pc == 0x49cacc) tracecount = 100; // first use of PEA
-			//if (pc == 0x51a696) tracecount = 100; // call to st_busy
-			//if (pc == 0x486c42) tracecount = 100; // first NEG instruction
-			//if (pc == 0x4217e2) tracecount = 100; // first ROR instruction
-			//if (pc == 0x4c906c) tracecount = 100; // first dynamic BIT operation
-			//if (pc == 0x56e7f6) tracecount = 100; // first divu instruction
-			//if (pc == 0x412b56) tracecount = 100; // various traps
-
-			//if (pc == 0x56e7be) tracecount = 100; // a troublesome loop (entered wrong due to PC indexing error)
-			//if (pc == 0x56e7c4) tracecount = 100;
-			//if (pc == 0x56eaec) tracecount = 100; // first CMPM
-			//if (pc == 0x422f0a) tracecount = 50; // first cmp of a certain kind
-			//if (pc == 0x4219d8) tracecount = 50; // first move SR, dest
-
-			//if (pc == 0x49c0aa) tracecount = 3000; // near the end of the auto int 1 exception handler, failed to due predec MOVEM
-
-			//if (pc == 0x415cae) tracecount = 1000; // something in this call ought to write 0x37bf6 at 0x840a
-
-			//if (aregs[1] == 0xffffbb06 || aregs[1] < 0) tracecount = 200; to find the address register corruption (was ADDQ.W not properly treating as long)
-			//if (pc == 0x416d7c) tracecount = 50;
-
-			//if (pc == 0x9880) tracecount = 400; // phoenix side scrolling building
-			//if (pc == 0xc124) tracecount = 200; // mercury grayscale setup
-
-			//if (pc != Math.floor(pc)) console.log("non integer PC!");
-			//if (pc < 0) console.log("underflow PC!");
-			//if (pc >= 0x100000000) console.log("overflow PC!");
-
-			//if ((pc == 0xabba) && ((dregs[2] & 0xFFFF) < 0x300)) tracecount = 200; // mercury map extraction
-
-			//if (pc == 0xa85e) tracecount = 100; // phoenix collision check (was broken because MOVEQ not setting condition codes)
-
-			//if (pc == 0xad5a) tracecount = 9; // phoenix enemy explosion countdown
-
-			//if (pc == 0x13542) tracecount = 400; // monster about to verify level, failed due to overflow in A2 causing CMPA to not match
-			//if (pc == 0x133d6) tracecount = 100; // first monster hit on actual brick
-			//if (aregs[2] == 0x10000C568) tracecount = 20;
-
-			//var digit = dregs[3] % 16;
-			//if (digit < 0 || digit > 15 || digit != Math.floor(digit)) tracecount = 15;
-			//if (pc == 0x420970) tracecount = 10; // registers corrupted here
-			//if (pc == 0x24f16) tracecount = 200; // mercury CLIP TOP (bad subtraction result due to not masking)
-			// if (aregs[1] == 0xffffffff && pc <= 0x40000) tracecount = 300; mercury had read corrupt data from heap
-			//if (pc == 0x29e8a && aregs[0] == 0x163a) tracecount = 75; // mercury heap deletion
-
-			//if (pc <= 0x2a016 && pc >= 0x29e44 && ram[0x163a] == 0xff) { tracecount = 300; console.log("we came from " + to_hex(prev_pc, 8)); } // detect memory corruption in Mercury 
-			//if (pc == 0x29cbc) tracecount = 8; // player bullet handling, was somehow taking wild branch (bad bullet value at 2ee0)
-			//if (pc == 0x29fae) tracecount = 100; // shortly before player bullet type is corrupted
-
-			//if ((sr & 0x700) == 0x200) tracecount = 10;
-			//if (pc == 0x240ae) tracecount = 12; // platinum bad sprite height b&w (was wrong behavior of SUBI.W using whole register)
-
-			//if ((sr & 0xff00) == 0x2200 && prev_pc >= 0x9800 && prev_pc < 0x9900) console.log(to_hex(prev_pc, 6) + " is where SR became " + to_hex(sr, 4));
-			//if (pc == 0x98ae) tracecount = 10;
-			//if (pc == 0x989c) tracecount = 4;
-			//if ((pc >= 0x800000 || pc < 0x100) && prev_pc < 0x800000 && prev_pc >= 0x100)
-			//	console.log("bad transfer old pc " + to_hex(prev_pc, 8) + " new pc " + to_hex(pc, 8));
-			//if (pc == 0x41eb7c) tracecount = 500; // incorrect result of 20/25 (beacuse add.w cleared upper bits inappropriately)
-
-			//if (pc == 0x416f54) tracecount = 5; // reading out of ragne data from memory
-
-			//if (pc == 0x3963c) tracecount = 20; // TI-Chess A1 corruption, due to SUBQ underflow to address register
-			//if (pc == 0x534ba) tracecount = 10; // krypton init
-			//if (pc == 0x534bc) tracecount = 200; // krypton init
-			//if (pc == 0x53538) tracecount = 300; // krypton init
-			//if (pc == 0x5360c) tracecount = 10; // krypton init
-
-			/*if (pc == 0x4DA14C) {
-				//tracecount = 10;
-				// Short-circuit OO_deref for 92+ AMS 2.03
-				// TODO: fix problem with the cmpi.l !
-				console.log("CALL OO_deref");
-				d0 = d0 & 0xFFFFFFFF;
-				if (d0 == 0xFF000000) {
-					//console.log("case 1");
-					a0 = rl(0x7C26);
-				}
-				else if (d0 - 0xFF000000 > 0) {
-					//console.log("case 3");
-					d0 = d0 & 0xFFFFFF;
-					d0 = d0 << 2;
-					a0 = rl(0x7996);
-					a0 = rl(a0 + d0);
-				}
-				else {
-					//console.log("case 2");
-					a0 = d0;
-				}
-				//print_status();
-				pc = 0x4DA170; // rts
-			}*/
-
-			/*if (pc == 0x41234A) {
-				tracecount = 3;
-			}*/
-
-			/*if (pc == 0x4DA28A) {
-				//tracecount = 10;
-			}*/
-
-
-			/*if (d0 < 0 || d0 >= 0x100000000) { console.log("D0 " + d0 + " (" + to_hex2(d0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d1 < 0 || d1 >= 0x100000000) { console.log("D1 " + d1 + " (" + to_hex2(d1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d2 < 0 || d2 >= 0x100000000) { console.log("D2 " + d2 + " (" + to_hex2(d2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d3 < 0 || d3 >= 0x100000000) { console.log("D3 " + d3 + " (" + to_hex2(d3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a0 < 0 || a0 >= 0x100000000) { console.log("a0 " + a0 + " (" + to_hex2(a0, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a1 < 0 || a1 >= 0x100000000) { console.log("a1 " + a1 + " (" + to_hex2(a1, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a2 < 0 || a2 >= 0x100000000) { console.log("a2 " + a2 + " (" + to_hex2(a2, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a3 < 0 || a3 >= 0x100000000) { console.log("a3 " + a3 + " (" + to_hex2(a3, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d4 < 0 || d4 >= 0x100000000) { console.log("D4 " + d4 + " (" + to_hex2(d4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d5 < 0 || d5 >= 0x100000000) { console.log("D5 " + d5 + " (" + to_hex2(d5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d6 < 0 || d6 >= 0x100000000) { console.log("D6 " + d6 + " (" + to_hex2(d6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (d7 < 0 || d7 >= 0x100000000) { console.log("D7 " + d7 + " (" + to_hex2(d7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a4 < 0 || a4 >= 0x100000000) { console.log("a4 " + a4 + " (" + to_hex2(a4, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a5 < 0 || a5 >= 0x100000000) { console.log("a5 " + a5 + " (" + to_hex2(a5, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a6 < 0 || a6 >= 0x100000000) { console.log("a6 " + a6 + " (" + to_hex2(a6, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a7 < 0 || a7 >= 0x100000000) { console.log("a7 " + a7 + " (" + to_hex2(a7, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (a8 < 0 || a8 >= 0x100000000) { console.log("a8 " + a8 + " (" + to_hex2(a8, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }
-			if (pc < 0 || pc >= 0x100000000) { console.log("pc " + pc + " (" + to_hex2(pc, 10) + ") prev_pc " + to_hex(prev_pc, 9) + " opcode " + to_hex2(rw(prev_pc),4)); stopped = true; wakemask = 0; return; }*/
-
-			// if (pc == 0x415cdc) tracecount = 25; // memory corruption after link
-			//if (pc == 0x413f4a) tracecount = 25; // silent link failure
-			//if (pc == 0x413e5e) tracecount = 25; // silent link failure, at TranslatePack
-			//if (pc == 0x413c7a) tracecount = 5; // monitoring packet length pedrom 0.72
-			//if (pc == 0x41f9dc) tracecount = 520; // _tt_Decompress
-
-			//if (pc == 0x41fb46) console.log("storing D0=" + to_hex(d0 & 255, 4) +" to " + to_hex(a4,9))
-			//if (pc == 0x41fbe0) console.log("storing D4=" + to_hex(d4 & 255, 4) +" to " + to_hex(a4,9))
-			//if (pc == 0x41fabe) console.log("storing D3=" + to_hex(d3 & 255, 4) +" to " + to_hex(a2,9))
-			//if (pc == 0x41fbae) console.log("storing D5=" + to_hex(d5 & 255, 4) +" to " + to_hex(a2,9))
-
-
-			//if (pc == 0x4122e8) tracecount = 30; // pedrom hw version detection
-
-			var opcode = rw(pc);
-			if (tracecount > 0) {
-				tracecount--;
-				if (overall > 0) {
-					overall--;
-					print_status();
-				}
-			}
-			/*if (pc < 0x40000)
-			{
-				if (ramflag[pc / 2] != 567)
-				{
-					ramflag[pc / 2] = 567;
-					console.log("First execution at this point, previous = " + to_hex(prev_pc, 9));
-					print_status();
-				}
-			}*/
-			//prev_pc = pc;
-			pc += 2;
-
-			t[opcode]();
-			/*a0 = a0 & 4294967295;
-			a1 = a1 & 4294967295;
-			a2 = a2 & 4294967295;
-			a3 = a3 & 4294967295;
-			a4 = a4 & 4294967295;
-			a5 = a5 & 4294967295;
-			a6 = a6 & 4294967295;
-			a7 = a7 & 4294967295;
-			a8 = a8 & 4294967295;
-			d0 = d0 & 4294967295;
-			d1 = d1 & 4294967295;
-			d2 = d2 & 4294967295;
-			d3 = d3 & 4294967295;
-			d4 = d4 & 4294967295;
-			d5 = d5 & 4294967295;
-			d6 = d6 & 4294967295;
-			d7 = d7 & 4294967295;
-			pc = pc & 4294967295;*/
-
-			//if ((pc < 0x1000) && (prev_pc >= 0x1000)) console.log("we jumped into a low PC " + to_hex(pc,8) + " from " + to_hex(prev_pc, 8));
-		}
-
-		// check if osc2 enabled
-		if (interrupt_control & 2)
+		// The LCD refreshes every 8192 OSC2 cycles (by default)
+		for (var outer = 0; outer < (256 - screen_height) * 2 /*&& unhandled_count < 10*/; outer++)
 		{
-			timer_interrupts();
-		}
+			// Assume we can run 2 instructions per OSC2 cycle, so 64 instructions between programmable interrupt counts (every 32 cycles).
+			// We get about 744khz OSC2 rate here, which comes out to around 1.49 million instructions per second, 
+			// which is fairly reasonable depending on your instruction mix.
+			if (!stopped)
+			{
+				execute_instructions(64);
+			}
 
-		// link interrupts
-		link_handling();
-	}
+			// check if osc2 enabled
+			if (interrupt_control & 2)
+			{
+				timer_interrupts();
+			}
+
+			// link interrupts
+			link_handling();
+		}
 
 	} catch (e) {
 		if (e == "STOP")
@@ -4679,7 +4099,7 @@ function emu_main_loop()
 		}
 	}
 
-	draw_screen();
+	ui.draw_screen((lcd_address_low + (lcd_address_high << 8)) << 2, ram);
 
 	var endtime = (new Date).getTime();
 
@@ -4917,4 +4337,806 @@ function getFileData()
 	a.href = url;
 	a.download = link_recv_foldername + "." + link_recv_varname + buildFileExtensionFromVartype();
 	a.style.display='inline';
+}
+
+function check_subl() {
+	var result;
+
+	result = subl(0x12345678, 0x12345678);
+	if (result != 0x0 || sr != 4) {
+		console.log("subl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = subl(0x1234567, 0x12345678);
+	if (result != 0x11111111 || sr != 0) {
+		console.log("subl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = subl(0x23456789, 0x12345678);
+	if (result != 0xEEEEEEEF || sr != 0x19) {
+		console.log("subl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = subl(0x12345678, 0xFF000000);
+	if (result != 0xECCBA988 || sr != 0x08) {
+		console.log("subl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = subl(0xFF000000, 0x12345678);
+	if (result != 0x13345678 || sr != 0x11) {
+		console.log("subl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = subl(0x7FFFFFFF, 0xFF000000);
+	if (result != 0x7F000001 || sr != 0x02) {
+		console.log("subl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = subl(0xFF000018, 0xFF000000);
+	if (result != 0xFFFFFFE8 || sr != 0x19) {
+		console.log("subl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function check_addl() {
+	var result;
+
+	result = addl(0x12345678, 0x12345678);
+	if (result != 0x2468ACF0 || sr != 0) {
+		console.log("addl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0x1234567, 0x12345678);
+	if (result != 0x13579BDF || sr != 0) {
+		console.log("addl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0x23456789, 0x12345678);
+	if (result != 0x3579BE01 || sr != 0) {
+		console.log("addl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0x12345678, 0xFF000000);
+	if (result != 0x11345678 || sr != 0x11) {
+		console.log("addl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0x7FFFFFFF, 0x7FFFFFFF);
+	if (result != 0xFFFFFFFE || sr != 0xA) {
+		console.log("addl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0x7FFFFFFF, 0xFF000000);
+	if (result != 0x7EFFFFFF || sr != 0x11) {
+		console.log("addl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0xFF000018, 0xFF000000);
+	if (result != 0xFE000018 || sr != 0x19) {
+		console.log("addl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function check_cmpl() {
+	var result;
+
+	sr = 0;
+
+	result = cmpl(0x12345678, 0x12345678);
+	if (result != 0x0 || sr != 4) {
+		console.log("cmpl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = cmpl(0x1234567, 0x12345678);
+	if (result != 0x11111111 || sr != 0) {
+		console.log("cmpl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = cmpl(0x23456789, 0x12345678);
+	if (result != 0xEEEEEEEF || sr != 0x09) {
+		console.log("cmpl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0x10; // Force X to 1, so as to check that subsequent cmp don't modify it.
+
+	result = cmpl(0x12345678, 0xFF000000);
+	if (result != 0xECCBA988 || sr != 0x18) {
+		console.log("cmpl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = cmpl(0xFF000000, 0x12345678);
+	if (result != 0x13345678 || sr != 0x11) {
+		console.log("cmpl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = cmpl(0x7FFFFFFF, 0xFF000000);
+	if (result != 0x7F000001 || sr != 0x12) {
+		console.log("cmpl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0; // Force X back to 0.
+
+	result = cmpl(0xFF000018, 0xFF000000);
+	if (result != 0xFFFFFFE8 || sr != 0x9) {
+		console.log("cmpl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = cmpl(0xFF000000, 0x320);
+	if (sr != 0x1) {
+		console.log("cmpl 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function check_divu() {
+	var result;
+	var comparison;
+
+	sr = 0;
+	result = divu(0x10, 0x12345678);
+	if (result != 0x12345678 || (sr & 3) != 2) {
+		console.log("divu 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divu(0x10, 0xFF000000);
+	comparison = 0xFF000000;
+	result &= 0xFFFFFFFF;
+	comparison &= 0xFFFFFFFF;
+	if (result != comparison || (sr & 3) != 2) {
+		console.log("divu 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divu(0xCCCCFFFF, 0xFF000000);
+	comparison = 0xFF00FF00;
+	result &= 0xFFFFFFFF;
+	comparison &= 0xFFFFFFFF;
+	if (result != comparison || sr != 0x8) {
+		console.log("divu 2 " + to_hex2(result, 9) + " " + to_hex2(comparison, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function checkemu() {
+	return check_subl()
+	    && check_addl()
+	    && check_cmpl()
+	    && check_divu()
+	    ;
+};
+
+function setRom(newrom) {
+	rom = newrom;
+}
+
+function setReset(newreset) {
+	reset = newreset;
+}
+
+function setUI(newui) {
+	ui = newui;
+}
+
+function get_d0() { return d0; }
+function get_d1() { return d1; }
+function get_d2() { return d2; }
+function get_d3() { return d3; }
+function get_d4() { return d4; }
+function get_d5() { return d5; }
+function get_d6() { return d6; }
+function get_d7() { return d7; }
+
+function get_a0() { return a0; }
+function get_a1() { return a1; }
+function get_a2() { return a2; }
+function get_a3() { return a3; }
+function get_a4() { return a4; }
+function get_a5() { return a5; }
+function get_a6() { return a6; }
+function get_a7() { return a7; }
+function get_a8() { return a8; }
+
+function get_sr() { return sr; }
+function get_pc() { return pc; }
+
+function get_rom() { return rom; }
+function get_ram() { return ram; }
+function get_t() { return t; }
+function get_n() { return n; }
+
+function get_link_incoming_queue() { return link_incoming_queue; }
+function get_link_outgoing_queue() { return link_outgoing_queue; }
+function get_link_recv_varsize() { return link_recv_varsize; }
+function get_link_recv_vartype() { return link_recv_vartype; }
+function get_link_recv_varname() { return link_recv_varname; }
+function get_link_recv_foldername() { return link_recv_foldername; }
+function get_link_recv_filedata() { return link_recv_filedata; }
+
+function get_stopped() { return stopped; }
+function get_hardware_model() { return hardware_model; }
+function get_calculator_model() { return calculator_model; }
+function get_jmp_tbl() { return jmp_tbl; }
+function get_ROM_base() { return ROM_base; }
+function get_FlashMemorySize() { return FlashMemorySize; }
+
+return {
+	// Functions called directly from events on elements in the HTML page
+	initemu : initemu,
+	loadrom : loadrom,
+	initialize_calculator : initialize_calculator,
+	getPNG : getPNG,
+	pngButtons : pngButtons,
+	getFileData : getFileData,
+
+	// Setter functions called by a script in the HTML page, for defining stuff loaded from other files.
+	setRom : setRom,
+	setReset : setReset,
+	setUI : setUI,
+
+	// Setter functions called by the UI.
+	setKeyPressed : setKeyPressed,
+	setKeyReleased : setKeyReleased,
+	setONKeyPressed : setONKeyPressed,
+	setONKeyReleased : setONKeyReleased,
+
+	// Debugging, getter functions for internal variables
+	emu_main_loop : emu_main_loop,
+	print_status : print_status,
+	print_status2 : print_status2,
+	disassemble : disassemble,
+	ROM_CALL : ROM_CALL,
+	HeapDeref : HeapDeref,
+	HeapSize : HeapSize,
+	PrintHeap : PrintHeap,
+
+	d0 : get_d0, d1 : get_d1, d2 : get_d2, d3 : get_d3, d4 : get_d4, d5 : get_d5, d6 : get_d6, d7 : get_d7,
+	a0 : get_a0, a1 : get_a1, a2 : get_a2, a3 : get_a3, a4 : get_a4, a5 : get_a5, a6 : get_a6, a7 : get_a7, a8 : get_a8,
+	sr : get_sr, pc : get_pc,
+	dn : dn, an : an,
+
+	rom : get_rom,
+	ram : get_ram,
+	t : get_t,
+	n : get_n,
+
+	link_incoming_queue : get_link_incoming_queue,
+	link_outgoing_queue : get_link_outgoing_queue,
+	link_recv_varsize : get_link_recv_varsize,
+	link_recv_vartype : get_link_recv_vartype,
+	link_recv_varname : get_link_recv_varname,
+	link_recv_foldername : get_link_recv_foldername,
+	link_recv_filedata : get_link_recv_filedata,
+
+	stopped : get_stopped,
+	hardware_model : get_hardware_model,
+	calculator_model : get_calculator_model,
+	jmp_tbl : get_jmp_tbl,
+	ROM_base : get_ROM_base,
+	FlashMemorySize : get_FlashMemorySize
+};
+
+}
+
+function EmulatorUIModule(stdlib) {
+
+var calcscreen = new Uint8Array(240 * 128 * 3); // stores three frames of pixel data for averaging
+var frame = 0;
+var emu = false;
+var bitmap = false;
+var context = false;
+var calculator_model = 0;
+var set_skin = false;
+var screen_scaling_ratio = 2; // 2:1 by default
+
+function draw_calcscreen(address, ram)
+{
+	var pixel = frame;
+	for (var y = 0; y < 128; y++)
+		for (var x = 0; x < 15; x++) {
+			var b = ram[address++];
+			for (var bit = 15; bit >= 0; bit--) {
+				var color = b & 0x8000 ? 0 : 0x50;
+				b <<= 1;
+				calcscreen[pixel] = color;
+				pixel += 3;
+			}
+		}
+
+	frame++;
+	if (frame == 3) frame = 0;
+};
+
+function output_calcscreen_to_bitmap_scale1()
+{
+	var pixel = 0;
+	var p = 0;
+	var buff = bitmap.data;
+
+	for (var y = 0; y < 3840 * 128; y += 3840) {
+		for (var x = 0; x < 240; x++) {
+			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
+			buff[p] = color;
+			buff[p + 1] = color;
+			buff[p + 2] = color;
+			p+=4;
+		}
+	}
+
+	context.putImageData(bitmap, 0, 0);
+};
+
+function output_calcscreen_to_bitmap_scale2()
+{
+	var pixel = 0;
+	var p = 0;
+	var buff = bitmap.data;
+
+	for (var y = 0; y < 3840 * 128; y += 3840) {
+		for (var x = 0; x < 240; x++) {
+			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
+			buff[p] = color;
+			buff[p + 1] = color;
+			buff[p + 2] = color;
+			buff[p + 4] = color;
+			buff[p + 5] = color;
+			buff[p + 6] = color;
+			buff[p + 1920] = color;
+			buff[p + 1921] = color;
+			buff[p + 1922] = color;
+			buff[p + 1924] = color;
+			buff[p + 1925] = color;
+			buff[p + 1926] = color;
+			p+=8;
+		}
+		p += 1920;
+	}
+
+	context.putImageData(bitmap, 0, 0);
+};
+
+// Split the function to help with profiling.
+function draw_screen(address, ram)
+{
+	draw_calcscreen(address, ram);
+	if (screen_scaling_ratio == 2) {
+		output_calcscreen_to_bitmap_scale2();
+	}
+	else if (screen_scaling_ratio == 1) {
+		output_calcscreen_to_bitmap_scale1();
+	}
+	// else do nothing.
+};
+
+function create_button(shape, coords, keynumber)
+{
+	var map = document.getElementById('map');
+	var area = document.createElement('area');
+	area.shape = shape;
+	area.coords = coords;
+	area.onmousedown = function() { emu.setKeyPressed(keynumber); }
+	area.ontouchdown = function() { emu.setKeyPressed(keynumber); }
+	area.onmouseup = function() { emu.setKeyReleased(keynumber); }
+	area.ontouchup = function() { emu.setKeyReleased(keynumber); }
+	map.appendChild(area);
+}
+
+function create_on_button(shape, coords)
+{
+	var map = document.getElementById('map');
+	var area = document.createElement('area');
+	area.shape = shape;
+	area.coords = coords;
+	area.onmousedown = function() { emu.setONKeyPressed() }
+	area.ontouchdown = function() { emu.setONKeyPressed() }
+	area.onmouseup = function() { emu.setONKeyReleased() }
+	area.ontouchup = function() { emu.setONKeyReleased() }
+	map.appendChild(area);
+}
+
+function handle_keys_89_89T(event)
+{
+	var e = event || stdlib.event;
+	e.preventDefault();
+	var value;
+	switch (e.type) {
+		case 'keydown':
+			value = 1;
+			break;
+		case 'keyup':
+			value = 0;
+			break;
+		default:
+			return true;
+	}
+
+	switch (e.keyCode)
+	{
+		case 113: keystatus[39] = value; break; // F2
+		case 112: keystatus[47] = value; break; // F1
+		case 114: keystatus[31] = value; break; // F3
+		case 115: keystatus[23] = value; break; // F4
+		case 116: keystatus[15] = value; break; // F5
+		case 27: keystatus[48] = value; break; // ESC
+
+		case 59: keystatus[16] = value; break; // ;, simulated (-) (Firefox, Opera)
+		case 186: keystatus[16] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
+
+		case 43: keystatus[9] = value; break; // + (Opera)
+		case 45: keystatus[10] = value; break; // -
+		case 42: keystatus[11] = value; break; // *
+		case 47: keystatus[12] = value; break; // /
+
+		case 107: keystatus[9] = value; break; // + (all browsers but Opera)
+		case 109: keystatus[10] = value; break; // - 
+		case 106: keystatus[11] = value; break; // *
+		case 111: keystatus[12] = value; break; // /
+
+		case 8: keystatus[22] = value; break; // backspace
+		case 192: keystatus[4] = value; break; // backquote, simulated 2nd
+		case 38: keystatus[0] = value; break; // up
+		case 40: keystatus[2] = value; break; // down
+		case 37: keystatus[1] = value; break; // left
+		case 39: keystatus[3] = value; break; // right
+		case 190: keystatus[24] = value; break; // . (decimal point)
+		case 13: keystatus[8] = value; break; // ENTER
+		case 117: keystatus[47] = value; break; // F6 is treated as F1
+		case 118: keystatus[39] = value; break; // F7 is treated as F2
+		case 119: keystatus[31] = value; break; // F8 is treated as F3
+		case 121: keystatus[5] = value; break; // F10 is treated as SHIFT
+		case 48: keystatus[32] = value; break; // 0
+		case 49: keystatus[33] = value; break; // 1
+		case 50: keystatus[25] = value; break; // 2
+		case 51: keystatus[17] = value; break; // 3
+		case 52: keystatus[34] = value; break; // 4
+		case 53: keystatus[26] = value; break; // 5
+		case 54: keystatus[18] = value; break; // 6
+		case 55: keystatus[35] = value; break; // 7
+		case 56: keystatus[27] = value; break; // 8
+		case 57: keystatus[19] = value; break; // 9
+		case 84: keystatus[21] = value; break; // T
+		case 88: keystatus[45] = value; break; // X
+		case 89: keystatus[37] = value; break; // Y
+		case 90: keystatus[29] = value; break; // Z
+	}
+
+	return true; // suppress default action
+}
+
+function handle_keys_92P_V200(event)
+{
+	var e = event || stdlib.event;
+	e.preventDefault();
+	var value;
+	switch(e.type) {
+		case 'keydown':
+			value = 1;
+			break;
+		case 'keyup':
+			value = 0;
+			break;
+		default:
+			return true;
+	}
+	switch (e.keyCode)
+	{
+		case 113: keystatus[36] = value; break; // F2
+		case 112: keystatus[52] = value; break; // F1
+		case 114: keystatus[20] = value; break; // F3
+		case 115: keystatus[76] = value; break; // F4
+		case 116: keystatus[60] = value; break; // F5
+		case 117: keystatus[44] = value; break; // F6
+		case 118: keystatus[28] = value; break; // F7
+		case 119: keystatus[12] = value; break; // F1
+		case 27: keystatus[70] = value; break; // ESC
+
+		case 59: keystatus[81] = value; break; // ;, simulated (-) (Firefox, Opera)
+		case 186: keystatus[81] = value; break; // ;, simulated (-) (Chrome, IE, Safari)
+
+		case 43: keystatus[68] = value; break; // + (Opera)
+		case 45: keystatus[72] = value; break; // -
+		case 42: keystatus[63] = value; break; // *
+		case 47: keystatus[40] = value; break; // /
+
+		case 107: keystatus[68] = value; break; // + (all browsers but Opera)
+		case 109: keystatus[72] = value; break; // - 
+		case 106: keystatus[63] = value; break; // *
+		case 111: keystatus[40] = value; break; // /
+
+		case 32: keystatus[32] = value; break; // spacebar
+		case 8: keystatus[64] = value; break; // backspace
+		case 220: keystatus[3] = value; break; // backslash, simulated LOCK (hand)
+		case 192: keystatus[0] = value; break; // backquote, simulated 2nd
+		case 38: keystatus[5] = value; break; // up
+		case 40: keystatus[7] = value; break; // down
+		case 37: keystatus[4] = value; break; // left
+		case 39: keystatus[6] = value; break; // right
+		case 190: keystatus[78] = value; break; // . (decimal point)
+		case 13: keystatus[73] = value; break; // ENTER
+		case 120: keystatus[52] = value; break; // F9 is treated as F1
+		case 121: keystatus[2] = value; break; // F10 is treated as SHIFT
+		case 48: keystatus[77] = value; break; // 0
+		case 49: keystatus[13] = value; break; // 1
+		case 50: keystatus[14] = value; break; // 2
+		case 51: keystatus[15] = value; break; // 3
+		case 52: keystatus[21] = value; break; // 4
+		case 53: keystatus[22] = value; break; // 5
+		case 54: keystatus[23] = value; break; // 6
+		case 55: keystatus[29] = value; break; // 7
+		case 56: keystatus[30] = value; break; // 8
+		case 57: keystatus[31] = value; break; // 9
+		case 65: keystatus[74] = value; break; // A - Z
+		case 66: keystatus[41] = value; break;
+		case 67: keystatus[25] = value; break;
+		case 68: keystatus[18] = value; break;
+		case 69: keystatus[19] = value; break;
+		case 70: keystatus[26] = value; break;
+		case 71: keystatus[34] = value; break;
+		case 72: keystatus[42] = value; break;
+		case 73: keystatus[59] = value; break;
+		case 74: keystatus[50] = value; break;
+		case 75: keystatus[58] = value; break;
+		case 76: keystatus[66] = value; break;
+		case 77: keystatus[57] = value; break;
+		case 78: keystatus[49] = value; break;
+		case 79: keystatus[67] = value; break;
+		case 80: keystatus[55] = value; break;
+		case 81: keystatus[75] = value; break;
+		case 82: keystatus[27] = value; break;
+		case 83: keystatus[10] = value; break;
+		case 84: keystatus[35] = value; break;
+		case 85: keystatus[51] = value; break;
+		case 86: keystatus[33] = value; break;
+		case 87: keystatus[11] = value; break;
+		case 88: keystatus[17] = value; break;
+		case 89: keystatus[43] = value; break;
+		case 90: keystatus[9] = value; break;
+	}
+
+	return true; // suppress default action
+}
+
+function initkeyhandlers()
+{
+	if (calculator_model == 3 || calculator_model == 9) // 89 or 89T
+	{
+		document.onkeydown = handle_keys_89_89T;
+		document.onkeyup = handle_keys_89_89T;
+	}
+	else // 92+ or V200
+	{
+		document.onkeydown = handle_keys_92P_V200;
+		document.onkeyup = handle_keys_92P_V200;
+	}
+}
+
+
+function set_large_92p_skin()
+{
+	screen_scaling_ratio = 2;
+
+	// TODO: replace image.
+	var oldimg = document.getElementById('calcimg');
+	var newimg = document.createElement('img');
+	newimg.setAttribute("id", "calcimg");
+	newimg.setAttribute("src", "Ti-92plus.jpg");
+	newimg.setAttribute("usemap", "#map");
+	console.log(newimg);
+
+	oldimg.parentNode.appendChild(newimg);
+	newimg.parentNode.removeChild(oldimg);
+
+	create_button("rect", "140,52,193,112", 3); // LOCK (hand)
+	create_button("rect", "871,69,920,108", 5); // Up
+	create_button("rect", "871,157,920,196", 7); // Down
+	create_button("rect", "834,110,872,156", 4); // Left
+	create_button("rect", "921,110,971,156", 6); // Right
+	create_button("rect", "724,55,768,95", 0); // 2nd (by cursor pad)
+	create_button("rect", "200,497,246,527", 0); // 2nd (lower left) 46,30
+	create_button("rect", "137,497,183,527", 1); // diamond
+	create_button("rect", "74,450,120,480", 2); // shift
+	create_button("rect", "137,451,183,481", 9); // Z
+	create_button("rect", "168,401,214,431", 10); // S
+	create_button("rect", "136,353,182,393", 11); // W
+	create_button("rect", "141,271,184,311", 12); // F8 42,40
+	create_button("rect", "724,453,770,483", 13); // 1
+	create_button("rect", "784,453,830,483", 14); // 2
+	create_button("rect", "845,453,891,483", 15); // 3
+	create_button("rect", "200,450,246,480", 17); // X
+	create_button("rect", "232,402,278,432", 18); // D
+	create_button("rect", "199,354,245,384", 19); // E
+	create_button("rect", "75,218,184,259", 20); // F3
+	create_button("rect", "724,405,770,435", 21); // 4
+	create_button("rect", "785,405,830,435", 22); // 5
+	create_button("rect", "845,405,891,431", 23); // 6
+	create_button("rect", "264,499,310,529", 24); // STO
+	create_button("rect", "263,450,309,480", 25); // C
+	create_button("rect", "294,403,340,433", 26); // F
+	create_button("rect", "264,354,310,384", 27); // R
+	create_button("rect", "141,219,184,259", 28); // F7
+	create_button("rect", "724,357,770,387", 29); // 7
+	create_button("rect", "785,357,830,387", 30); // 8
+	create_button("rect", "845,357,891,387", 31); // 9
+	create_button("rect", "327,499,495,529", 32); // SPACE
+	create_button("rect", "326,450,372,480", 33); // V
+	create_button("rect", "357,403,403,433", 34); // G
+	create_button("rect", "327,354,373,384", 35); // T
+	create_button("rect", "75,168,118,208", 36); // F2
+	create_button("rect", "723,306,768,336", 37); // (
+	create_button("rect", "784,306,830,336", 38); // )
+	create_button("rect", "844,307,890,337", 39); // ,
+	create_button("rect", "904,307,950,337", 40); // /
+	create_button("rect", "388,452,434,483", 41); // B
+	create_button("rect", "421,403,467,433", 42); // H
+	create_button("rect", "389,355,435,385", 43); // Y
+	create_button("rect", "141,168,184,208", 44); // F6
+	create_button("rect", "724,260,770,290", 45); // SIN
+	create_button("rect", "784,260,830,290", 46); // COS
+	create_button("rect", "844,260,890,290", 47); // TAN
+	create_button("rect", "905,260,951,290", 48); // ^
+	create_button("rect", "453,451,499,481", 49); // N
+	create_button("rect", "484,403,530,433", 50); // J
+	create_button("rect", "452,355,498,385", 51); // U
+	create_button("rect", "75,119,118,159", 52); // F1
+	create_button("rect", "723,211,769,241", 53); // LN
+	create_button("rect", "846,201,949,239", 54); // ENTER2 (by cursor pad)
+	create_button("rect", "642,356,688,386", 55); // P
+	create_button("rect", "516,500,562,530", 56); // =
+	create_button("rect", "515,451,561,481", 57); // M
+	create_button("rect", "547,403,593,433", 58); // K
+	create_button("rect", "516,356,562,386", 59); // I
+	create_button("rect", "141,119,284,159", 60); // F5
+	create_button("rect", "724,163,790,193", 61); // CLEAR
+	create_button("rect", "785,164,828,237", 62); // APPS
+	create_button("rect", "905,357,951,387", 63); // *
+	create_button("rect", "579,499,625,529", 64); // BACKSPACE
+	create_button("rect", "578,451,624,481", 65); // THETA
+	create_button("rect", "610,403,656,433", 66); // L
+	create_button("rect", "579,356,623,386", 67); // O
+	create_button("rect", "905,453,961,483", 68); // +
+	create_button("rect", "724,115,770,145", 69); // MODE
+	create_button("rect", "785,59,825,139", 70); // ESC
+	create_button("rect", "904,404,950,434", 72); // -
+	create_button("rect", "905,500,938,538", 73); // ENTER1 (numeric)
+	create_button("rect", "624,454,685,528", 73); // ENTER1 (alphabetic)
+	create_button("rect", "106,401,152,431", 74); // A
+	create_button("rect", "74,353,120,383", 75); // Q
+	create_button("rect", "75,271,118,311", 76); // F4
+	create_button("rect", "724,501,770,531", 77); // 0
+	create_button("rect", "784,502,830,532", 78); // .
+	create_button("rect", "845,501,891,531", 79); // (-)
+
+	create_on_button("rect", "74,497,120,527"); // ON: left of DIAMOND, below SHIFT
+}
+
+function set_small_89_skin()
+{
+	// TODO
+	screen_scaling_ratio = 1;
+}
+
+function set_small_92p_skin()
+{
+	// TODO
+	screen_scaling_ratio = 1;
+}
+
+function set_small_v200_skin()
+{
+	// TODO
+	screen_scaling_ratio = 1;
+}
+
+function set_large_89t_skin()
+{
+	// TODO
+	screen_scaling_ratio = 1;
+}
+
+function setCalculatorModel(model)
+{
+	console.log(model);
+	calculator_model = model;
+	switch (model) {
+		case 1: set_skin = set_large_92p_skin; break;
+		case 3: set_skin = set_small_89_skin; break;
+		case 8: set_skin = set_small_v200_skin; console.log("ouin"); break;
+		case 9: set_skin = set_large_89t_skin; break;
+		default: break;
+	}
+}
+
+function reset()
+{
+	// Reset screen to white.
+	for (var p = 0; p < calcscreen.length; calcscreen[p++] = 0x50) {};
+}
+
+function setEmu(newemu) {
+	emu = newemu;
+}
+
+function setScreenScaling(scaling) {
+	console.log("old scaling ratio: " +  screen_scaling_ratio + "\tnew scaling ratio: " + scaling);
+	if (screen_scaling_ratio != scaling) {
+		screen_scaling_ratio = scaling;
+		initscreen();
+	}
+}
+
+function initscreen()
+{
+	var elem = document.getElementById('screen');
+	context = elem.getContext('2d');
+
+	if (screen_scaling_ratio == 2) {
+		if (context.createImageData)
+			bitmap = context.createImageData(480, 256);
+		else if (context.getImageData)
+			bitmap = context.getImageData(0, 0, 960, 512);
+		else
+			bitmap = {'width' : 480, 'height' : 256, 'data' : new Uint8Array(480 * 256 * 4)};
+	}
+	else if (screen_scaling_ratio == 1) {
+		if (context.createImageData)
+			bitmap = context.createImageData(240, 128);
+		else if (context.getImageData)
+			bitmap = context.getImageData(0, 0, 960, 512);
+		else
+			bitmap = {'width' : 240, 'height' : 128, 'data' : new Uint8Array(240 * 128 * 4)};
+	}
+
+	// set all alpha channels to 255 (fully opaque)
+	for (var x = 3; x < bitmap.data.length; x+= 4) bitmap.data[x] = 255;
+}
+
+function initemu() {
+	set_skin();
+}
+
+return {
+	// Functions called directly from events on elements in the HTML page
+	setScreenScaling : setScreenScaling,
+
+	// Setter functions called from the core
+	setCalculatorModel : setCalculatorModel,
+	initkeyhandlers : initkeyhandlers,
+	reset : reset,
+	initemu : initemu,
+	initscreen : initscreen,
+	draw_screen : draw_screen,
+
+	// Setter functions called by a script in the HTML page.
+	setEmu : setEmu
+};
+
 }
