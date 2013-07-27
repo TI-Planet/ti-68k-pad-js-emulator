@@ -816,7 +816,7 @@ function mulu(x, y)
 
 function divu(divisor, dividend)
 {
-	if (divisor == 0) fire_cpu_exception(5);
+	if (divisor == 0) fire_cpu_exception(5); // Divide by zero
 	// XXX this one needs to be enabled, but currently, if we do, divu(0xCCCCFFFF, 0xFF000000) returns something stupid.
 	//dividend &= 0xFFFFFFFF;
 	divisor &= 0xFFFF;
@@ -842,7 +842,7 @@ function divs(divisor, dividend)
 {
 	//console.log("signed divide " + to_hex(dividend,8) + " by " + to_hex(divisor,8));
 
-	if (divisor == 0) fire_cpu_exception(5);
+	if (divisor == 0) fire_cpu_exception(5); // Divide by zero
 	
 	var adivisor = divisor >= 0x8000 ? divisor - 0x10000 : divisor;
 	var adividend = dividend >= 0x80000000 ? dividend - 0x100000000 : dividend;
@@ -1035,8 +1035,8 @@ function roxl(x, shift, size)
 	return x;
 }
 
-function aline() { pc -= 2; fire_cpu_exception(10); }
-function fline() { pc -= 2; fire_cpu_exception(11); }
+function aline() { pc -= 2; fire_cpu_exception(10); } // A-Line
+function fline() { pc -= 2; fire_cpu_exception(11); } // F-Line
 
 // update the status register in situations that might change S bit (flips A7)
 
@@ -1319,12 +1319,12 @@ function amode_read(mode, reg, size, sideeffects)
 		if (size == 2)
 			return "var s=a" + reg + "; if(s<0)s+=4294967296; if(s>4294967295)s-=4294967296;"
 	}
-	return "fire_cpu_exception(4);";
+	return "fire_cpu_exception(4);"; // Illegal instruction
 }
 
 function effective_address_calc(mode, reg)
 {
-	var code = "fire_cpu_exception(4);"
+	var code = "fire_cpu_exception(4);" // Illegal instruction
 	// PC-relative
 	if (mode == MODE_MISC && reg == MISCMODE_PC_OFFSET)
 	{
@@ -1446,7 +1446,7 @@ function amode_write(mode, reg, size, data)
 		if (size == 1)
 			return "d" + reg + "=((d" + reg + ">>>16)*65536)+(" + data + "&65535);"
 	}
-	return "fire_cpu_exception(4);"
+	return "fire_cpu_exception(4);" // Illegal Instruction
 }
 
 // build executors for ADDQ and SUBQ
@@ -2362,20 +2362,20 @@ insert_inst(0x4E71, "", "NOP")
 insert_inst(0x4E72, "pc+=2", "STOP #xxx") // TODO: proper implementation, instead of a 4-byte NOP
 insert_inst(0x4E73, "var s=rw(a7);a7+=2;pc=rl(a7);a7+=4;update_sr(s)", "RTE")
 insert_inst(0x4E75, "pc=rl(a7);a7+=4;", "RTS")
-insert_inst(0x4E76, "if(sr&2)fire_cpu_exception(7)", "TRAPV")
+insert_inst(0x4E76, "if(sr&2)fire_cpu_exception(7)", "TRAPV") // TRAPV
 insert_inst(0x4E77, "var s=rw(a7);a7+=2;pc=rl(a7);a7+=4;sr=(sr&0xFFE0)|(s&0x001F)", "RTR")
-insert_inst(0x4AFC, "fire_cpu_exception(4)", "ILLEGAL")
+insert_inst(0x4AFC, "fire_cpu_exception(4)", "ILLEGAL") // Illegal instruction
 build_movesrccr()
 build_jmpjsr()
 build_pea()
 build_swap()
 build_chk()
 for (var vector = 0; vector < 16; vector++)
-	insert_inst(0x4E40 + vector, "fire_cpu_exception(" + (32 + vector) + ")", "TRAP #" + vector)
+	insert_inst(0x4E40 + vector, "fire_cpu_exception(" + (32 + vector) + ")", "TRAP #" + vector) // TRAP #
 for (var reg = 0; reg < 8; reg++)
 {
-	insert_inst(0x4E60 + reg, "if(sr&0x2000==0)fire_cpu_exception(8);a8=a" + reg, "MOVE A" + reg + ",USP")
-	insert_inst(0x4E68 + reg, "if(sr&0x2000==0)fire_cpu_exception(8);a" + reg +"=a8", "MOVE USP,A" + reg)
+	insert_inst(0x4E60 + reg, "if(sr&0x2000==0)fire_cpu_exception(8);a8=a" + reg, "MOVE A" + reg + ",USP") // Privilege violation
+	insert_inst(0x4E68 + reg, "if(sr&0x2000==0)fire_cpu_exception(8);a" + reg +"=a8", "MOVE USP,A" + reg) // Privilege violation
 	insert_inst(0x4880 + reg, "d" + reg + "=((d" + reg + ">>>16)*65536)+ebw(d" + reg + ")", "EXT.W D" + reg)
 	insert_inst(0x48C0 + reg, "d" + reg + "=ewl(d" + reg + ")", "EXT.L D" + reg)
 	var linkcode = "a7-=4; wl(a7,a" + reg + "); var o=rw(pc); pc+=2; a" + reg + "=a7; a7+=(o<0x8000?o:o-0x10000);"
@@ -2736,7 +2736,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "function rw_" + suffix + "_normal(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if ((address % 2) != 0) fire_cpu_exception(3);" + // address error
+"	if ((address % 2) != 0) fire_cpu_exception(3);" + // Address Error
 "	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
 "		return ram[(address >>> 1) & 0x3FFFF];" +
 "	}" +
@@ -2779,7 +2779,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "function rw_" + suffix + "_flash(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if ((address % 2) != 0) fire_cpu_exception(3);" + // address error
+"	if ((address % 2) != 0) fire_cpu_exception(3);" + // Address Error
 "	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
 "		return ram[(address >>> 1) & 0x3FFFF];" +
 "	}" +
@@ -2869,7 +2869,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "function ww_" + suffix + "_normal(address, value)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if ((address % 2) != 0) fire_cpu_exception(3);" + // address error
+"	if ((address % 2) != 0) fire_cpu_exception(3);" + // Address Error
 "	if (address < 0x200000) {" +
 "		ram[(address & 0x3FFFF) / 2] = value;" +
 "	}" +
@@ -2910,7 +2910,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "function ww_" + suffix + "_flash(address, value)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if ((address % 2) != 0) fire_cpu_exception(3);" + // address error
+"	if ((address % 2) != 0) fire_cpu_exception(3);" + // Address Error
 "	if (address < 0x200000) {" +
 "		ram[(address & 0x3FFFF) / 2] = value;" +
 "	}" +
@@ -3270,12 +3270,18 @@ function initemu()
 
 function setKey(keynumber, status)
 {
+	// FIXME: this is simple, better than nothing but wrong.
+	var prev = keystatus[keynumber];
 	keystatus[keynumber] = status;
+	if (!prev && status) {
+		fire_cpu_exception(26); // AUTO_INT_2
+	}
 }
 
 function setONKeyPressed(keynumber)
 {
-	port_60001A = 0x00; fire_cpu_exception(30);
+	port_60001A = 0x00;
+	fire_cpu_exception(30); // AUTO_INT_6
 }
 
 function setONKeyReleased(keynumber)
@@ -3680,11 +3686,11 @@ function timer_interrupts()
 	{
 		// Trigger level 1 interrupt
 		if ((osc2_counter & 0x7FF) == 0)
-			fire_cpu_exception(25);
+			fire_cpu_exception(25); // AUTO_INT_1
 
 		// Trigger level 3 interrupt
 		if ((osc2_counter & 0x7FFFF) == 0 && (interrupt_control & 4))
-			fire_cpu_exception(27);
+			fire_cpu_exception(27); // AUTO_INT_3
 
 		// Programmable timer
 		if (((osc2_counter % interrupt_rate) == 0) && (interrupt_control & 8))
@@ -3696,7 +3702,7 @@ function timer_interrupts()
 			if (timer_current >= 256)
 			{
 				timer_current = 0;
-				fire_cpu_exception(29);
+				fire_cpu_exception(29); // AUTO_INT_5
 			}
 		}
 	}
@@ -3838,7 +3844,7 @@ function link_handling()
 	if (((link_config & 5) && link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number") ||
 		(link_config & 6))
 	{
-		fire_cpu_exception(28);
+		fire_cpu_exception(28); // AUTO_INT_4
 	}
 	
 	if (link_incoming_queue.length > 0)
@@ -4089,7 +4095,7 @@ function emu_main_loop()
 			// this is a real javascript exception
 			console.log("real javascript exception " + e);
 			console.log(e.stack);
-			clearInterval(interval);
+			stdlib.clearInterval(interval);
 			return;
 		}
 	}
@@ -4276,22 +4282,6 @@ function loadrom()
 		reader.onload = function() { newflashfileready = reader; unhandled_count = 0; };
 		reader.readAsArrayBuffer(infile);
 	}
-}
-
-function getPNG()
-{
-	var data = document.getElementById("screen").toDataURL("image/png");
-	document.getElementById("pngimage").src = data;
-	document.getElementById('pngButton').style.display='none';
-	document.getElementById('pngimage').style.display='inline';
-	document.getElementById('hideButton').style.display='inline'
-}
-
-function pngButtons()
-{
-	document.getElementById('pngimage').style.display='none';
-	document.getElementById('hideButton').style.display='none';
-	document.getElementById('pngButton').style.display='inline';
 }
 
 // libtifiles: types89.c
@@ -4584,13 +4574,23 @@ function get_jmp_tbl() { return jmp_tbl; }
 function get_ROM_base() { return ROM_base; }
 function get_FlashMemorySize() { return FlashMemorySize; }
 
+function pause_emulator()
+{
+	// Prevent emu_main_loop frop running next time.
+	stdlib.clearInterval(interval);
+}
+
+function resume_emulator()
+{
+	// Is that enough ?
+	interval = stdlib.setInterval(emu_main_loop, 11);
+}
+
 return {
 	// Functions called directly from events on elements in the HTML page
 	initemu : initemu,
 	loadrom : loadrom,
 	initialize_calculator : initialize_calculator,
-	getPNG : getPNG,
-	pngButtons : pngButtons,
 	getFileData : getFileData,
 
 	// Setter functions called by a script in the HTML page, for defining stuff loaded from other files.
@@ -4602,6 +4602,8 @@ return {
 	setKey : setKey,
 	setONKeyPressed : setONKeyPressed,
 	setONKeyReleased : setONKeyReleased,
+	pause_emulator : pause_emulator,
+	resume_emulator : resume_emulator,
 
 	// Debugging, getter functions for internal variables
 	emu_main_loop : emu_main_loop,
@@ -4944,7 +4946,6 @@ function set_large_92p_skin()
 	newimg.setAttribute("id", "calcimg");
 	newimg.setAttribute("src", "Ti-92plus.jpg");
 	newimg.setAttribute("usemap", "#map");
-	console.log(newimg);
 
 	oldimg.parentNode.appendChild(newimg);
 	newimg.parentNode.removeChild(oldimg);
@@ -5048,6 +5049,7 @@ function set_small_v200_skin()
 {
 	// TODO
 	screen_scaling_ratio = 1;
+	set_large_92p_skin();
 }
 
 function set_large_89t_skin()
@@ -5058,12 +5060,11 @@ function set_large_89t_skin()
 
 function setCalculatorModel(model)
 {
-	console.log(model);
 	calculator_model = model;
 	switch (model) {
 		case 1: set_skin = set_large_92p_skin; break;
 		case 3: set_skin = set_small_89_skin; break;
-		case 8: set_skin = set_small_v200_skin; console.log("ouin"); break;
+		case 8: set_skin = set_small_v200_skin; break;
 		case 9: set_skin = set_large_89t_skin; break;
 		default: break;
 	}
@@ -5117,9 +5118,43 @@ function initemu() {
 	set_skin();
 }
 
+function getPNG()
+{
+	var data = document.getElementById("screen").toDataURL("image/png");
+	document.getElementById("pngimage").src = data;
+	document.getElementById('pngButton').style.display='none';
+	document.getElementById('pngimage').style.display='inline';
+	document.getElementById('hideButton').style.display='inline'
+}
+
+function pngButtons()
+{
+	document.getElementById('pngimage').style.display='none';
+	document.getElementById('hideButton').style.display='none';
+	document.getElementById('pngButton').style.display='inline';
+}
+
+function pause_emulator()
+{
+	emu.pause_emulator();
+	document.getElementById('pause_emulator').style.display='none';
+	document.getElementById('resume_emulator').style.display='inline';
+}
+
+function resume_emulator()
+{
+	emu.resume_emulator();
+	document.getElementById('pause_emulator').style.display='inline';
+	document.getElementById('resume_emulator').style.display='none';
+}
+
 return {
 	// Functions called directly from events on elements in the HTML page
 	setScreenScaling : setScreenScaling,
+	getPNG : getPNG,
+	pngButtons : pngButtons,
+	pause_emulator : pause_emulator,
+	resume_emulator : resume_emulator,
 
 	// Setter functions called from the core
 	setCalculatorModel : setCalculatorModel,
@@ -5134,6 +5169,3 @@ return {
 };
 
 }
-
-var emu = EmulatorCoreModule(window);
-var ui = EmulatorUIModule(window);
