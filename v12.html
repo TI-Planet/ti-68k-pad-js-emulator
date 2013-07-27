@@ -9,12 +9,14 @@ TI-89 / TI-92+ / TI-V200 / TI-89T emulator (beta version 12-debrouxl)
 TODO LIST:
 MUST (before the emulator is generally usable):
 	IMPORTANT BUGFIXES:
-		* highest usability annoyance: fix the frequent emulator hangs upon user clicks or keypresses... if only we could identify where they come from, but how ?
+		* highest usability annoyance: completely fix the frequent emulator hangs upon user clicks or keypresses... if only we could identify where they come from, but how ?
 		  One of the simple reproducers is pressing F1 in the APPS Desktop on V200 AMS 3.10.
-		  It's not a consequence of port 600005 emulation being missing.
+		  It's not a consequence of port 600005 emulation being missing (the situation is not better after adding it).
+		  2013/07/27: a slightly less wrong implementation of the keyboard handling seems to help.
 		* investigate why the emulator's memory consumption increases over time in such a way that the process ends up being killed in Chrome (even though profiling shows nothing of the appropriate order of magnitude), and fix.
 		* investigate why FlashApps are not written entirely correctly (starting with the 2 first bytes of the header), and fix.
 		  When that is done, it becomes possible to use pristine OS upgrades whose Flashapp validation is not bypassed (the effect of Flashappy / tiosmod+amspatch) :)
+		  Note: perhaps the fact that the 2 first bytes of the header (which might be written last ?) are not written properly is a consequence of the fact something else is wrong with the FlashApp's contents ?
 		* when the calculator turns off, ON does not properly put it back, even with the code added 2013/07/25 in fire_cpu_exception().
 		  pc points to the next instruction, so we're not re-executing the same instruction over and over.
 		* check build_* functions against M68000PRM. Two errors wrt. address registers have already been found (and ~600 instructions which should have been illegal made so), chances are that there are more problems.
@@ -27,7 +29,14 @@ MUST (before the emulator is generally usable):
 		  According to critor, even PedroM 0.82 fails to understand the linking emulation now, while I seem to be generating the exact same data as libticalcs. For a reasonably general-purpose, non-developer-user-oriented emulator, it's more important for AMS to work than for PedroM to work - but still...
 
 	IMPORTANT FEATURES:
-		* add dynamically selectable skins for 92+, 89, V200, 89T (IOW, integrate critor's skins and rectangle definitions)
+		* add dynamically selectable skins for 92+, 89, V200, 89T (IOW, integrate critor's skins and rectangle definitions).
+		* modularize the code further:
+			* at least, move linking emulation code to another object (jsTIfied does it: http://www.cemetech.net/projects/item.php?id=42 ).
+		* save state support...
+		  Ideas:
+			* a new JS exception, like STOP for 600005 emulation;
+			* generating a JS object containing all of the relevant emulator state and exporting it as JSON [jsTIfied uses JSON];
+			* loading the JSON, regenerating reset() and launching initemu().
 		* some form of debugger (note: would ease implementation of some other features) - well, basically, implement the features from JM's modified VTI & TIEmu :P
 			* (mostly done) implement disassembly(address, count) - in the beginning, through simple string substitution, we'll see whether that's enough;
 			* traverse the VAT - see core/ti_sw/var.c in TIEmu;
@@ -40,7 +49,6 @@ MUST (before the emulator is generally usable):
 		* disassembly support for all remaining unimplemented instructions.
 		* linking emulation: support for non-silent linking
 		* 3:1 and 4:1 screen scaling ratios for screenshots.
-		* modularize the code further.
 		* use asm.js for time-critical chunks of the emulator, as Kerm & jacobly are doing for jsTIfied. Requires modularizing the code, see https://github.com/dherman/asm.js .
 		  Non-typed arrays are forbidden ?
 
@@ -56,11 +64,9 @@ MUST (before the emulator is generally usable):
 		* contrast handling, screen on/off handling (minor impacts on draw_calcscreen()).
 
 SHOULD at some point:
-	* pause / restart emulation
-	  There's already a "stopped" variable in the code.
-	* support more ROM formats in the JS code (?)
 	* optimize more
 	  NOTE: with default optimization level Google Closure compiler doesn't seem to help much, on either Firefox or Chrome.
+	* make a more immediate implementation of pause / restart emulation: somehow stop immediately, instead of removing interval timer for emu_main_loop().
 	* expand test suite.
 	  The one started by debrouxl is currently pitiful. Finding a ready-made test program for a 68000 seems to be extremely hard, though - debrouxl spent hours looking in emulators and with generic search engine, to no avail.
 	* count clock cycles
@@ -227,6 +233,13 @@ Changelog from PatrickD's version:
 	  (debrouxl 2013/07/26)
 	* further modularization work: move some of the UI into a second object.
 	  (debrouxl 2013/07/26)
+	* slightly less wrong emulation of the keyboard: fire AUTO_INT_2 from setKey() when a key which wasn't pressed before is pressed.
+	  Makes the highest usability annoyance a bit less annoying, but doesn't fix it.
+	  (debrouxl 2013/07/27)
+	* move getPNG() and pngButtons() from core to UI
+	  (debrouxl 2013/07/27)
+	* implement emulator pause / resume by using clearInterval() / setInterval().
+	  (debrouxl 2013/07/27)
 -->
 
 <script type="text/javascript" src="v12_readable.js"></script>
@@ -265,13 +278,19 @@ This emulator requires a browser with canvas support and Javascript enabled.</ca
 the calculator (you must be on the home screen to do this).  Note that while the pre-loaded programs are quite
 compatible with this emulator, compability with other programs is limited in this version.</p>
 <p>
+<input type="button" value="Pause emulator" id="pause_emulator" onclick="javascript:ui.pause_emulator()"/>
+<input type="button" value="Resume emulator" id="resume_emulator" style="display:none" onclick="javascript:ui.resume_emulator()"/><br/>
+
 <input type="button" value="Reset calculator" id="reset_calculator" onclick="javascript:emu.initialize_calculator()"/><br>
-<input type="button" value="PNG screenshot" id="pngButton" onclick="javascript:emu.getPNG()"/>
+
+<input type="button" value="PNG screenshot" id="pngButton" onclick="javascript:ui.getPNG()"/>
 &nbsp;&nbsp;
-<input type="button" value="Close PNG screenshot" id="hideButton" style="display:none" onclick="javascript:emu.pngButtons()"/><img id="pngimage" src=""/><br/>
+<input type="button" value="Close PNG screenshot" id="hideButton" style="display:none" onclick="javascript:ui.pngButtons()"/><img id="pngimage" src=""/><br/>
 <!-- http://stackoverflow.com/a/16213045  -->
+
 <input type="button" value="Make data created by recvfile() available" id="downloadFileButton" onclick="javascript:emu.getFileData()"/><br/>
 <a href="" id="downloadFile" style="display:none">Download data created by recvfile()</a>
+
 Screen scaling: <form>
 <input type="radio" name="screen_scaling" value="1" onclick="javascript:ui.setScreenScaling(1)">1:1&nbsp;&nbsp;
 <input type="radio" name="screen_scaling" value="2" onclick="javascript:ui.setScreenScaling(2)" checked>2:1
