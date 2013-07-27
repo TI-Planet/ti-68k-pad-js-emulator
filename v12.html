@@ -9,24 +9,24 @@ TI-89 / TI-92+ / TI-V200 / TI-89T emulator (beta version 12-debrouxl)
 TODO LIST:
 MUST (before the emulator is generally usable):
 	IMPORTANT BUGFIXES:
-		* check build_* functions against M68000PRM. Two errors wrt. address registers have already been found (and ~600 illegal instructions restored), chances are that there are more.
+		* highest usability annoyance: fix the frequent emulator hangs upon user clicks or keypresses... if only we could identify where they come from, but how ?
+		  One of the simple reproducers is pressing F1 in the APPS Desktop on V200 AMS 3.10.
+		  It's not a consequence of port 600005 emulation being missing.
+		* investigate why the emulator's memory consumption increases over time in such a way that the process ends up being killed in Chrome (even though profiling shows nothing of the appropriate order of magnitude), and fix.
+		* investigate why FlashApps are not written entirely correctly (starting with the 2 first bytes of the header), and fix.
+		  When that is done, it becomes possible to use pristine OS upgrades whose Flashapp validation is not bypassed (the effect of Flashappy / tiosmod+amspatch) :)
+		* when the calculator turns off, ON does not properly put it back, even with the code added 2013/07/25 in fire_cpu_exception().
+		  pc points to the next instruction, so we're not re-executing the same instruction over and over.
+		* check build_* functions against M68000PRM. Two errors wrt. address registers have already been found (and ~600 instructions which should have been illegal made so), chances are that there are more problems.
 		* investigate emulator slowness on Firefox Nightly (it doesn't seem to occur on Chrome ?) after transferring a file.
 		  The slowness doesn't seem to disappear on its own, but it tends to disappear a while after the VAR-Link is launched and exited. Might be linking-related ??
 		  Idea: "WAIT_OK_LAST" special value, upon which the emulator should clear the incoming and outgoing queues ?
-		* investigate why the emulator's memory consumption increases over time, and fix.
-		* investigate why FlashApps are not written entirely correctly (starting with the 2 first bytes of the header), and fix.
-		  When that is done, it becomes possible to use pristine OS upgrades whose Flashapp validation is not bypassed (the effect of Flashappy / tiosmod+amspatch) :)
-		* fix the frequent emulator hangs upon user clicks or keypresses... if only we could identify where they come from, but how ?
-		  One of the simple reproducers is pressing F1 in the APPS Desktop on V200 AMS 3.10.
-		  It's not a consequence of port 600005 emulation being missing.
 		* fix rate of OSC2, which seems too low now that port 600005 is emulated.
 		  On V200 AMS 3.10, the clock increments too slowly in the APPS Desktop, and the HOME cursor blinks too slowly as well.
 		* fix files transfer to PedroM
 		  According to critor, even PedroM 0.82 fails to understand the linking emulation now, while I seem to be generating the exact same data as libticalcs. For a reasonably general-purpose, non-developer-user-oriented emulator, it's more important for AMS to work than for PedroM to work - but still...
 
 	IMPORTANT FEATURES:
-		* add _selectable_ screen scaling: 2:1 or 1:1.
-		  Both routines are in the source code, but activated one at a time through changing the code
 		* add dynamically selectable skins for 92+, 89, V200, 89T (IOW, integrate critor's skins and rectangle definitions)
 		* some form of debugger (note: would ease implementation of some other features) - well, basically, implement the features from JM's modified VTI & TIEmu :P
 			* (mostly done) implement disassembly(address, count) - in the beginning, through simple string substitution, we'll see whether that's enough;
@@ -40,17 +40,20 @@ MUST (before the emulator is generally usable):
 		* disassembly support for all remaining unimplemented instructions.
 		* linking emulation: support for non-silent linking
 		* 3:1 and 4:1 screen scaling ratios for screenshots.
-		* modularize the code.
+		* modularize the code further.
 		* use asm.js for time-critical chunks of the emulator, as Kerm & jacobly are doing for jsTIfied. Requires modularizing the code, see https://github.com/dherman/asm.js .
+		  Non-typed arrays are forbidden ?
 
 	LESS IMPORTANT BUGFIXES / FEATURES:
 		* have SR-manipulating instructions, e.g. RTE and STOP, check for S bit if necessary !
+		* disassembler: for address register indexed with displacement, warn if scale bits != 0 (CPU32+) or bd/od present (68020+).
 		* useful hardware ports not handled:
 			* writes to 60001B: acknowledge AUTO_INT_2 for keyboard.
 		* unimplemented infrequent processor instructions:
 			* CHK (implementation is definitely wrong)
 			* STOP (currently wrongly implemented as a 4-byte NOP; rarely used, but there are several occurrences of STOP in AMS, usually dead ends because they're followed by a branch which gets back to the stop)
 		  Useful resources: M68000PRM.pdf, http://goldencrystal.free.fr/M68kOpcodes.pdf:
+		* contrast handling, screen on/off handling (minor impacts on draw_calcscreen()).
 
 SHOULD at some point:
 	* pause / restart emulation
@@ -58,7 +61,7 @@ SHOULD at some point:
 	* support more ROM formats in the JS code (?)
 	* optimize more
 	  NOTE: with default optimization level Google Closure compiler doesn't seem to help much, on either Firefox or Chrome.
-	* expand test suite (v12chk.js).
+	* expand test suite.
 	  The one started by debrouxl is currently pitiful. Finding a ready-made test program for a 68000 seems to be extremely hard, though - debrouxl spent hours looking in emulators and with generic search engine, to no avail.
 	* count clock cycles
 	  Probably at high speed cost, given that merely counting instructions in the inner loop made the emulator ~50% slower !!
@@ -78,7 +81,7 @@ MIGHT:
 		- R/W 700014 (RTC with extra slow incrementation).
 		- R/W 700017 (HW2+ display snoop memory range). Pretty much nobody uses that.
 		- R/W 70001D battery checker bits
-	* unimplemented processor instructions: proper implementation of the strange movep (not sure whoever used that on the TI-68k series and whether it works :D). Disassembly works.
+	* unimplemented processor instructions: proper implementation of the strange movep (not sure whoever used that on the TI-68k series and whether it works :D). Disassembly of movep works.
 
 
 Changelog from PatrickD's version:
@@ -214,31 +217,42 @@ Changelog from PatrickD's version:
 	  (debrouxl 2013/07/25)
 	* in file reception, when processing the contents of VAR and XDP packets, compare checksums modulo 2^16, so as to avoid spurious "wrong checksum" messages.
 	  (debrouxl 2013/07/25)
+	* move innermost loop out of emu_main_loop() into execute_instructions(). Should have low (enough) speed impact, and will enable debugger usage (execute N instructions). While at it, remove more than 10 KB of outdated debugging code.
+	  (debrouxl 2013/07/26)
+	* early modularization work: wrap everything into a single object which exports a subset of its internals, used by the HTML code or for debugging.
+	  (debrouxl 2013/07/26)
+	* as a result of the modularization work, move emulator checking code into the emulator object (instead of having to export a number of internal functions to the outside...)
+	  (debrouxl 2013/07/26)
+	* make it possible to select screen scaling through the HTML page, instead of having to change the JS code.
+	  (debrouxl 2013/07/26)
+	* further modularization work: move some of the UI into a second object.
+	  (debrouxl 2013/07/26)
 -->
+
+<script type="text/javascript" src="v12_readable.js"></script>
+<script type="text/javascript">
+var emu = EmulatorCoreModule(window);
+var ui = EmulatorUIModule(window);
+</script>
 
 <script type="text/javascript" src="v4rom.js"></script>
 <script type="text/javascript" src="v4sav.js"></script>
-
-<!-- Dummy emulation checking function. -->
 <script type="text/javascript">
-function checkemu() {
-	return true;
-}
+emu.setRom(rom);
+emu.setReset(reset);
+ui.setEmu(emu);
+emu.setUI(ui);
 </script>
 
-<!-- Script containing deeper emulation checking functions, if any -->
-<script type="text/javascript" src="v12chk.js"></script>
-
-<script type="text/javascript" src="v12_readable.js"></script>
 
 </head>
-<body onload="initemu()">
+<body onload="javascript:emu.initemu()">
 <h3>Javascript TI-89 / TI-92+ / TI-V200 / TI-89T emulator (beta version 12) by Patrick Davidson &amp; Lionel Debroux</h3>
 
 <p style="position:relative">
 
 <!-- TODO: selectable skins -->
-<img src="Ti-92plus.jpg" usemap="#map" ismap>
+<img id="calcimg" src="" usemap="#map" ismap>
 
 <map name="map" id="map"></map>
 
@@ -247,18 +261,21 @@ This emulator requires a browser with canvas support and Javascript enabled.</ca
 
 </p>
 <form>
-<p> <input type="file" onchange="loadrom()" id="romfile"> Choose a ROM image (in TIB, ??U, or plain ROM format) to load the new ROM and reset the calculator.  Choose a file to upload a new variable to
+<p> <input type="file" onchange="javascript:emu.loadrom()" id="romfile"> Choose a ROM image (in TIB, ??U, or plain ROM format) to load the new ROM and reset the calculator.  Choose a file to upload a new variable to
 the calculator (you must be on the home screen to do this).  Note that while the pre-loaded programs are quite
 compatible with this emulator, compability with other programs is limited in this version.</p>
 <p>
-<input type="button" value="Reset calculator" id="reset_calculator" onclick="javascript:initialize_calculator()"/><br>
-<input type="button" value="PNG screenshot" id="pngButton" onclick="javascript:getPNG()"/>
+<input type="button" value="Reset calculator" id="reset_calculator" onclick="javascript:emu.initialize_calculator()"/><br>
+<input type="button" value="PNG screenshot" id="pngButton" onclick="javascript:emu.getPNG()"/>
 &nbsp;&nbsp;
-<input type="button" value="Close PNG screenshot" id="hideButton" style="display:none" onclick="javascript:pngButtons()"/><br/>
-<img id="pngimage" src=""/>
+<input type="button" value="Close PNG screenshot" id="hideButton" style="display:none" onclick="javascript:emu.pngButtons()"/><img id="pngimage" src=""/><br/>
 <!-- http://stackoverflow.com/a/16213045  -->
-<input type="button" value="Make data created by recvfile() available" id="downloadFileButton" onclick="javascript:getFileData()"/><br/>
+<input type="button" value="Make data created by recvfile() available" id="downloadFileButton" onclick="javascript:emu.getFileData()"/><br/>
 <a href="" id="downloadFile" style="display:none">Download data created by recvfile()</a>
+Screen scaling: <form>
+<input type="radio" name="screen_scaling" value="1" onclick="javascript:ui.setScreenScaling(1)">1:1&nbsp;&nbsp;
+<input type="radio" name="screen_scaling" value="2" onclick="javascript:ui.setScreenScaling(2)" checked>2:1
+</form> 
 </p>
 
 <p>By default, the emulated calculator uses the open-source PedroM instead of the official TI system software.  The PedroM source along with conversion scripts is available <a href=".">here</a>.  
@@ -268,7 +285,7 @@ and use F9 for F1.  Use the numeric keypad for the + - * / symbols but the regul
 All other keys either have the obvious mapping or not mapped to any computer key.  This emulator is pre-loaded with a few of my games.
 To run them just type a game name (monster, mercury, platinum, phoenix, smiley) and press enter.</p>
 
-<p>If you encounter serious problems with this emulator, such as it erases 100% of the data on your hard disk, please report to me by e-mail to <a href="eeulplek@hotmail.com">eeulplek@hotmail.com</a> / <a href="lionel_debroux@yahoo.fr">lionel_debroux@yahoo.fr</a>, on IRC (EFNet: #ti, #cemetech, #tcpa) or on message boards (Cemetech, TI-Planet). However, please note that this is a beta version so minor problems (such as erasing only 38% of your data) are to be expected and thus are not worth reporting :P</p>
+<p>If you encounter serious problems with this emulator, such as it erases 100% of the data on your hard disk, please report to me by e-mail to <a href="eeulplek@hotmail.com">eeulplek@hotmail.com</a> / <a href="lionel_debroux@yahoo.fr">lionel_debroux@yahoo.fr</a>, on IRC (EFNet: #ti, #cemetech, #tcpa) or on message boards (Cemetech, TI-Planet). However, please note that this is a beta version so minor problems (such as erasing only 37% of your data) are to be expected and thus are not worth reporting.</p>
 
 <p>Thanks to Patrick Pelissier for having written Pedrom -- this emulator would never have been written without his open source ROM available to include with it.  Also thanks to Lionel Debroux for his many suggestions to improve this emulator -- but note that I haven't made use of all of them yet, so don't blame him if you find any bugs!</p>
 </form>
