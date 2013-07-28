@@ -29,7 +29,8 @@ MUST (before the emulator is generally usable):
 		  According to critor, even PedroM 0.82 fails to understand the linking emulation now, while I seem to be generating the exact same data as libticalcs. For a reasonably general-purpose, non-developer-user-oriented emulator, it's more important for AMS to work than for PedroM to work - but still...
 
 	IMPORTANT FEATURES:
-		* add dynamically selectable skins for 92+, 89, V200, 89T (IOW, integrate critor's skins and rectangle definitions).
+		* harden the HTML element manipulation code against unavailable elements, add default actions (if that makes sense).
+		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
 		* modularize the code further:
 			* at least, move linking emulation code to another object (jsTIfied does it: http://www.cemetech.net/projects/item.php?id=42 ).
 		* save state support...
@@ -66,6 +67,7 @@ MUST (before the emulator is generally usable):
 SHOULD at some point:
 	* optimize more
 	  NOTE: with default optimization level Google Closure compiler doesn't seem to help much, on either Firefox or Chrome.
+	  Might use arrays of 16-bit signed integers for link_incoming_queue and link_outgoing_queue, the special values being negative numbers ? But then, no Array.push()...
 	* make a more immediate implementation of pause / restart emulation: somehow stop immediately, instead of removing interval timer for emu_main_loop().
 	* expand test suite.
 	  The one started by debrouxl is currently pitiful. Finding a ready-made test program for a 68000 seems to be extremely hard, though - debrouxl spent hours looking in emulators and with generic search engine, to no avail.
@@ -236,10 +238,18 @@ Changelog from PatrickD's version:
 	* slightly less wrong emulation of the keyboard: fire AUTO_INT_2 from setKey() when a key which wasn't pressed before is pressed.
 	  Makes the highest usability annoyance a bit less annoying, but doesn't fix it.
 	  (debrouxl 2013/07/27)
-	* move getPNG() and pngButtons() from core to UI
+	* move getPNG() and pngButtons() from core to UI.
 	  (debrouxl 2013/07/27)
 	* implement emulator pause / resume by using clearInterval() / setInterval().
 	  (debrouxl 2013/07/27)
+	* integrate critor's small skins and button definitions; rework HTML; dynamically change more HTML elements.
+	  (debrouxl 2013/07/27)
+	* repurpose "screen scaling ratio" radio buttons for "small skin" / "large skin" selection.
+	  (debrouxl 2013/07/27)
+	* add getter and setter for newfileready, which can be used by other HTML pages to inject files. Reported by critor.
+	  (debrouxl 2013/07/28)
+	* fix broken keymaps after switching keyboard - the child "area" elements of the map should be cleared. Reported by critor.
+	  (debrouxl 2013/07/28)
 -->
 
 <script type="text/javascript" src="v12_readable.js"></script>
@@ -262,17 +272,13 @@ emu.setUI(ui);
 <body onload="javascript:emu.initemu()">
 <h3>Javascript TI-89 / TI-92+ / TI-V200 / TI-89T emulator (beta version 12) by Patrick Davidson &amp; Lionel Debroux</h3>
 
-<p style="position:relative">
+<div id="calccontainer" style="position:relative">
+<canvas id="screen" style="">This emulator requires a browser with canvas support and Javascript enabled.</canvas>
+<img id="calcimg" src="" usemap="#calcmap" ismap style="position:relative;top:0px;left:0px">
+<map name="calcmap" id="calcmap"></map>
+</div>
 
-<!-- TODO: selectable skins -->
-<img id="calcimg" src="" usemap="#map" ismap>
-
-<map name="map" id="map"></map>
-
-<canvas id="screen" width="480" height="256" style="position:absolute;top:50px;left:204px">
-This emulator requires a browser with canvas support and Javascript enabled.</canvas>
-
-</p>
+<div id="textandbuttons" style="position:relative">
 <form>
 <p> <input type="file" onchange="javascript:emu.loadrom()" id="romfile"> Choose a ROM image (in TIB, ??U, or plain ROM format) to load the new ROM and reset the calculator.  Choose a file to upload a new variable to
 the calculator (you must be on the home screen to do this).  Note that while the pre-loaded programs are quite
@@ -288,13 +294,13 @@ compatible with this emulator, compability with other programs is limited in thi
 <input type="button" value="Close PNG screenshot" id="hideButton" style="display:none" onclick="javascript:ui.pngButtons()"/><img id="pngimage" src=""/><br/>
 <!-- http://stackoverflow.com/a/16213045  -->
 
-<input type="button" value="Make data created by recvfile() available" id="downloadFileButton" onclick="javascript:emu.getFileData()"/><br/>
+<input type="button" value="Make data created by recvfile() available" id="downloadFileButton" onclick="javascript:emu.getFileData()"/></form><br/>
 <a href="" id="downloadFile" style="display:none">Download data created by recvfile()</a>
 
-Screen scaling: <form>
-<input type="radio" name="screen_scaling" value="1" onclick="javascript:ui.setScreenScaling(1)">1:1&nbsp;&nbsp;
-<input type="radio" name="screen_scaling" value="2" onclick="javascript:ui.setScreenScaling(2)" checked>2:1
-</form> 
+Skin type: <form>
+<input type="radio" id="smallskin" name="skin_type" value="1" onclick="javascript:ui.setSkin(1)">1:1&nbsp;&nbsp;</input>
+<input type="radio" id="largeskin" name="skin_type" value="2" onclick="javascript:ui.setSkin(2)">2:1</input>
+</form>
 </p>
 
 <p>By default, the emulated calculator uses the open-source PedroM instead of the official TI system software.  The PedroM source along with conversion scripts is available <a href=".">here</a>.  
@@ -307,6 +313,6 @@ To run them just type a game name (monster, mercury, platinum, phoenix, smiley) 
 <p>If you encounter serious problems with this emulator, such as it erases 100% of the data on your hard disk, please report to me by e-mail to <a href="eeulplek@hotmail.com">eeulplek@hotmail.com</a> / <a href="lionel_debroux@yahoo.fr">lionel_debroux@yahoo.fr</a>, on IRC (EFNet: #ti, #cemetech, #tcpa) or on message boards (Cemetech, TI-Planet). However, please note that this is a beta version so minor problems (such as erasing only 37% of your data) are to be expected and thus are not worth reporting.</p>
 
 <p>Thanks to Patrick Pelissier for having written Pedrom -- this emulator would never have been written without his open source ROM available to include with it.  Also thanks to Lionel Debroux for his many suggestions to improve this emulator -- but note that I haven't made use of all of them yet, so don't blame him if you find any bugs!</p>
-</form>
+</div>
 </body>
 </html>
