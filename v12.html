@@ -13,6 +13,8 @@ MUST (before the emulator is generally usable):
 		  One of the simple reproducers is pressing F1 in the APPS Desktop on V200 AMS 3.10.
 		  It's not a consequence of port 600005 emulation being missing (the situation is not better after adding it).
 		  2013/07/27: a slightly less wrong implementation of the keyboard handling seems to help.
+		* some floating-point routines are broken, e.g. tan(tan^-1(x)) is garbage. x, x^2, e^x, 1/x, sin, cos, tan, sin^-1, cos^-1 seem OK.
+		* in the graph screen, F7 Draw - 4 Circle circles have a... um, strange shape.
 		* investigate why the emulator's memory consumption increases over time in such a way that the process ends up being killed in Chrome (even though profiling shows nothing of the appropriate order of magnitude), and fix.
 		* investigate why FlashApps are not written entirely correctly (starting with the 2 first bytes of the header), and fix.
 		  When that is done, it becomes possible to use pristine OS upgrades whose Flashapp validation is not bypassed (the effect of Flashappy / tiosmod+amspatch) :)
@@ -29,10 +31,10 @@ MUST (before the emulator is generally usable):
 		  According to critor, even PedroM 0.82 fails to understand the linking emulation now, while I seem to be generating the exact same data as libticalcs. For a reasonably general-purpose, non-developer-user-oriented emulator, it's more important for AMS to work than for PedroM to work - but still...
 
 	IMPORTANT FEATURES:
-		* harden the HTML element manipulation code against unavailable elements, add default actions (if that makes sense).
-		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
+		* harden the HTML element manipulation code against unavailable elements, add default actions where it makes sense. Reported by critor.
 		* modularize the code further:
 			* at least, move linking emulation code to another object (jsTIfied does it: http://www.cemetech.net/projects/item.php?id=42 ).
+		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
 		* save state support...
 		  Ideas:
 			* a new JS exception, like STOP for 600005 emulation;
@@ -249,6 +251,12 @@ Changelog from PatrickD's version:
 	* add getter and setter for newfileready, which can be used by other HTML pages to inject files. Reported by critor.
 	  (debrouxl 2013/07/28)
 	* fix broken keymaps after switching keyboard - the child "area" elements of the map should be cleared. Reported by critor.
+	  (debrouxl 2013/07/28)
+	* export to_hex(), to_hex2(), memory_dump() from core
+	  (debrouxl 2013/07/28)
+	* add testcases for subl(), divu(), divs(), mulu(), muls().
+	  (debrouxl 2013/07/28)
+	* make divs() more correct
 	  (debrouxl 2013/07/28)
 -->
 
