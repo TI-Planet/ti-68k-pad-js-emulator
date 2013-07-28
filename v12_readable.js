@@ -4559,6 +4559,9 @@ function get_ram() { return ram; }
 function get_t() { return t; }
 function get_n() { return n; }
 
+function get_newfileready() { return newfileready; }
+function setNewfileready(newnewfileready) { newfileready = newnewfileready; }
+
 function get_link_incoming_queue() { return link_incoming_queue; }
 function get_link_outgoing_queue() { return link_outgoing_queue; }
 function get_link_recv_varsize() { return link_recv_varsize; }
@@ -4593,7 +4596,9 @@ return {
 	initialize_calculator : initialize_calculator,
 	getFileData : getFileData,
 
-	// Setter functions called by a script in the HTML page, for defining stuff loaded from other files.
+	// Getter and setter functions called by a script in the HTML page, for defining stuff loaded from other files.
+	newfileready : get_newfileready,
+	setNewfileready : setNewfileready,
 	setRom : setRom,
 	setReset : setReset,
 	setUI : setUI,
@@ -4735,7 +4740,7 @@ function draw_screen(address, ram)
 
 function create_button(shape, coords, keynumber)
 {
-	var map = document.getElementById('map');
+	var map = document.getElementById('calcmap');
 	var area = document.createElement('area');
 	area.shape = shape;
 	area.coords = coords;
@@ -4748,7 +4753,7 @@ function create_button(shape, coords, keynumber)
 
 function create_on_button(shape, coords)
 {
-	var map = document.getElementById('map');
+	var map = document.getElementById('calcmap');
 	var area = document.createElement('area');
 	area.shape = shape;
 	area.coords = coords;
@@ -4944,7 +4949,7 @@ function set_large_92p_skin()
 	var newimg = document.createElement('img');
 	newimg.setAttribute("id", "calcimg");
 	newimg.setAttribute("src", "Ti-92plus.jpg");
-	newimg.setAttribute("usemap", "#map");
+	newimg.setAttribute("usemap", "#calcmap");
 	newimg.setAttribute("style", "position:absolute;top:0px;left:0px;z-index:0");
 
 	oldimg.parentNode.appendChild(newimg);
@@ -4962,6 +4967,15 @@ function set_large_92p_skin()
 	// Scaling radio buttons
 	document.getElementById('smallskin').checked=false;
 	document.getElementById('largeskin').checked=true;
+
+	// Replace map.
+	var oldmap = document.getElementById('calcmap');
+	var newmap = document.createElement('map');
+	newmap.setAttribute("name", "calcmap");
+	newmap.setAttribute("id", "calcmap");
+
+	oldmap.parentNode.appendChild(newmap);
+	newmap.parentNode.removeChild(oldmap);
 
 	// Create buttons.
 	create_button("rect", "140,52,193,112", 3); // LOCK (hand)
@@ -5047,95 +5061,6 @@ function set_large_92p_skin()
 	create_on_button("rect", "74,497,120,527"); // ON: left of DIAMOND, below SHIFT
 }
 
-function set_small_89_skin()
-{
-	screen_scaling_ratio = 1;
-
-	var oldimg = document.getElementById('calcimg');
-	var newimg = document.createElement('img');
-	newimg.setAttribute("id", "calcimg");
-	newimg.setAttribute("src", "ti89_skinmap.gif");
-	newimg.setAttribute("usemap", "#map");
-	newimg.setAttribute("style", "position:absolute;top:0px;left:0px;z-index:0");
-
-	oldimg.parentNode.appendChild(newimg);
-	newimg.parentNode.removeChild(oldimg);
-
-	// Move canvas.
-	var screen = document.getElementById('screen');
-	screen.setAttribute("style", "position:relative;top:36px;left:29px;z-index:1");
-	screen.setAttribute("width", "160");
-	screen.setAttribute("height", "100");
-
-	var textandbuttons = document.getElementById('textandbuttons');
-	textandbuttons.setAttribute("style", "position:relative;top:310px");
-
-	// Scaling radio buttons
-	document.getElementById('smallskin').checked=true;
-	document.getElementById('largeskin').checked=false;
-
-	// Create buttons.
-	create_button("rect", "23,151,51,161", 47); // F1
-	create_button("rect", "60,151,87,161", 39); // F2
-	create_button("rect", "94,151,122,161", 31); // F3
-	create_button("rect", "130,151,157,161", 23); // F4
-	create_button("rect", "166,151,194,161", 15); // F5
-
-	create_button("rect", "23,186,51,201", 4); // 2ND
-	create_button("rect", "60,186,87,201", 5); // SHIFT
-	create_button("rect", "94,186,122,201", 48); // ESC
-
-	create_button("poly", "132,181,143,181,149,187,149,208,143,215,132,215", 1); // LEFT
-	create_button("poly", "198,181,187,181,181,187,181,208,187,215,198,215", 3); // RIGHT
-	create_button("poly", "148,171,148,182,154,188,176,188,182,182,182,171", 2); // UP
-	create_button("poly", "148,226,148,215,154,209,176,209,182,215,182,226", 2); // DOWN
-
-	create_button("rect", "23,211,51,226", 6); // DIAMOND
-	create_button("rect", "60,211,87,226", 7); // ALPHA
-	create_button("rect", "94,211,122,226", 40); // APPS
-
-	create_button("rect", "23,236,51,251", 46); // HOME
-	create_button("rect", "60,236,87,251", 38); // MODE
-	create_button("rect", "94,236,122,251", 30); // CATALOG
-	create_button("rect", "130,236,157,251", 22); // BACKSPACE
-	create_button("rect", "166,236,194,251", 14); // CLEAR
-
-	create_button("rect", "23,262,51,277", 45); // X
-	create_button("rect", "60,262,87,277", 37); // Y
-	create_button("rect", "94,262,122,277", 29); // Z
-	create_button("rect", "130,262,157,277", 21); // T
-	create_button("rect", "166,262,194,277", 13); // ^
-
-	create_button("rect", "23,287,51,303", 44); // =
-	create_button("rect", "60,287,87,303", 36); // (
-	create_button("rect", "94,287,122,303", 28); // )
-	create_button("rect", "130,287,157,303", 20); // ,
-	create_button("rect", "166,287,194,303", 12); // /
-
-	create_button("rect", "23,314,51,328", 43); // |
-	create_button("rect", "60,311,87,329", 35); // 7
-	create_button("rect", "94,311,122,329", 27); // 8
-	create_button("rect", "130,311,157,329", 19); // 9
-	create_button("rect", "166,314,194,328", 11); // *
-
-	create_button("rect", "23,339,51,354", 42); // EE
-	create_button("rect", "60,337,87,355", 34); // 4
-	create_button("rect", "94,337,122,355", 26); // 5
-	create_button("rect", "130,337,157,355", 18); // 6
-	create_button("rect", "166,339,194,354", 10); // -
-
-	create_button("rect", "23,364,51,379", 41); // STO
-	create_button("rect", "60,362,87,381", 33); // 1
-	create_button("rect", "94,362,122,381", 25); // 2
-	create_button("rect", "130,362,157,381", 17); // 3
-	create_button("rect", "166,364,194,379", 9); // +
-
-	create_button("rect", "60,388,87,407", 32); // 0
-	create_button("rect", "94,388,122,407", 24); // .
-	create_button("rect", "130,388,157,407", 16); // (-)
-	create_button("rect", "166,390,194,410", 8); // ENTER
-}
-
 function set_small_92p_skin()
 {
 	screen_scaling_ratio = 1;
@@ -5145,7 +5070,7 @@ function set_small_92p_skin()
 	var newimg = document.createElement('img');
 	newimg.setAttribute("id", "calcimg");
 	newimg.setAttribute("src", "ti92p_skinmap.gif");
-	newimg.setAttribute("usemap", "#map");
+	newimg.setAttribute("usemap", "#calcmap");
 	newimg.setAttribute("style", "position:absolute;top:0px;left:0px;z-index:0");
 
 	oldimg.parentNode.appendChild(newimg);
@@ -5163,6 +5088,15 @@ function set_small_92p_skin()
 	// Scaling radio buttons
 	document.getElementById('smallskin').checked=true;
 	document.getElementById('largeskin').checked=false;
+
+	// Replace map.
+	var oldmap = document.getElementById('calcmap');
+	var newmap = document.createElement('map');
+	newmap.setAttribute("name", "calcmap");
+	newmap.setAttribute("id", "calcmap");
+
+	oldmap.parentNode.appendChild(newmap);
+	newmap.parentNode.removeChild(oldmap);
 
 	// Create buttons.
 	create_button("rect", "98,36,141,54", 3); // LOCK (hand)
@@ -5253,6 +5187,104 @@ function set_small_92p_skin()
 	create_button("poly", "564,54,595,27,607,45,607,64,594,82,564,55", 6); // Right
 }
 
+function set_small_89_skin()
+{
+	screen_scaling_ratio = 1;
+
+	var oldimg = document.getElementById('calcimg');
+	var newimg = document.createElement('img');
+	newimg.setAttribute("id", "calcimg");
+	newimg.setAttribute("src", "ti89_skinmap.gif");
+	newimg.setAttribute("usemap", "#calcmap");
+	newimg.setAttribute("style", "position:absolute;top:0px;left:0px;z-index:0");
+
+	oldimg.parentNode.appendChild(newimg);
+	newimg.parentNode.removeChild(oldimg);
+
+	// Move canvas.
+	var screen = document.getElementById('screen');
+	screen.setAttribute("style", "position:relative;top:36px;left:29px;z-index:1");
+	screen.setAttribute("width", "160");
+	screen.setAttribute("height", "100");
+
+	var textandbuttons = document.getElementById('textandbuttons');
+	textandbuttons.setAttribute("style", "position:relative;top:310px");
+
+	// Scaling radio buttons
+	document.getElementById('smallskin').checked=true;
+	document.getElementById('largeskin').checked=false;
+
+	// Replace map.
+	var oldmap = document.getElementById('calcmap');
+	var newmap = document.createElement('map');
+	newmap.setAttribute("name", "calcmap");
+	newmap.setAttribute("id", "calcmap");
+
+	oldmap.parentNode.appendChild(newmap);
+	newmap.parentNode.removeChild(oldmap);
+
+	// Create buttons.
+	create_button("rect", "23,151,51,161", 47); // F1
+	create_button("rect", "60,151,87,161", 39); // F2
+	create_button("rect", "94,151,122,161", 31); // F3
+	create_button("rect", "130,151,157,161", 23); // F4
+	create_button("rect", "166,151,194,161", 15); // F5
+
+	create_button("rect", "23,186,51,201", 4); // 2ND
+	create_button("rect", "60,186,87,201", 5); // SHIFT
+	create_button("rect", "94,186,122,201", 48); // ESC
+
+	create_button("poly", "132,181,143,181,149,187,149,208,143,215,132,215", 1); // LEFT
+	create_button("poly", "198,181,187,181,181,187,181,208,187,215,198,215", 3); // RIGHT
+	create_button("poly", "148,171,148,182,154,188,176,188,182,182,182,171", 2); // UP
+	create_button("poly", "148,226,148,215,154,209,176,209,182,215,182,226", 2); // DOWN
+
+	create_button("rect", "23,211,51,226", 6); // DIAMOND
+	create_button("rect", "60,211,87,226", 7); // ALPHA
+	create_button("rect", "94,211,122,226", 40); // APPS
+
+	create_button("rect", "23,236,51,251", 46); // HOME
+	create_button("rect", "60,236,87,251", 38); // MODE
+	create_button("rect", "94,236,122,251", 30); // CATALOG
+	create_button("rect", "130,236,157,251", 22); // BACKSPACE
+	create_button("rect", "166,236,194,251", 14); // CLEAR
+
+	create_button("rect", "23,262,51,277", 45); // X
+	create_button("rect", "60,262,87,277", 37); // Y
+	create_button("rect", "94,262,122,277", 29); // Z
+	create_button("rect", "130,262,157,277", 21); // T
+	create_button("rect", "166,262,194,277", 13); // ^
+
+	create_button("rect", "23,287,51,303", 44); // =
+	create_button("rect", "60,287,87,303", 36); // (
+	create_button("rect", "94,287,122,303", 28); // )
+	create_button("rect", "130,287,157,303", 20); // ,
+	create_button("rect", "166,287,194,303", 12); // /
+
+	create_button("rect", "23,314,51,328", 43); // |
+	create_button("rect", "60,311,87,329", 35); // 7
+	create_button("rect", "94,311,122,329", 27); // 8
+	create_button("rect", "130,311,157,329", 19); // 9
+	create_button("rect", "166,314,194,328", 11); // *
+
+	create_button("rect", "23,339,51,354", 42); // EE
+	create_button("rect", "60,337,87,355", 34); // 4
+	create_button("rect", "94,337,122,355", 26); // 5
+	create_button("rect", "130,337,157,355", 18); // 6
+	create_button("rect", "166,339,194,354", 10); // -
+
+	create_button("rect", "23,364,51,379", 41); // STO
+	create_button("rect", "60,362,87,381", 33); // 1
+	create_button("rect", "94,362,122,381", 25); // 2
+	create_button("rect", "130,362,157,381", 17); // 3
+	create_button("rect", "166,364,194,379", 9); // +
+
+	create_button("rect", "60,388,87,407", 32); // 0
+	create_button("rect", "94,388,122,407", 24); // .
+	create_button("rect", "130,388,157,407", 16); // (-)
+	create_button("rect", "166,390,194,410", 8); // ENTER
+}
+
 function set_small_v200_skin()
 {
 	screen_scaling_ratio = 1;
@@ -5262,7 +5294,7 @@ function set_small_v200_skin()
 	var newimg = document.createElement('img');
 	newimg.setAttribute("id", "calcimg");
 	newimg.setAttribute("src", "tiv200_skinmap.gif");
-	newimg.setAttribute("usemap", "#map");
+	newimg.setAttribute("usemap", "#calcmap");
 	newimg.setAttribute("style", "position:absolute;top:0px;left:0px;z-index:0");
 
 	oldimg.parentNode.appendChild(newimg);
@@ -5280,6 +5312,15 @@ function set_small_v200_skin()
 	// Scaling radio buttons
 	document.getElementById('smallskin').checked=true;
 	document.getElementById('largeskin').checked=false;
+
+	// Replace map.
+	var oldmap = document.getElementById('calcmap');
+	var newmap = document.createElement('map');
+	newmap.setAttribute("name", "calcmap");
+	newmap.setAttribute("id", "calcmap");
+
+	oldmap.parentNode.appendChild(newmap);
+	newmap.parentNode.removeChild(oldmap);
 
 	// Create buttons.
 	create_button("rect", "24,175,54,198", 3); // LOCK (hand)
@@ -5378,7 +5419,7 @@ function set_small_89t_skin()
 	var newimg = document.createElement('img');
 	newimg.setAttribute("id", "calcimg");
 	newimg.setAttribute("src", "ti89t_skinmap.gif");
-	newimg.setAttribute("usemap", "#map");
+	newimg.setAttribute("usemap", "#calcmap");
 	newimg.setAttribute("style", "position:absolute;top:0px;left:0px;z-index:0");
 
 	oldimg.parentNode.appendChild(newimg);
@@ -5396,6 +5437,15 @@ function set_small_89t_skin()
 	// Scaling radio buttons
 	document.getElementById('smallskin').checked=true;
 	document.getElementById('largeskin').checked=false;
+
+	// Replace map.
+	var oldmap = document.getElementById('calcmap');
+	var newmap = document.createElement('map');
+	newmap.setAttribute("name", "calcmap");
+	newmap.setAttribute("id", "calcmap");
+
+	oldmap.parentNode.appendChild(newmap);
+	newmap.parentNode.removeChild(oldmap);
 
 	// Create buttons.
 	create_button("rect", "30,175,51,196", 47); // F1
