@@ -535,7 +535,7 @@ function ebw(value)
 function ewl(value)
 {
 	value = value & 0xFFFF;
-	return (value <= 0x7FFF) ? value : 0xFFFF0000 + value;
+	return (value <= 0x7FFF) ? value : 4294901760 /* 0xFFFF0000 */ + value;
 }
 
 // Functions to perform addition and subtraction and update the condition codes
@@ -550,7 +550,7 @@ function subw(subtrahend, minuend)
 	sr = sr & 0xFFE0;
 	if (maskedresult == 0) sr += 4; // zero flag
 	if (result & 0x8000) sr += 8; // negative flag
-	if (maskedresult < 0) maskedresult += 0x100000000;
+	if (maskedresult < 0) maskedresult += 4294967296;
 	if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) sr += 2; // overflow flag
 	if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) sr += 2; // overflow flag
 	if (subtrahend > minuend) sr += 0x11; // carry and overflow
@@ -567,7 +567,7 @@ function cmpw(subtrahend, minuend)
 	sr = sr & 0xFFF0;
 	if (maskedresult == 0) sr += 4; // zero flag
 	if (result & 0x8000) sr += 8; // negative flag
-	if (maskedresult < 0) maskedresult += 0x100000000;
+	if (maskedresult < 0) maskedresult += 4294967296;
 	if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) sr += 2; // overflow flag
 	if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) sr += 2; // overflow flag
 	if (subtrahend > minuend) sr += 1; // carry and overflow
@@ -599,7 +599,7 @@ function subb(subtrahend, minuend)
 	sr = sr & 0xFFE0;
 	if (maskedresult == 0) sr += 4; // zero flag
 	if (result & 0x80) sr += 8; // negative flag
-	if (maskedresult < 0) maskedresult += 0x100000000;
+	if (maskedresult < 0) maskedresult += 4294967296;
 	if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) sr += 2; // overflow flag
 	if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) sr += 2; // overflow flag
 	if (subtrahend > minuend) sr += 0x11; // carry and overflow
@@ -616,7 +616,7 @@ function cmpb(subtrahend, minuend)
 	sr = sr & 0xFFF0;
 	if (maskedresult == 0) sr += 4; // zero flag
 	if (result & 0x80) sr += 8; // negative flag
-	if (maskedresult < 0) maskedresult += 0x100000000;
+	if (maskedresult < 0) maskedresult += 4294967296;
 	if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) sr += 2; // overflow flag
 	if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) sr += 2; // overflow flag
 	if (subtrahend > minuend) sr += 1; // carry and overflow
@@ -642,13 +642,13 @@ function subl(subtrahend, minuend)
 {
 	var complement = 0x100000000 - subtrahend;
 	var result = complement + minuend;
-	var maskedresult = result >= 0x100000000 ? result - 0x100000000 : result;
+	var maskedresult = result >= 4294967296 ? result - 4294967296 : result;
 	sr = sr & 0xFFE0;
 	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 0x80000000) sr += 8; // negative flag
-	if (maskedresult < 0) maskedresult += 0x100000000;
-	if (complement < 0x80000000 && minuend < 0x80000000 && maskedresult >= 0x80000000) sr += 2; // overflow flag
-	if (complement >= 0x80000000 && minuend >= 0x80000000 && maskedresult < 0x80000000) sr += 2; // overflow flag
+	if (result & 2147483648) sr += 8; // negative flag
+	if (maskedresult < 0) maskedresult += 4294967296;
+	if (complement < 2147483648 && minuend < 2147483648 && maskedresult >= 2147483648) sr += 2; // overflow flag
+	if (complement >= 2147483648 && minuend >= 2147483648 && maskedresult < 2147483648) sr += 2; // overflow flag
 	if (subtrahend > minuend) sr += 0x11; // carry and overflow
 	return maskedresult;
 }
@@ -657,13 +657,13 @@ function cmpl(subtrahend, minuend)
 {
 	var complement = 0x100000000 - subtrahend;
 	var result = complement + minuend;
-	var maskedresult = result >= 0x100000000 ? result - 0x100000000 : result;
+	var maskedresult = result >= 4294967296 ? result - 4294967296 : result;
 	sr = sr & 0xFFF0;
 	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 0x80000000) sr += 8; // negative flag
-	if (maskedresult < 0) maskedresult += 0x100000000;
-	if (complement < 0x80000000 && minuend < 0x80000000 && maskedresult >= 0x80000000) sr += 2; // overflow flag
-	if (complement >= 0x80000000 && minuend >= 0x80000000 && maskedresult < 0x80000000) sr += 2; // overflow flag
+	if (result & 2147483648) sr += 8; // negative flag
+	if (maskedresult < 0) maskedresult += 4294967296;
+	if (complement < 2147483648 && minuend < 2147483648 && maskedresult >= 2147483648) sr += 2; // overflow flag
+	if (complement >= 2147483648 && minuend >= 2147483648 && maskedresult < 2147483648) sr += 2; // overflow flag
 	if (subtrahend > minuend) sr += 1; // carry and overflow
 	return maskedresult;
 }
@@ -671,14 +671,14 @@ function cmpl(subtrahend, minuend)
 function addl(x, y)
 {
 	var result = x + y;
-	var maskedresult = result >= 0x100000000 ? result - 0x100000000 : result;
+	var maskedresult = result >= 4294967296 ? result - 4294967296 : result;
 	sr = sr & 0xFFE0;
 	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 0x80000000) sr += 8; // negative flag
+	if (result & 2147483648) sr += 8; // negative flag
 	if (result != maskedresult) sr += 0x11; // carry and overflow
-	if (maskedresult < 0) maskedresult += 0x100000000;
-	if (x < 0x80000000 && y < 0x80000000 && maskedresult >= 0x80000000) sr += 2; // overflow flag
-	if (x >= 0x80000000 && y >= 0x80000000 && maskedresult < 0x80000000) sr += 2; // overflow flag
+	if (maskedresult < 0) maskedresult += 4294967296;
+	if (x < 2147483648 && y < 2147483648 && maskedresult >= 2147483648) sr += 2; // overflow flag
+	if (x >= 2147483648 && y >= 2147483648 && maskedresult < 2147483648) sr += 2; // overflow flag
 	return maskedresult;
 }
 
@@ -746,7 +746,7 @@ function addx(x,y,size)
 {
 	var overflow = 0x100;
 	if (size==1) overflow = 0x10000;
-	if (size==2) overflow = 0x100000000;
+	if (size==2) overflow = 4294967296;
 	var neg = overflow / 2;
 	var result = x + y;
 	if (sr & 0x10) result++; // carry in from X bit
@@ -767,7 +767,7 @@ function subx(x,y,size)
 {
 	var overflow = 0x100;
 	if (size==1) overflow = 0x10000;
-	if (size==2) overflow = 0x100000000;
+	if (size==2) overflow = 4294967296;
 	var neg = overflow / 2;
 	var result = y - x;
 	if (sr & 0x10) result--; // carry in from X bit
@@ -795,7 +795,7 @@ function muls(x, y)
 	var product = x * y;
 	sr &= 0xFFF0; // clear all user flags but X
 	if (product < 0) {
-		product += 0x100000000;
+		product += 4294967296;
 		sr |= 8; // negative flag
 	}
 	if (product == 0) sr |= 4; // zero flag
@@ -808,66 +808,69 @@ function mulu(x, y)
 	y = y & 0xFFFF;
 	var product = x * y;
 	sr &= 0xFFF0; // clear all user flags but X
-	product &= 0xFFFFFFFF;
-	if (product >= 0x80000000) sr |= 8; // negative flag
+	//product &= 0xFFFFFFFF;
+	if (product >= 2147483648 /*0x80000000*/) sr |= 8; // negative flag
 	if (product == 0) sr |= 4; // zero flag
+	//console.log("mulu pc=" + pc + "x=" + x + "y=" + y + "product=" + product);
 	return product;
 }
 
 function divu(divisor, dividend)
 {
 	if (divisor == 0) fire_cpu_exception(5); // Divide by zero
-	// XXX this one needs to be enabled, but currently, if we do, divu(0xCCCCFFFF, 0xFF000000) returns something stupid.
-	//dividend &= 0xFFFFFFFF;
 	divisor &= 0xFFFF;
-	var quotient = Math.floor(dividend / divisor) & 0xFFFFFFFF;
+	var quotient = Math.floor(dividend / divisor) & 4294967295;
 	var remainder = (dividend % divisor) & 0xFFFF;
 	sr &= 0xFFF0; // clear all user flags but X
 	if (quotient == 0) sr |= 4; // zero flag
-	
-	if (quotient & 0xFFFF0000) {
+
+	if (quotient & 4294901760) { // 0xFFFF0000
 		// NOTE: M68000PRM indicates "N undefined when V".
-		if (quotient >= 0x80000000) sr |= 8; // negative
+		if (quotient >= 2147483648 /*0x80000000*/) sr |= 8; // negative
 		sr |= 2; // overflow
 		return dividend;
 	}
 	if (quotient > 0x10000 || remainder > 0x10000 || quotient < 0 || remainder < 0) console.log("bad divide!");
 	var result = quotient | (remainder << 16);
 	if (result & 0x8000) sr |= 8; // negative flag
-	result &= 0xFFFFFFFF;
+	if (result < 0) result += 4294967296;
+	//result &= 0xFFFFFFFF;
+	//console.log("divu pc=" + pc + "dividend=" + dividend + "divisor=" + divisor + "result=" + result);
 	return result;
 }
 
 function divs(divisor, dividend)
 {
 	//console.log("signed divide " + to_hex(dividend,8) + " by " + to_hex(divisor,8));
-
+	divisor &= 0xFFFF;
 	if (divisor == 0) fire_cpu_exception(5); // Divide by zero
-	
+
 	var adivisor = divisor >= 0x8000 ? divisor - 0x10000 : divisor;
-	var adividend = dividend >= 0x80000000 ? dividend - 0x100000000 : dividend;
-	
-	var quotient = Math.floor(adividend / adivisor);
-	var remainder = adividend % adivisor;
-	
+	var adividend = dividend >= 2147483648 /*0x80000000*/ ? dividend - 4294967296 : dividend;
+
+	var quotient = Math.floor(adividend / adivisor) & 4294967295;
+	var remainder = (adividend % adivisor) & 0xFFFF;
+
 	//console.log("decimal results : " + adividend + " divided by " + adivisor + " = " + quotient + " remainder " + remainder);
-	
+
 	sr &= 0xFFF0; // clear all user flags but X
-	if (quotient >= 0x80000000) sr |= 8; // negative flag
+	if (quotient >= 2147483648 /*0x80000000*/) sr |= 8; // negative flag
 	if (quotient == 0) sr |= 4; // zero flag
 	
 	if (quotient >= 0x8000 || quotient < -32768) {
-		if (quotient >= 0x80000000) sr |= 8; // negative
+		if (quotient >= 2147483648 /*0x80000000*/) sr |= 8; // negative
 		sr |= 2; // overflow
 		return dividend;
 	}
-	
+
 	if (quotient < 0) quotient += 0x10000;
 	if (remainder < 0) remainder += 0x10000;
-	
+
+	var result = quotient + (remainder << 16);
 	//console.log("final result is " + to_hex(quotient + (remainder * 65536), 8));
-	
-	return quotient + (remainder * 65536);
+	if (result < 0) result += 4294967296;
+
+	return result;
 }
 
 // Functions to perform shifts and set the condition codes
@@ -880,7 +883,7 @@ function lsl(x, shift, size)
 
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
-	if (size == 2) overflow = 0x100000000;
+	if (size == 2) overflow = 4294967296;
 	sr &= 0xFFE0; // initially clear all user condition flags
 	while (shift--)
 	{
@@ -901,7 +904,7 @@ function asl(x, shift, size)
 
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
-	if (size == 2) overflow = 0x100000000;
+	if (size == 2) overflow = 4294967296;
 	sr &= 0xFFE1; // initially clear all user condition flags but carry
 	if (shift > 0) sr &= 0xFFE0; // clear carry if nonzero shift
 	while (shift--)
@@ -925,7 +928,7 @@ function lsr(x, shift, size)
 	
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
-	if (size == 2) overflow = 0x100000000;
+	if (size == 2) overflow = 4294967296;
 	sr &= 0xFFE0; // initially clear all user condition flags
 	while (shift--)
 	{
@@ -943,7 +946,7 @@ function asr(x, shift, size)
 
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
-	if (size == 2) overflow = 0x100000000;
+	if (size == 2) overflow = 4294967296;
 	sr &= 0xFFF0; // initially clear all user condition flags but X
 	if (shift > 0) sr &= 0xFFEF; // clear X if nonzero shift count
 	while (shift--)
@@ -963,7 +966,7 @@ function ror(x, shift, size)
 	
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
-	if (size == 2) overflow = 0x100000000;
+	if (size == 2) overflow = 4294967296;
 	sr &= 0xFFF0; // initially clear all user condition flags but X
 	while (shift--)
 	{
@@ -982,7 +985,7 @@ function rol(x, shift, size)
 
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
-	if (size == 2) overflow = 0x100000000;
+	if (size == 2) overflow = 4294967296;
 	sr &= 0xFFF0; // initially clear all user condition flags but X
 	while (shift--)
 	{
@@ -999,7 +1002,7 @@ function roxr(x, shift, size)
 {
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
-	if (size == 2) overflow = 0x100000000;
+	if (size == 2) overflow = 4294967296;
 	while (shift--)
 	{
 		var out = x & 1;
@@ -1018,7 +1021,7 @@ function roxl(x, shift, size)
 {
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
-	if (size == 2) overflow = 0x100000000;
+	if (size == 2) overflow = 4294967296;
 	while (shift--)
 	{
 		x = x + x;
@@ -4357,15 +4360,21 @@ function check_subl() {
 		return false;
 	}
 
+	result = subl(0x7FFFFFFF, 0x7FFFFFFF);
+	if (result != 0 || sr != 4) {
+		console.log("subl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
 	result = subl(0x7FFFFFFF, 0xFF000000);
 	if (result != 0x7F000001 || sr != 0x02) {
-		console.log("subl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		console.log("subl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0xFF000018, 0xFF000000);
 	if (result != 0xFFFFFFE8 || sr != 0x19) {
-		console.log("subl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		console.log("subl 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4482,41 +4491,266 @@ function check_cmpl() {
 
 function check_divu() {
 	var result;
-	var comparison;
 
 	sr = 0;
 	result = divu(0x10, 0x12345678);
-	if (result != 0x12345678 || (sr & 3) != 2) {
+	if (result != 0x12345678 || (sr & 3) != 2) { // N undefined when V.
 		console.log("divu 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0x10, 0xFF000000);
-	comparison = 0xFF000000;
-	result &= 0xFFFFFFFF;
-	comparison &= 0xFFFFFFFF;
-	if (result != comparison || (sr & 3) != 2) {
+	if (result != 0xFF000000 || (sr & 3) != 2) { // N undefined when V.
 		console.log("divu 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0xCCCCFFFF, 0xFF000000);
-	comparison = 0xFF00FF00;
-	result &= 0xFFFFFFFF;
-	comparison &= 0xFFFFFFFF;
-	if (result != comparison || sr != 0x8) {
-		console.log("divu 2 " + to_hex2(result, 9) + " " + to_hex2(comparison, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xFF00FF00 || sr != 0x8) {
+		console.log("divu 2 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divu(0x1, 0x10000);
+	if (result != 0x10000 || (sr & 3) != 2) { // N undefined when V.
+		console.log("divu 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divu(0x10, 0x10000);
+	if (result != 0x1000 || sr != 0) {
+		console.log("divu 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divu(0x10001, 0x10);
+	if (result != 0x00000010 || sr != 0) {
+		console.log("divu 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divu(0x10100, 0x10);
+	if (result != 0x00100000 || sr != 4) {
+		console.log("divu 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	return true;
 }
 
+function check_divs()
+{
+	var result;
+
+	sr = 0;
+	result = divs(0x10, 0x12345678);
+	if (result != 0x12345678 || (sr & 3) != 2) { // N undefined when V.
+		console.log("divs 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divs(0x10, 0xFF000000);
+	if (result != 0xFF000000 || (sr & 3) != 2) { // N undefined when V.
+		console.log("divs 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divs(0xCCCCFFFF, 0x7F000000);
+	if (result != 0x7F000000 || (sr & 3) != 2) { // N undefined when V.
+		console.log("divs 2 " + to_hex2(result, 9) + " " + to_hex2(0x7F000000, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divs(0xCCCCFFFF, 0xFF000000);
+	if (result != 0xFF000000 || (sr & 3) != 2) {
+		console.log("divs 3 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divs(0xCCCC7FFF, 0x7F000000);
+	if (result != 0x7F000000 || (sr & 3) != 2) {
+		console.log("divs 4 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divs(0xCCCC7FFF, 0x7E000000);
+	if (result != 0x7E000000 || (sr & 3) != 2) { // N undefined when V.
+		console.log("divs 5 " + to_hex2(result, 9) + " " + to_hex2(0x7E000000, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divs(0xCCCC7FFF, 0x3F000000);
+	if (result != 0x7E007E00 || sr != 0) {
+		console.log("divs 6 " + to_hex2(result, 9) + " " + to_hex2(0x7E007E00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divs(0x1, 0x10000);
+	if (result != 0x10000 || (sr & 3) != 2) {
+		console.log("divs 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divs(0x10, 0x10000);
+	if (result != 0x1000 || sr != 0) {
+		console.log("divs 8 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divs(0x10001, 0x10);
+	if (result != 0x00000010 || sr != 0) {
+		console.log("divs 9 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = divs(0x10100, 0x10);
+	if (result != 0x00100000 || sr != 4) {
+		console.log("divs 10 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function check_mulu()
+{
+	sr = 0;
+	result = mulu(0x0, 0x0);
+	if (result != 0 || sr != 4) {
+		console.log("mulu 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0x0, 0x1);
+	if (result != 0 || sr != 4) {
+		console.log("mulu 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0x1, 0x0);
+	if (result != 0 || sr != 4) {
+		console.log("mulu 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0x1, 0x1);
+	if (result != 1 || sr != 0) {
+		console.log("mulu 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0x1, 0x10001);
+	if (result != 1 || sr != 0) {
+		console.log("mulu 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0x10001, 0x10001);
+	if (result != 1 || sr != 0) {
+		console.log("mulu 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0xFFFF, 0xFFFF);
+	if (result != 0xFFFE0001 || sr != 8) {
+		console.log("mulu 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = mulu(0xFFFF, 0x7FFF);
+	if (result != 0x7FFE8001 || sr != 0) {
+		console.log("mulu 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = mulu(0x7FFF, 0x7FFF);
+	if (result != 0x3FFF0001 || sr != 0) {
+		console.log("mulu 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = mulu(0x7FFF, 0xFFFF);
+	if (result != 0x7FFE8001 || sr != 0) {
+		console.log("mulu 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function check_muls()
+{
+	sr = 0;
+	result = muls(0x0, 0x0);
+	if (result != 0 || sr != 4) {
+		console.log("muls 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0x0, 0x1);
+	if (result != 0 || sr != 4) {
+		console.log("muls 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0x1, 0x0);
+	if (result != 0 || sr != 4) {
+		console.log("muls 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0x1, 0x1);
+	if (result != 1 || sr != 0) {
+		console.log("muls 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0x1, 0x10001);
+	if (result != 1 || sr != 0) {
+		console.log("muls 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0x10001, 0x10001);
+	if (result != 1 || sr != 0) {
+		console.log("muls 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0xFFFF, 0xFFFF);
+	if (result != 0x00000001 || sr != 0) {
+		console.log("muls 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = muls(0xFFFF, 0x7FFF);
+	if (result != 0xFFFF8001 || sr != 8) {
+		console.log("muls 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = muls(0x7FFF, 0x7FFF);
+	if (result != 0x3FFF0001 || sr != 0) {
+		console.log("muls 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = muls(0x7FFF, 0xFFFF);
+	if (result != 0xFFFF8001 || sr != 8) {
+		console.log("muls 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	return true;}
+
 function checkemu() {
 	return check_subl()
 	    && check_addl()
 	    && check_cmpl()
 	    && check_divu()
+	    && check_divs()
+	    && check_mulu()
+	    && check_muls()
 	    ;
 };
 
@@ -4612,6 +4846,9 @@ return {
 
 	// Debugging, getter functions for internal variables
 	emu_main_loop : emu_main_loop,
+	to_hex : to_hex,
+	to_hex2 : to_hex2,
+	memory_dump : memory_dump, 
 	print_status : print_status,
 	print_status2 : print_status2,
 	disassemble : disassemble,
