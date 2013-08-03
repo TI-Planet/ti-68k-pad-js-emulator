@@ -550,7 +550,7 @@ function subw(subtrahend, minuend)
 	sr = sr & 0xFFE0;
 	if (maskedresult == 0) sr += 4; // zero flag
 	if (result & 0x8000) sr += 8; // negative flag
-	if (maskedresult < 0) maskedresult += 4294967296;
+	if (maskedresult < 0) maskedresult += 0x10000;
 	if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) sr += 2; // overflow flag
 	if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) sr += 2; // overflow flag
 	if (subtrahend > minuend) sr += 0x11; // carry and overflow
@@ -567,7 +567,7 @@ function cmpw(subtrahend, minuend)
 	sr = sr & 0xFFF0;
 	if (maskedresult == 0) sr += 4; // zero flag
 	if (result & 0x8000) sr += 8; // negative flag
-	if (maskedresult < 0) maskedresult += 4294967296;
+	if (maskedresult < 0) maskedresult += 0x10000;
 	if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) sr += 2; // overflow flag
 	if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) sr += 2; // overflow flag
 	if (subtrahend > minuend) sr += 1; // carry and overflow
@@ -599,7 +599,7 @@ function subb(subtrahend, minuend)
 	sr = sr & 0xFFE0;
 	if (maskedresult == 0) sr += 4; // zero flag
 	if (result & 0x80) sr += 8; // negative flag
-	if (maskedresult < 0) maskedresult += 4294967296;
+	if (maskedresult < 0) maskedresult += 0x100;
 	if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) sr += 2; // overflow flag
 	if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) sr += 2; // overflow flag
 	if (subtrahend > minuend) sr += 0x11; // carry and overflow
@@ -616,7 +616,7 @@ function cmpb(subtrahend, minuend)
 	sr = sr & 0xFFF0;
 	if (maskedresult == 0) sr += 4; // zero flag
 	if (result & 0x80) sr += 8; // negative flag
-	if (maskedresult < 0) maskedresult += 4294967296;
+	if (maskedresult < 0) maskedresult += 0x100;
 	if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) sr += 2; // overflow flag
 	if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) sr += 2; // overflow flag
 	if (subtrahend > minuend) sr += 1; // carry and overflow
@@ -640,7 +640,7 @@ function addb(x, y)
 
 function subl(subtrahend, minuend)
 {
-	var complement = 0x100000000 - subtrahend;
+	var complement = 4294967296 - subtrahend;
 	var result = complement + minuend;
 	var maskedresult = result >= 4294967296 ? result - 4294967296 : result;
 	sr = sr & 0xFFE0;
@@ -655,7 +655,7 @@ function subl(subtrahend, minuend)
 
 function cmpl(subtrahend, minuend)
 {
-	var complement = 0x100000000 - subtrahend;
+	var complement = 4294967296 - subtrahend;
 	var result = complement + minuend;
 	var maskedresult = result >= 4294967296 ? result - 4294967296 : result;
 	sr = sr & 0xFFF0;
@@ -711,31 +711,32 @@ function sbcd(dst,src)
 	var subtrahend = (src >>> 4) * 10 + (src & 0xF);
 	var minuend = (dst >>> 4) * 10 + (dst & 0xF);
 	var result = minuend - subtrahend;
-	if (sr & 1) result--; // borrow from previous subtraction
+	if (sr & 0x10) result--; // borrow from previous subtraction
 	sr &= 0xFFE4; // clear all condition codes but Z
 	if (result < 0) {
 		result = result + 100;
-		sr |= 0x11; // set carry and extend if we had a borrow;
+		sr |= 0x11; // set carry and extend if we had a borrow.
 	}
-	if (finalresult != 0) sr &= 0xFFFB; // clear zero flag
+	if (result != 0) sr &= 0xFFFB; // clear zero flag
 	var lowdigit = result % 10;
 	var highdigit = (result - lowdigit) / 10;
 	var finalresult = highdigit * 16 + lowdigit;
 	return finalresult;
 }
 
+// This is wrong for garbage input.
 function nbcd(src)
 {
 	src &= 0xFF;
 	var subtrahend = (src >>> 4) * 10 + (src & 0xF);
 	var result = 0 - subtrahend;
-	if (sr & 1) result--; // borrow from previous subtraction
+	if (sr & 0x10) result--; // borrow from previous subtraction
 	sr &= 0xFFE4; // clear all condition codes but Z
 	if (result < 0) {
 		result = result + 100;
-		sr |= 0x11; // set carry and extend if we had a borrow;
+		sr |= 0x11; // set carry and extend if we had a borrow.
 	}
-	if (finalresult != 0) sr &= 0xFFFB; // clear zero flag
+	if (result != 0) sr &= 0xFFFB; // clear zero flag
 	var lowdigit = result % 10;
 	var highdigit = (result - lowdigit) / 10;
 	var finalresult = highdigit * 16 + lowdigit;
@@ -750,17 +751,15 @@ function addx(x,y,size)
 	var neg = overflow / 2;
 	var result = x + y;
 	if (sr & 0x10) result++; // carry in from X bit
-	sr &= 0xFFE4; // clear condition flags but Z
-	if (result >= overflow)
-	{
-		result -= overflow;
-		sr |= 0x11; // set X and C on carry out
-	}
-	if (result != 0) sr &= 0xFFBF; // clear zero flag
-	if (result + result >= overflow) sr |= 8; // set negative flag
-	if (x >= neg && y >= neg && result < neg) sr |= 2; // set overflow flag
-	if (x < neg && y < neg && result >= neg) sr |= 2;
-	return result;
+	var maskedresult = result >= overflow ? result - overflow : result;
+	sr &= 0xFFE0; // clear condition flags
+	if (result == 0) sr |= 4; // set zero flag
+	if (result & neg) sr += 8; // negative flag
+	if (result != maskedresult) sr += 0x11; // carry and overflow
+	if (maskedresult < 0) maskedresult += overflow;
+	if (x < neg && y < neg && maskedresult >= neg) sr += 2; // overflow flag
+	if (x >= neg && y >= neg && maskedresult < neg) sr += 2; // overflow flag
+	return maskedresult;
 }
 
 function subx(x,y,size)
@@ -884,16 +883,19 @@ function lsl(x, shift, size)
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
 	if (size == 2) overflow = 4294967296;
-	sr &= 0xFFE0; // initially clear all user condition flags
-	while (shift--)
+	var neg = overflow / 2;
+	x &= overflow - 1;
+	while (shift != 0)
 	{
-		x = x + x;
+		if (x & neg) sr |= 0x11; // set carry and extend if last bit shifted out is 1
+		x <<= 1;
 		if (x >= overflow) {
 			x -= overflow;
-			if (shift == 0) sr |= 0x11; // set carry and extend if last bit shifted out is 1
 		}
+		shift--;
 	}
-	if (x + x >= overflow) sr |= 8 // negative flag
+	x &= overflow - 1;
+	if (x & neg) sr |= 8 // negative flag
 	if (x == 0) sr |= 4; // zero flag
 	return x;
 }
@@ -911,15 +913,15 @@ function asl(x, shift, size)
 	{
 		var old = x;
 		x = x + x;
-		if (x >= overflow) {
+		if (x & overflow) {
 			x -= overflow;
 			if (shift == 0) sr |= 0x11; // set carry and extend if last bit shifted out is 1
 		}
 		if ((x & (overflow / 2)) != (old & (overflow / 2))) sr |= 2; // set overflow flag if high bit changed
 	}
-	if (x + x >= overflow) sr |= 8 // negative flag
+	if (x + x & overflow) sr |= 8 // negative flag
 	if (x == 0) sr |= 4; // zero flag
-	return x;
+	return x & 4294967295;
 }
 
 function lsr(x, shift, size)
@@ -935,9 +937,9 @@ function lsr(x, shift, size)
 		if ((shift == 0) && (x & 1)) sr |= 0x11; // set carry and extend if last bit shifted out is 1
 		x >>>= 1;
 	}
-	if (x + x >= overflow) sr |= 8 // negative flag
+	if (x + x & overflow) sr |= 8 // negative flag
 	if (x == 0) sr |= 4; // zero flag
-	return x;
+	return x & 4294967295;
 }
 
 function asr(x, shift, size)
@@ -955,9 +957,9 @@ function asr(x, shift, size)
 		if (x & (overflow / 2)) x += overflow;
 		x = Math.floor(x / 2);
 	}
-	if (x + x >= overflow) sr |= 8 // negative flag
+	if (x + x & overflow) sr |= 8 // negative flag
 	if (x == 0) sr |= 4; // zero flag
-	return x;
+	return x & 4294967295;
 }
 
 function ror(x, shift, size)
@@ -974,9 +976,9 @@ function ror(x, shift, size)
 		x >>>= 1;
 		if (out) x = x + overflow / 2;
 	}
-	if (x + x >= overflow) sr |= 0x9 // negative flag and carry flag
+	if (x + x & overflow) sr |= 0x9 // negative flag and carry flag
 	if (x == 0) sr |= 4; // zero flag
-	return x;
+	return x & 4294967295;
 }
 
 function rol(x, shift, size)
@@ -986,13 +988,25 @@ function rol(x, shift, size)
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
 	if (size == 2) overflow = 4294967296;
+	var neg = overflow / 2;
+	x &= overflow - 1;
 	sr &= 0xFFF0; // initially clear all user condition flags but X
-	while (shift--)
+	while (shift > 0)
 	{
-		x = x + x;
-		if (x >= overflow) x = x + 1 - overflow;
+		if (x & neg) {
+			x <<= 1;
+			x++;
+		}
+		else {
+			x <<= 1;
+		}
+		if (x >= overflow) {
+			x -= overflow;
+		}
+		shift--;
 	}
-	if (x + x >= overflow) sr |= 0x8; // negative flag
+	x &= overflow - 1;
+	if (x & neg) sr |= 0x8; // negative flag
 	if (x & 1) sr |= 1; // carry flag
 	if (x == 0) sr |= 4; // zero flag
 	return x;
@@ -1011,10 +1025,10 @@ function roxr(x, shift, size)
 		sr = sr & 0xFFE0; // clear all user condition flags including X
 		if (out) sr += 0x10; // set X if bit shifted out was set
 	}
-	if (x + x >= overflow) sr |= 0x9 // negative flag and carry flag
+	if (x + x & overflow) sr |= 0x9 // negative flag and carry flag
 	if (x == 0) sr |= 4; // zero flag
 	if (sr & 0x10) sr |= 1; // carry flag gets a copy of the X flag
-	return x;
+	return x & 4294967295;
 }
 
 function roxl(x, shift, size)
@@ -1032,10 +1046,10 @@ function roxl(x, shift, size)
 			sr += 0x10; // set X if bit was shifted out
 		}
 	}
-	if (x + x >= overflow) sr |= 0x8; // negative flag
+	if (x + x & overflow) sr |= 0x8; // negative flag
 	if (sr & 0x10) sr |= 1; // carry flag gets a copy of the X flag
 	if (x == 0) sr |= 4; // zero flag
-	return x;
+	return x & 4294967295;
 }
 
 function aline() { pc -= 2; fire_cpu_exception(10); } // A-Line
@@ -1047,11 +1061,11 @@ function update_sr(new_sr)
 {
 	if ((new_sr ^ sr) & 0x2000)
 	{
-		var t = a7;
+		var t = a7; // Switch between supervisor and user modes.
 		a7 = a8;
 		a8 = t;
 	}
-	sr = new_sr;
+	sr = new_sr & 0xA71F; // Mask out bits which do not exist.
 }
 
 function an(reg)
@@ -1390,7 +1404,7 @@ function set_condition_flags_data(size, s)
 	code += "if(" + s + "==0)sr+=4;" // set zero flag
 	if (size == 0) return code + "if(" + s + "&128)sr+=8;" // set negative flag
 	if (size == 1) return code + "if(" + s + "&32768)sr+=8;" // set negative flag
-	if (size == 2) return code + "if(" + s + "&0x80000000)sr+=8;" // set negative flag
+	if (size == 2) return code + "if(" + s + "&2147483648)sr+=8;" // set negative flag
 }
 
 // generate code to write the data to the effective a specified by mode and reg of size size
@@ -1660,7 +1674,7 @@ function build_operation(name, size, source, dest)
 	if (name == "EOR") code += "var r=" + source + "^" + dest+ ";"
 	if (name == "OR" || name == "AND" || name == "EOR")
 	{
-		code += "if(r<0)r+=0x100000000;"
+		code += "if(r<0)r+=4294967296;"
 		if (size == 0) code += "r&=255;"
 		if (size == 1) code += "r&=65535;"
 		code += set_condition_flags_data(size, "r")
@@ -1764,7 +1778,7 @@ function build_bit_operation(name, bits)
 						if (srcmode <= 1)
 						{
 							// BCLR immediate on a register allows using bits 0-31 of the register's full value
-							if (name == "BCLR") code += "s&=(0xFFFFFFFF-(1<<b));"
+							if (name == "BCLR") code += "s&=(4294967295-(1<<b));"
 							if (name == "BSET") code += "s|=(1<<b);"
 							if (name == "BCHG") code += "s^=(1<<b);"
 							code += "if(s<0)s+=4294967296;"
@@ -1817,7 +1831,7 @@ function build_adest()
 						var code = amode_read(srcmode, srcreg, size, true)
 						if (size == 1) code += " s = ewl(s);"
 						code += "var r=a" + areg + " - s;"
-						code += "if(r<0)r+=0x100000000;"
+						code += "if(r<0)r+=4294967296;"
 						code += amode_write(1, areg, 2, "r")
 						insert_inst(opcode, code, iname)
 
@@ -1833,7 +1847,7 @@ function build_adest()
 						code = amode_read(srcmode, srcreg, size, true)
 						if (size == 1) code += "s=ewl(s);"
 						code += "var r=a" + areg + "+s;"
-						code += "if(r>0xffffffff)r-=0x100000000;"
+						code += "if(r>4294967295)r-=4294967296;"
 						code += amode_write(1, areg, 2, "r")
 						insert_inst(opcode, code, iname)
 					}
@@ -1953,7 +1967,7 @@ function build_not_neg()
 					var code = amode_read(srcmode, srcreg, size, false)
 					if (size == 0) code += "s=255-s;"
 					if (size == 1) code += "s=65535-s;"
-					if (size == 2) code += "s=0xFFFFFFFF-s;"
+					if (size == 2) code += "s=4294967295-s;"
 					code += set_condition_flags_data(size, "s")
 					code += amode_write(srcmode, srcreg, size, "s")
 					insert_inst(opcode, code, iname)
@@ -1963,9 +1977,9 @@ function build_not_neg()
 					iname = "NEG" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					code = amode_read(srcmode, srcreg, size, false)
 					code += "sr &= 0xFFE0;"
-					if (size == 0) code += "var r=s==0?0:256-s;if(r>127)sr|=8;"
-					if (size == 1) code += "var r=s==0?0:65536-s;if(r>=32767)sr|=8;"
-					if (size == 2) code += "var r=s==0?0:0x100000000-s;if(r>0x7fffffff)sr|=8;"
+					if (size == 0) code += "var r=s==0?0:256-s;if(r&0x80)sr|=8;"
+					if (size == 1) code += "var r=s==0?0:65536-s;if(r&0x8000)sr|=8;"
+					if (size == 2) code += "var r=s==0?0:4294967296-s;if(r&2147483647)sr|=8;"
 					code += "if(r==0)sr|=4;else sr|=17;" // set zero flag for zero, extend and carry otherwise
 					code += amode_write(srcmode, srcreg, size, "r")
 					insert_inst(opcode, code, iname)
@@ -1973,10 +1987,11 @@ function build_not_neg()
 					opcode = 0x4000 + (size << 6) + (srcmode << 3) + srcreg;
 					iname = "NEGX" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					code = amode_read(srcmode, srcreg, size, false)
+					code += "sr &= 0xFFF0;"
 					code += "if(sr&0x10)s++;"
 					if (size == 0) code += "var r=256-s;"
-					if (size == 1) code += "var r=0x10000-s;"
-					if (size == 2) code += "var r=0x100000000-s;if(r>0xffffffff)r=0;"
+					if (size == 1) code += "var r=65536-s;"
+					if (size == 2) code += "var r=4294967296-s;if(r>4294967295)r=0;"
 					code += set_condition_flags_data(size, "r")
 					code += amode_write(srcmode, srcreg, size, "r")
 					insert_inst(opcode, code, iname)
@@ -2578,6 +2593,7 @@ function write_hreg(reg, value)
 		case 0x600011: // 0x600011
 		{
 			lcd_address_low = value;
+			//console.log(to_hex((lcd_address_high * 256 + lcd_address_low) * 8, 6));
 			break;
 		}
 
@@ -2921,7 +2937,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "		if (flash_write_ready) {" + // Write the value to Flash, if we're ready.
 "			rom[(address - " + flashmemoryaddress + ") / 2] &= value;" +
 "			flash_write_ready--;" +
-"			flash_ret_or = 0xffffffff;" +
+"			flash_ret_or = 4294967295;" +
 "		}" +
 "		else if (value == 0x5050) {" + // Clear status register
 "			flash_write_phase = 0x50;" +
@@ -2943,7 +2959,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "		else if (value == 0xD0D0) {" + // Confirm and block erase
 "			if (flash_write_phase == 0x20) {" +
 "				flash_write_phase = 0xd0;" +
-"				flash_ret_or = 0xffffffff;" +
+"				flash_ret_or = 4294967295;" +
 "				address &= 0xFF0000;" +
 "				address -= " + flashmemoryaddress + ";" +
 "				address >>>= 1;" +
@@ -3345,7 +3361,7 @@ function detect_calculator_model()
 
 	// Post-process hardware model from the information contained in HWPB, if any.
 	var hwpbaddress = rom[0x104 / 2] * 65536 + rom[0x106 / 2]; // Address of HWPB, if any.
-	if (hwpbaddress != 0xFFFFFFFF) {
+	if (hwpbaddress != 4294967295) {
 		// There's a HWPB in this image.
 		var hwpboffset = (hwpbaddress - ROM_base) >>> 1;
 		var hwpbsize = rom[hwpboffset]; // Read size bytes.
@@ -4489,6 +4505,325 @@ function check_cmpl() {
 	return true;
 }
 
+function check_abcd() {
+	var result;
+
+	sr = 4;
+
+	result = abcd(0x00, 0x00);
+	if (result != 0x0 || sr != 4) { // Z should be unchanged.
+		console.log("abcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
+
+	result = abcd(0x00, 0x00);
+	if (result != 0x0 || sr != 0) { // Z should be unchanged.
+		console.log("abcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = abcd(0x00, 0x01);
+	if (result != 0x1 || sr != 0) { // Z should be clear
+		console.log("abcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 4;
+
+	result = abcd(0x01, 0x01);
+	if (result != 0x2 || sr != 0) {
+		console.log("abcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 4;
+
+	result = abcd(0x01, 0x09);
+	if (result != 0x10 || sr != 0) {
+		console.log("abcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 12; // N + Z
+
+	result = abcd(0x01, 0x99);
+	if (result != 0x00 || sr != 0x15) { // X and C set, Z unchanged
+		console.log("abcd 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0x11; // X, C
+	result = abcd(0x00, 0x99);
+	if (result != 0x00 || sr != 0x11) { // The carry should remain
+		console.log("abcd 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = abcd(0x00, 0x99);
+	if (result != 0x00 || sr != 0x11) { // The carry should remain
+		console.log("abcd 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function check_sbcd() {
+	var result;
+
+	sr = 4;
+
+	result = sbcd(0x00, 0x00);
+	if (result != 0x0 || sr != 4) { // Z should be unchanged
+		console.log("sbcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
+
+	result = sbcd(0x00, 0x00);
+	if (result != 0x0 || sr != 0) { // Z should be unchanged
+		console.log("sbcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = sbcd(0x00, 0x01);
+	if (result != 0x99 || (sr & 0x15) != 0x11) { // There was a borrow.
+		console.log("sbcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = sbcd(0x01, 0x01);
+	if (result != 0x99 || (sr & 0x15) != 0x11) { // There was a borrow.
+		console.log("sbcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
+
+	result = sbcd(0x01, 0x01);
+	if (result != 0x0 || sr != 0x0) { // There was no borrow.
+		console.log("sbcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function check_nbcd() {
+	var result;
+
+	sr = 4;
+
+	result = nbcd(0x00);
+	if (result != 0x0 || sr != 4) { // Z should be unchanged
+		console.log("nbcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
+
+	result = nbcd(0x01);
+	if (result != 0x99 || (sr & 0x15) != 0x11) { // X, C but not Z
+		console.log("nbcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = nbcd(0x02);
+	if (result != 0x97 || (sr & 0x15) != 0x11) { // X, C but not Z
+		console.log("nbcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
+	result = nbcd(0x09);
+	if (result != 0x91 || (sr & 0x15) != 0x11) { // X, C but not Z
+		console.log("nbcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
+	result = nbcd(0x0A);
+	if (result != 0x90 || (sr & 0x15) != 0x11) { // X, C but not Z
+		console.log("nbcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	// TODO: garbage in, garbage out on nbcd.
+	/*sr = 0;
+	result = nbcd(0x0F);
+	if (result != 0x8B || (sr & 0x15) != 0x11) { // X, C but not Z
+		console.log("nbcd 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}*/
+
+	sr = 0;
+	result = nbcd(0x10);
+	if (result != 0x90 || (sr & 0x15) != 0x11) { // X, N, C but not Z
+		console.log("nbcd 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
+	result = nbcd(0x11);
+	if (result != 0x89 || (sr & 0x15) != 0x11) { // X, N, C but not Z
+		console.log("nbcd 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function check_addx() {
+	var result;
+
+	// TODO
+
+	return true;
+}
+
+function check_subx() {
+	var result;
+
+	// TODO
+
+	return true;
+}
+
+function check_muls()
+{
+	sr = 0;
+	result = muls(0x0, 0x0);
+	if (result != 0 || sr != 4) {
+		console.log("muls 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0x0, 0x1);
+	if (result != 0 || sr != 4) {
+		console.log("muls 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0x1, 0x0);
+	if (result != 0 || sr != 4) {
+		console.log("muls 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0x1, 0x1);
+	if (result != 1 || sr != 0) {
+		console.log("muls 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0x1, 0x10001);
+	if (result != 1 || sr != 0) {
+		console.log("muls 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0x10001, 0x10001);
+	if (result != 1 || sr != 0) {
+		console.log("muls 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = muls(0xFFFF, 0xFFFF);
+	if (result != 0x00000001 || sr != 0) {
+		console.log("muls 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = muls(0xFFFF, 0x7FFF);
+	if (result != 0xFFFF8001 || sr != 8) {
+		console.log("muls 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = muls(0x7FFF, 0x7FFF);
+	if (result != 0x3FFF0001 || sr != 0) {
+		console.log("muls 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = muls(0x7FFF, 0xFFFF);
+	if (result != 0xFFFF8001 || sr != 8) {
+		console.log("muls 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function check_mulu()
+{
+	sr = 0;
+	result = mulu(0x0, 0x0);
+	if (result != 0 || sr != 4) {
+		console.log("mulu 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0x0, 0x1);
+	if (result != 0 || sr != 4) {
+		console.log("mulu 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0x1, 0x0);
+	if (result != 0 || sr != 4) {
+		console.log("mulu 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0x1, 0x1);
+	if (result != 1 || sr != 0) {
+		console.log("mulu 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0x1, 0x10001);
+	if (result != 1 || sr != 0) {
+		console.log("mulu 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0x10001, 0x10001);
+	if (result != 1 || sr != 0) {
+		console.log("mulu 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = mulu(0xFFFF, 0xFFFF);
+	if (result != 0xFFFE0001 || sr != 8) {
+		console.log("mulu 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = mulu(0xFFFF, 0x7FFF);
+	if (result != 0x7FFE8001 || sr != 0) {
+		console.log("mulu 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = mulu(0x7FFF, 0x7FFF);
+	if (result != 0x3FFF0001 || sr != 0) {
+		console.log("mulu 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	result = mulu(0x7FFF, 0xFFFF);
+	if (result != 0x7FFE8001 || sr != 0) {
+		console.log("mulu 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
 function check_divu() {
 	var result;
 
@@ -4612,145 +4947,112 @@ function check_divs()
 	return true;
 }
 
-function check_mulu()
+function check_lsl()
 {
+	var result;
+
 	sr = 0;
-	result = mulu(0x0, 0x0);
-	if (result != 0 || sr != 4) {
-		console.log("mulu 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
 
-	result = mulu(0x0, 0x1);
-	if (result != 0 || sr != 4) {
-		console.log("mulu 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	result = mulu(0x1, 0x0);
-	if (result != 0 || sr != 4) {
-		console.log("mulu 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	result = mulu(0x1, 0x1);
-	if (result != 1 || sr != 0) {
-		console.log("mulu 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	result = mulu(0x1, 0x10001);
-	if (result != 1 || sr != 0) {
-		console.log("mulu 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	result = mulu(0x10001, 0x10001);
-	if (result != 1 || sr != 0) {
-		console.log("mulu 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	result = mulu(0xFFFF, 0xFFFF);
-	if (result != 0xFFFE0001 || sr != 8) {
-		console.log("mulu 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
-		return false;
-	}
-
-	result = mulu(0xFFFF, 0x7FFF);
-	if (result != 0x7FFE8001 || sr != 0) {
-		console.log("mulu 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
-		return false;
-	}
-
-	result = mulu(0x7FFF, 0x7FFF);
-	if (result != 0x3FFF0001 || sr != 0) {
-		console.log("mulu 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
-		return false;
-	}
-
-	result = mulu(0x7FFF, 0xFFFF);
-	if (result != 0x7FFE8001 || sr != 0) {
-		console.log("mulu 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+	result = lsl(0x80000000, 1, 2);
+	if (result != 0x00000000 || sr != 0x15) {
+		console.log("lsl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	return true;
 }
 
-function check_muls()
+function check_asl()
 {
+	var result;
+
+	// TODO
+
+	return true;
+}
+
+function check_lsr()
+{
+	var result;
+
+	// TODO
+
+	return true;
+}
+
+function check_asr()
+{
+	var result;
+
+	// TODO
+
+	return true;
+}
+
+function check_ror()
+{
+	var result;
+
+	// TODO
+
+	return true;
+}
+
+function check_rol()
+{
+	var result;
+
 	sr = 0;
-	result = muls(0x0, 0x0);
-	if (result != 0 || sr != 4) {
-		console.log("muls 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+
+	result = rol(0x80000000, 1, 2);
+	if (result != 0x00000001 || sr != 0x1) {
+		console.log("rol 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	result = muls(0x0, 0x1);
-	if (result != 0 || sr != 4) {
-		console.log("muls 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
+	return true;
+}
 
-	result = muls(0x1, 0x0);
-	if (result != 0 || sr != 4) {
-		console.log("muls 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
+function check_roxr()
+{
+	var result;
 
-	result = muls(0x1, 0x1);
-	if (result != 1 || sr != 0) {
-		console.log("muls 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
+	// TODO
 
-	result = muls(0x1, 0x10001);
-	if (result != 1 || sr != 0) {
-		console.log("muls 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
+	return true;
+}
 
-	result = muls(0x10001, 0x10001);
-	if (result != 1 || sr != 0) {
-		console.log("muls 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
+function check_roxl()
+{
+	var result;
 
-	result = muls(0xFFFF, 0xFFFF);
-	if (result != 0x00000001 || sr != 0) {
-		console.log("muls 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
-		return false;
-	}
+	// TODO
 
-	result = muls(0xFFFF, 0x7FFF);
-	if (result != 0xFFFF8001 || sr != 8) {
-		console.log("muls 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
-		return false;
-	}
+	return true;
+}
 
-	result = muls(0x7FFF, 0x7FFF);
-	if (result != 0x3FFF0001 || sr != 0) {
-		console.log("muls 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
-		return false;
-	}
-
-	result = muls(0x7FFF, 0xFFFF);
-	if (result != 0xFFFF8001 || sr != 8) {
-		console.log("muls 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
-		return false;
-	}
-
-	return true;}
 
 function checkemu() {
 	return check_subl()
 	    && check_addl()
 	    && check_cmpl()
+	    && check_abcd()
+	    && check_sbcd()
+	    && check_nbcd()
+	    && check_addx()
+	    && check_subx()
+	    && check_muls()
+	    && check_mulu()
 	    && check_divu()
 	    && check_divs()
-	    && check_mulu()
-	    && check_muls()
+	    && check_lsl()
+	    && check_asl()
+	    && check_lsr()
+	    && check_asr()
+	    && check_ror()
+	    && check_rol()
+	    && check_roxr()
+	    && check_roxl()
 	    ;
 };
 
@@ -4795,6 +5097,8 @@ function get_n() { return n; }
 
 function get_newfileready() { return newfileready; }
 function setNewfileready(newnewfileready) { newfileready = newnewfileready; }
+function get_newflashfileready() { return newflashfileready; }
+function setNewflashfileready(newnewflashfileready) { newflashfileready = newnewflashfileready; }
 
 function get_link_incoming_queue() { return link_incoming_queue; }
 function get_link_outgoing_queue() { return link_outgoing_queue; }
@@ -4833,6 +5137,8 @@ return {
 	// Getter and setter functions called by a script in the HTML page, for defining stuff loaded from other files.
 	newfileready : get_newfileready,
 	setNewfileready : setNewfileready,
+	newflashfileready : get_newflashfileready,
+	setNewflashfileready : setNewflashfileready,
 	setRom : setRom,
 	setReset : setReset,
 	setUI : setUI,
