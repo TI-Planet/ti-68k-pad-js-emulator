@@ -1,4 +1,5 @@
 function EmulatorCoreModule(stdlib) {
+"use strict";
 
 // Registers
 var d0 = 0; // data registers, treat as 32 bit ints
@@ -24,7 +25,6 @@ var pc = 0; // program counter, treat as 32 bit int
 // Emulator arrays (rom usually redefined elsewhere).
 var rom = new Uint16Array(0x200000);
 var ram = new Uint16Array(131072); // 256K of RAM, treat as array of words
-//var ramflag = new Array(131072);
 var t = new Array(65536); // Instruction handlers.
 var n = new Array(65536); // Instruction names.
 var link_incoming_queue = new Array();
@@ -120,6 +120,45 @@ function to_hex2(number, digits)
 	return s;
 }
 
+// Dummy implementations, will be overridden later.
+var rb_1_normal = function(address) { return 0x14; }
+var rb_1_flash = function(address) { return 0x14; }
+var rw_1_normal = function(address) { return 0x1400; }
+var rw_1_flash = function(address) { return 0x1400; }
+var wb_1_normal = function(address, value) { }
+var ww_1_normal = function(address, value) { }
+var ww_1_flash = function(address, value) { }
+
+var rb_3_normal = function(address) { return 0x14; }
+var rb_3_flash = function(address) { return 0x14; }
+var rw_3_normal = function(address) { return 0x1400; }
+var rw_3_flash = function(address) { return 0x1400; }
+var wb_3_normal = function(address, value) { }
+var ww_3_normal = function(address, value) { }
+var ww_3_flash = function(address, value) { }
+
+var rb_8_normal = function(address) { return 0x14; }
+var rb_8_flash = function(address) { return 0x14; }
+var rw_8_normal = function(address) { return 0x1400; }
+var rw_8_flash = function(address) { return 0x1400; }
+var wb_8_normal = function(address, value) { }
+var ww_8_normal = function(address, value) { }
+var ww_8_flash = function(address, value) { }
+
+var rb_9_normal = function(address) { return 0x14; }
+var rb_9_flash = function(address) { return 0x14; }
+var rw_9_normal = function(address) { return 0x1400; }
+var rw_9_flash = function(address) { return 0x1400; }
+var wb_9_normal = function(address, value) { }
+var ww_9_normal = function(address, value) { }
+var ww_9_flash = function(address, value) { }
+
+var rb = function(address) { return 0x14; }
+var rw = function(address) { return 0x1400; }
+var wb = function(address, value) { }
+var ww = function(address, value) { }
+
+
 function memory_dump(address, size, stride)
 {
 	var i = 0;
@@ -136,7 +175,7 @@ function memory_dump(address, size, stride)
 		address++;
 		i++;
 	}
-	console.log(str);
+	stdlib.console.log(str);
 }
 
 function ROM_CALL(id)
@@ -195,11 +234,11 @@ function PrintHeap()
 {
 	// 0 is an invalid HANDLE.
 	var address = HeapTable() + 4;
-	console.log("0\tFFFFFF\tN/A");
+	stdlib.console.log("0\tFFFFFF\tN/A");
 	for (var i = 1; i < 2000; i++) {
 		var handle = rl(address);
 		if (handle != 0) {
-			console.log(i + "\t" + to_hex(handle, 6) + "\t" + to_hex(HeapSizeAddress(handle), 6));
+			stdlib.console.log(i + "\t" + to_hex(handle, 6) + "\t" + to_hex(HeapSizeAddress(handle), 6));
 		}
 		address += 4;
 	}
@@ -310,7 +349,7 @@ function disassemble(address, count)
 		var leftside;
 		var rightside;
 		var idx = rawinstr.indexOf(",");
-//console.log("rawinstr:\t" + rawinstr);
+//stdlib.console.log("rawinstr:\t" + rawinstr);
 		if (idx == -1) { // Single-operand instruction
 			leftside = rawinstr;
 			rightside = "";
@@ -319,8 +358,8 @@ function disassemble(address, count)
 			leftside = rawinstr.substr(0, idx);
 			rightside = rawinstr.substr(idx + 1);
 		}
-//console.log("leftside:\t" + leftside);
-//console.log("rightside:\t" + rightside);
+//stdlib.console.log("leftside:\t" + leftside);
+//stdlib.console.log("rightside:\t" + rightside);
 		address += 2;
 		if (leftside != "") {
 			if (leftside.indexOf("#xxxxxx") != -1) { // Immediate long value
@@ -435,8 +474,8 @@ function disassemble(address, count)
 				address += 4;
 			}
 			else if (rightside.indexOf("d(A") != -1) { // address register with displacement
-				//console.log(leftside);
-				//console.log(rightside);
+				//stdlib.console.log(leftside);
+				//stdlib.console.log(rightside);
 				var disp = rw(address);
 				if (rightside.indexOf(",Dn)") != -1) { // address register with displacement and index
 					rightside = rightside.replace("d(A", hex_prefix + to_hex(disp & 0xFF, 2) + "(A");
@@ -475,30 +514,34 @@ function disassemble(address, count)
 				address += 2;
 			}
 
-			console.log(to_hex(orig_address, 6) + "\t" + leftside + "," + rightside);
+			stdlib.console.log(to_hex(orig_address, 6) + "\t" + leftside + "," + rightside);
 		}
 		else {
-			console.log(to_hex(orig_address, 6) + "\t" + leftside);
+			stdlib.console.log(to_hex(orig_address, 6) + "\t" + leftside);
 		}
 		count--;
 	}
 }
 
+function unhandled_instruction()
+{
+	stdlib.console.log("Unhandled instruction " + to_hex(i, 4) + " at address " + to_hex(pc - 2, 8));
+	unhandled_count++;
+}
+
 // returns the executor for an unimplemented instruction
 function make_unhandled(i)
 {
-	return function() { 
-		console.log("Unhandled instruction " + to_hex(i, 4) + " at address " + to_hex(pc - 2, 8));
-		unhandled_count++;
-	};
+	t[i] = unhandled_instruction;
+	n[i] = "UNKNOWN";
 };
 
 // brief display of the system status
 function print_status()
 {
-	console.log("---")
+	stdlib.console.log("---")
 	var opcode = rw(pc);
-	console.log("PC=" + to_hex(pc, 9) + " SR=" + to_hex(sr, 4) + " opcode=" + to_hex(opcode, 4) + " " + n[opcode]);
+	stdlib.console.log("PC=" + to_hex(pc, 9) + " SR=" + to_hex(sr, 4) + " opcode=" + to_hex(opcode, 4) + " " + n[opcode]);
 	var a = "";
 	var d = "";
 	for (var r = 0; r < 8; r++)
@@ -506,22 +549,22 @@ function print_status()
 		a += "A" + r + "=" + to_hex(eval("a" + r), 9) + " ";
 		d += "D" + r + "=" + to_hex(eval("d" + r), 9) + " ";
 	}
-	console.log(d);
-	console.log(a);
+	stdlib.console.log(d);
+	stdlib.console.log(a);
 }
 
 function print_status2()
 {
-	console.log("---")
+	stdlib.console.log("---")
 	var opcode = rw(pc);
 	for (var r = 0; r < 8; r++)
 	{
-		console.log("D" + r + "=" + to_hex(eval("d" + r), 9) + "\t" + "A" + r + "=" + to_hex(eval("a" + r), 9));
+		stdlib.console.log("D" + r + "=" + to_hex(eval("d" + r), 9) + "\t" + "A" + r + "=" + to_hex(eval("a" + r), 9));
 	}
-	console.log("SR=" + to_hex(sr, 4) + "\tPC=" + to_hex(pc, 9));
-	console.log("T=" + ((sr & 0x8000) >>> 15) + "\tS=" + ((sr & 0x2000) >>> 13) + "\tM=" + ((sr & 0x1000) >>> 12) + "\tI=" + ((sr & 0x0700) >>> 8));
-	console.log("X=" + ((sr & 0x0010) >>>  4) + "\tN=" + ((sr & 0x0008) >>>  3) + "\tZ=" + ((sr & 0x0004) >>>  2) + "\tV=" + ((sr & 0x0002) >>> 1) + "\tC=" + (sr & 0x0001));
-	console.log("opcode=" + to_hex(opcode, 4) + "\t" + n[opcode]);
+	stdlib.console.log("SR=" + to_hex(sr, 4) + "\tPC=" + to_hex(pc, 9));
+	stdlib.console.log("T=" + ((sr & 0x8000) >>> 15) + "\tS=" + ((sr & 0x2000) >>> 13) + "\tM=" + ((sr & 0x1000) >>> 12) + "\tI=" + ((sr & 0x0700) >>> 8));
+	stdlib.console.log("X=" + ((sr & 0x0010) >>>  4) + "\tN=" + ((sr & 0x0008) >>>  3) + "\tZ=" + ((sr & 0x0004) >>>  2) + "\tV=" + ((sr & 0x0002) >>> 1) + "\tC=" + (sr & 0x0001));
+	stdlib.console.log("opcode=" + to_hex(opcode, 4) + "\t" + n[opcode]);
 }
 
 // sign extend functions
@@ -810,7 +853,7 @@ function mulu(x, y)
 	//product &= 0xFFFFFFFF;
 	if (product >= 2147483648 /*0x80000000*/) sr |= 8; // negative flag
 	if (product == 0) sr |= 4; // zero flag
-	//console.log("mulu pc=" + pc + "x=" + x + "y=" + y + "product=" + product);
+	//stdlib.console.log("mulu pc=" + pc + "x=" + x + "y=" + y + "product=" + product);
 	return product;
 }
 
@@ -829,18 +872,18 @@ function divu(divisor, dividend)
 		sr |= 2; // overflow
 		return dividend;
 	}
-	if (quotient > 0x10000 || remainder > 0x10000 || quotient < 0 || remainder < 0) console.log("bad divide!");
+	if (quotient > 0x10000 || remainder > 0x10000 || quotient < 0 || remainder < 0) stdlib.console.log("bad divide!");
 	var result = quotient | (remainder << 16);
 	if (result & 0x8000) sr |= 8; // negative flag
 	if (result < 0) result += 4294967296;
 	//result &= 0xFFFFFFFF;
-	//console.log("divu pc=" + pc + "dividend=" + dividend + "divisor=" + divisor + "result=" + result);
+	//stdlib.console.log("divu pc=" + pc + "dividend=" + dividend + "divisor=" + divisor + "result=" + result);
 	return result;
 }
 
 function divs(divisor, dividend)
 {
-	//console.log("signed divide " + to_hex(dividend,8) + " by " + to_hex(divisor,8));
+	//stdlib.console.log("signed divide " + to_hex(dividend,8) + " by " + to_hex(divisor,8));
 	divisor &= 0xFFFF;
 	if (divisor == 0) fire_cpu_exception(5); // Divide by zero
 
@@ -850,7 +893,7 @@ function divs(divisor, dividend)
 	var quotient = Math.floor(adividend / adivisor) & 4294967295;
 	var remainder = (adividend % adivisor) & 0xFFFF;
 
-	//console.log("decimal results : " + adividend + " divided by " + adivisor + " = " + quotient + " remainder " + remainder);
+	//stdlib.console.log("decimal results : " + adividend + " divided by " + adivisor + " = " + quotient + " remainder " + remainder);
 
 	sr &= 0xFFF0; // clear all user flags but X
 	if (quotient >= 2147483648 /*0x80000000*/) sr |= 8; // negative flag
@@ -866,7 +909,7 @@ function divs(divisor, dividend)
 	if (remainder < 0) remainder += 0x10000;
 
 	var result = quotient + (remainder << 16);
-	//console.log("final result is " + to_hex(quotient + (remainder * 65536), 8));
+	//stdlib.console.log("final result is " + to_hex(quotient + (remainder * 65536), 8));
 	if (result < 0) result += 4294967296;
 
 	return result;
@@ -878,7 +921,7 @@ function divs(divisor, dividend)
 
 function lsl(x, shift, size)
 {
-	//if (shift == 0) console.log ("LSL 0 at " + to_hex(pc, 6));
+	//if (shift == 0) stdlib.console.log ("LSL 0 at " + to_hex(pc, 6));
 
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
@@ -902,7 +945,7 @@ function lsl(x, shift, size)
 
 function asl(x, shift, size)
 {
-	//if (shift == 0) console.log ("ASL 0 at " + to_hex(pc, 6));
+	//if (shift == 0) stdlib.console.log ("ASL 0 at " + to_hex(pc, 6));
 
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
@@ -926,7 +969,7 @@ function asl(x, shift, size)
 
 function lsr(x, shift, size)
 {
-	//if (shift == 0) console.log ("LSR 0 at " + to_hex(pc, 6));
+	//if (shift == 0) stdlib.console.log ("LSR 0 at " + to_hex(pc, 6));
 	
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
@@ -944,7 +987,7 @@ function lsr(x, shift, size)
 
 function asr(x, shift, size)
 {
-	//if (shift == 0) console.log ("ASR 0 at " + to_hex(pc, 6));
+	//if (shift == 0) stdlib.console.log ("ASR 0 at " + to_hex(pc, 6));
 
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
@@ -964,7 +1007,7 @@ function asr(x, shift, size)
 
 function ror(x, shift, size)
 {
-	//if (shift == 0) console.log ("ROR 0 at " + to_hex(pc, 6));
+	//if (shift == 0) stdlib.console.log ("ROR 0 at " + to_hex(pc, 6));
 	
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
@@ -983,7 +1026,7 @@ function ror(x, shift, size)
 
 function rol(x, shift, size)
 {
-	//if (shift == 0) console.log ("ROL 0 at " + to_hex(pc, 6));
+	//if (shift == 0) stdlib.console.log ("ROL 0 at " + to_hex(pc, 6));
 
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
@@ -1196,12 +1239,12 @@ function read_pc(size, dest, sideeffects)
 		var code = "var " + dest + "=rb(pc+1);"
 		return sideeffects ? code + "pc+=2;" : code
 	}
-	if (size==1)
+	else if (size==1)
 	{
 		var code = "var " + dest + "=rw(pc);"
 		return sideeffects ? code + "pc+=2;" : code
 	}
-	if (size==2)
+	else if (size==2)
 	{
 		var code = "var " + dest + "=rl(pc);"
 		return sideeffects ? code + "pc+=4;" : code
@@ -1436,10 +1479,10 @@ function amode_write(mode, reg, size, data)
 		return get_write(size)+"(a" + reg + "," + data + "); a" + reg + "+=" + increment + ";"
 	// address register indirect with predecrement
 	if (mode == MODE_AREG_PREDEC)
-		return "a" + reg + "-=" + increment + "; " + get_write(size)+"(a" + reg + "," + data + ");"
+		return "a" + reg + "-=" + increment + "; " + get_write(size) + "(a" + reg + "," + data + ");"
 	// adress register indirect with offset
 	if (mode == MODE_AREG_OFFSET)
-		return read_pc(1, "o", true) + get_write(size)+"(a" + reg + "+ewl(o)," + data + ");"
+		return read_pc(1, "o", true) + get_write(size) + "(a" + reg + "+ewl(o)," + data + ");"
 	// address register indirect with indexing
 	if (mode == MODE_AREG_INDEX)
 	{
@@ -1759,7 +1802,7 @@ function build_bit_operation(name, bits)
 						if (dreg == 8)
 							code += "b&=31;"
 						else
-							code += "b=31&d" + dreg +";"
+							code += "var b=31&d" + dreg +";"
 						code += amode_read(srcmode, srcreg, 2, name == "BTST")
 					}
 					else
@@ -1768,7 +1811,7 @@ function build_bit_operation(name, bits)
 						if (dreg == 8)
 							code += "b&=7;"
 						else
-							code +=  "b=7&d" + dreg +";"
+							code += "var b=7&d" + dreg +";"
 						code += amode_read(srcmode, srcreg, 0, name == "BTST")
 					}
 					code += "sr|=4;" // set zero flag
@@ -1808,7 +1851,7 @@ function build_cmp()
 						var opcode = 0xB000 + (firstreg << 9) + (size << 6) + (srcmode << 3) + srcreg;
 						var iname = "CMP" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",D" + firstreg
 						var code = amode_read(srcmode, srcreg, size, true)
-						code += "m=d" + firstreg + ";"
+						code += "var m=d" + firstreg + ";"
 						if (size == 1) code += "m=m&0xFFFF;"
 						if (size == 0) code += "m=m&0xFF;"
 						if (size == 0) code += "cmpb(s,m);"
@@ -1829,7 +1872,7 @@ function build_adest()
 						var opcode = 0x90C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
 						var iname = "SUBA" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",A" + areg
 						var code = amode_read(srcmode, srcreg, size, true)
-						if (size == 1) code += " s = ewl(s);"
+						if (size == 1) code += "s=ewl(s);"
 						code += "var r=a" + areg + " - s;"
 						code += "if(r<0)r+=4294967296;"
 						code += amode_write(1, areg, 2, "r")
@@ -1945,7 +1988,7 @@ function build_ext(name, bits)
 						iname += " D" + src + ",D" + dst + "'"
 					else
 						iname += " -(A" + src + "),-(A" + dst + ")'"
-					var mode = mem == 0 ? MODE_DREG : mode = MODE_AREG_PREDEC
+					var mode = mem == 0 ? MODE_DREG : MODE_AREG_PREDEC
 					var code = amode_read(mode, src, size, true)
 					code += "var c=s;"
 					code += amode_read(mode, dst, size, false)
@@ -2290,8 +2333,7 @@ function build_initial_instructions_handlers()
 {
 	var i;
 	for (i = 0; i < 0xA000; i++) {
-		t[i] = make_unhandled(i);
-		n[i] = "UNKNOWN";
+		make_unhandled(i);
 	}
 
 	for (i = 0xA000; i <= 0xAFFF; i++) {
@@ -2300,8 +2342,7 @@ function build_initial_instructions_handlers()
 	}
 
 	for (i = 0xB000; i < 0xF000; i++) {
-		t[i] = make_unhandled(i);
-		n[i] = "UNKNOWN";
+		make_unhandled(i);
 	}
 
 	for (i = 0xF000; i <= 0xFFFF; i++) {
@@ -2411,10 +2452,9 @@ for (var i = 0; i < 65536; i++) {
 		n[i] = "DC.W " + hex_prefix + to_hex(i, 4);
 	}
 }
-console.log("number of unknown opcodes is " + unknown)
+stdlib.console.log("number of unknown opcodes is " + unknown)
 
 
-// read a hardware register (byte)
 function read_hreg(reg)
 {
 	switch (reg)
@@ -2431,7 +2471,7 @@ function read_hreg(reg)
 
 		case 0x60000c: // 0x60000c
 		{
-			//console.log("read link configuation: " + to_hex(link_config, 2));
+			//stdlib.console.log("read link configuation: " + to_hex(link_config, 2));
 			return link_config;
 		}
 
@@ -2440,7 +2480,7 @@ function read_hreg(reg)
 			var status = 2;
 			if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number") status |= 0x30;
 			else if (link_config & 2) status |= 0x50;
-			//console.log("read link status: " + to_hex(status, 2));
+			//stdlib.console.log("read link status: " + to_hex(status, 2));
 			return status;
 		}
 
@@ -2453,12 +2493,12 @@ function read_hreg(reg)
 		{
 			if (link_incoming_queue.length > 0 && typeof(link_incoming_queue[0]) == "number")
 			{
-				//console.log("reading link buffer: " + to_hex(link_incoming_queue[0], 2));
+				//stdlib.console.log("reading link buffer: " + to_hex(link_incoming_queue[0], 2));
 				return link_incoming_queue.shift();
 			}
 			else
 			{
-				//console.log("tried to read link buffer, returned 0 because no data");
+				//stdlib.console.log("tried to read link buffer, returned 0 because no data");
 				return 0;
 			}
 		}
@@ -2531,7 +2571,7 @@ function read_hreg(reg)
 
 		default:
 		{
-			//console.log("pc " + to_hex(pc, 6) + ": read from " + to_hex(reg, 6));
+			//stdlib.console.log("pc " + to_hex(pc, 6) + ": read from " + to_hex(reg, 6));
 			return (reg & 1) ? 0 : 0x14;
 		}
 	}
@@ -2572,14 +2612,14 @@ function write_hreg(reg, value)
 		{
 			link_config = value;
 			if (value & 2 == 0) transmit_finished = false;
-			//console.log("writing link configuation: " + to_hex(link_config, 2));
+			//stdlib.console.log("writing link configuation: " + to_hex(link_config, 2));
 			break;
 		}
 
 		case 0x60000f: // 0x60000f
 		{
 			link_outgoing_queue.push(value);
-			//console.log("writing to link buffer: " + to_hex(value, 2));
+			//stdlib.console.log("writing to link buffer: " + to_hex(value, 2));
 			transmit_finished = true;
 			break;
 		}
@@ -2593,7 +2633,7 @@ function write_hreg(reg, value)
 		case 0x600011: // 0x600011
 		{
 			lcd_address_low = value;
-			//console.log(to_hex((lcd_address_high * 256 + lcd_address_low) * 8, 6));
+			//stdlib.console.log(to_hex((lcd_address_high * 256 + lcd_address_low) * 8, 6));
 			break;
 		}
 
@@ -2629,7 +2669,7 @@ function write_hreg(reg, value)
 					interrupt_rate = 0x40000;
 					break;
 			}
-			console.log("writing interrupt_control: " + to_hex(interrupt_control, 2));
+			stdlib.console.log("writing interrupt_control: " + to_hex(interrupt_control, 2));
 			break;
 		}
 
@@ -2730,36 +2770,24 @@ function write_hreg(reg, value)
 
 		default:
 		{
-			//console.log("pc " + to_hex(pc, 6) + ": write " + to_hex(value, 2) + " to " + to_hex(reg, 6));
+			//stdlib.console.log("pc " + to_hex(pc, 6) + ": write " + to_hex(value, 2) + " to " + to_hex(reg, 6));
 			break;
 		}
 	}
 }
 
 
-var rw = function(address)
-{
-	// Dummy implementation, will be overridden later.
-}
-
-var rb = function(address)
-{
-	// Dummy implementation, will be overridden later.
-}
-
-var memory_read_functions = "";
-
 function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize)
 {
-	memory_read_functions +=
-"function rw_" + suffix + "_normal(address)" +
+	var memory_read_function =
+"rw_" + suffix + "_normal = function rw_" + suffix + "_normal(address)" +
 "{" +
-"	address = address & 0xFFFFFF;" +
-"	if ((address % 2) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	address = address & 0xFFFFFE;" +
 "	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
-"		return ram[(address >>> 1) & 0x3FFFF];" +
+"		return ram[(address & 0x3FFFF) >>> 1];" +
 "	}" +
-"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
 "		return rom[(address - " + flashmemoryaddress + ")/2];" +
 "	}" +
 "	else if (address >= 0x600000 && address < 0x800000) {" +
@@ -2767,21 +2795,24 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "	}" +
 "	else" +
 "		return 0x1400;" +
-"}" +
-"" +
-"function rb_" + suffix + "_normal(address)" +
+"}";
+	eval(memory_read_function);
+
+	memory_read_function =
+"rb_" + suffix + "_normal = function rb_" + suffix + "_normal(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
 "	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
-"		if (address % 2 == 0) {" +
-"			return ram[(address >>> 1) & 0x3FFFF] >>> 8;" +
+"		address &= 0x3FFFF;" +
+"		if ((address & 1) == 0) {" +
+"			return ram[address >>> 1] >>> 8;" +
 "		}" +
 "		else {" +
-"			return ram[(address >>> 1) & 0x3FFFF] & 0xFF;" +
+"			return ram[address >>> 1] & 0xFF;" +
 "		}" +
 "	}" +
-"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
-"		if (address % 2 == 0) {" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
+"		if ((address & 1) == 0) {" +
 "			return rom[(address - " + flashmemoryaddress + ") >>> 1] >>> 8;" +
 "		}" +
 "		else {" +
@@ -2793,16 +2824,18 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "	}" +
 "	else" +
 "		return (address & 1) ? 0 : 0x14;" +
-"}" +
-"" +
-"function rw_" + suffix + "_flash(address)" +
+"}";
+	eval(memory_read_function);
+
+	memory_read_function =
+"rw_" + suffix + "_flash = function rw_" + suffix + "_flash(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if ((address % 2) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
 "	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
-"		return ram[(address >>> 1) & 0x3FFFF];" +
+"		return ram[(address & 0x3FFFF) >>> 1];" +
 "	}" +
-"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
 "		if (flash_write_phase == 0x90) {" + // Read identifier codes mode
 "			switch (address & 0xffff) {" +
 "				case 0:  return " + ((suffix == 8 || suffix == 9) ? "0x00b0" : "0x0089") + ";" + // manufacturer code
@@ -2817,20 +2850,23 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "	else if (address >= 0x600000 && address < 0x800000) {" +
 "		return read_hreg(address) * 256 + read_hreg(address + 1);" +
 "	}" +
-"}" +
-"" +
-"function rb_" + suffix + "_flash(address)" +
+"}";
+	eval(memory_read_function);
+
+	memory_read_function =
+"rb_" + suffix + "_flash = function rb_" + suffix + "_flash(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
 "	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
-"		if (address % 2 == 0) {" +
-"			return ram[(address >>> 1) & 0x3FFFF] >>> 8;" +
+"		address &= 0x3FFFF;" +
+"		if ((address & 1) == 0) {" +
+"			return ram[address] >>> 8;" +
 "		}" +
 "		else {" +
-"			return ram[(address >>> 1) & 0x3FFFF] & 0xFF;" +
+"			return ram[address] & 0xFF;" +
 "		}" +
 "	}" +
-"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
 "		if (flash_write_phase == 0x90) {" + // Read identifier codes mode; not sure anyone uses it under byte form...
 "			switch (address & 0xffff) {" +
 "				case 0:  return 0x00;" +
@@ -2841,7 +2877,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "			}" +
 "		}" +
 "		else {" +
-"			if (address % 2 == 0) {" +
+"			if ((address & 1) == 0) {" +
 "				return ((rom[(address - " + flashmemoryaddress + ") >>> 1] >>> 8) | flash_ret_or) & 0xFF;" +
 "			}" +
 "			else {" +
@@ -2853,14 +2889,13 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "		return read_hreg(address);" +
 "	}" +
 "}";
+	eval(memory_read_function);
 }
 
 build_memory_read_functions("1", 0x400000, 0x200000); // 92+
 build_memory_read_functions("3", 0x200000, 0x200000); // 89
 build_memory_read_functions("8", 0x200000, 0x400000); // V200
 build_memory_read_functions("9", 0x800000, 0x400000); // 89T
-
-eval(memory_read_functions);
 
 function rl(address)
 {
@@ -2870,31 +2905,19 @@ function rl(address)
 }
 
 
-var ww = function(address, value)
-{
-	// Dummy implementation, will be overridden later.
-}
-
-var wb = function(address, value)
-{
-	// Dummy implementation, will be overridden later.
-}
-
-var memory_write_functions = "";
-
 function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysize)
 {
-	memory_write_functions +=
-"function ww_" + suffix + "_normal(address, value)" +
+	var memory_write_function =
+"ww_" + suffix + "_normal = function ww_" + suffix + "_normal(address, value)" +
 "{" +
-"	address = address & 0xFFFFFF;" +
-"	if ((address % 2) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	address = address & 0xFFFFFE;" +
 "	if (address < 0x200000) {" +
-"		ram[(address & 0x3FFFF) / 2] = value;" +
+"		ram[(address & 0x3FFFF) >>> 1] = value;" +
 "	}" +
-"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" + // Flash write support.
+"	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" + // Flash write support.
 "		if ((pc < 0x40000) && !Protection_enabled) {" + // This write runs from RAM, with Protection disabled... chances are that we want to switch to the special mode.
-//"console.log(\"Switch to special\");" +
+//"stdlib.console.log(\"Switch to special\");" +
 "			ww = ww_" + suffix + "_flash;" + // Redefine functions
 "			rw = rw_" + suffix + "_flash;" +
 "			rb = rb_" + suffix + "_flash;" +
@@ -2905,37 +2928,41 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "		write_hreg(address, (value >> 8) & 0xFF);" +
 "		write_hreg(address + 1, value & 0xFF);" +
 "	}" +
-"}" +
-"" +
-"function wb_" + suffix + "_normal(address, value)" +
+"}";
+	eval(memory_write_function);
+
+	memory_write_function =
+"wb_" + suffix + "_normal = function wb_" + suffix + "_normal(address, value)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
 "	if (address < 0x200000)" +
 "	{" +
 "		address &= 0x3FFFF;" +
-"		if (address % 2 == 0) {" +
-"			ram[address / 2] = (ram[address / 2] & 0xFF) + (value * 256);" +
+"		if ((address & 1) == 0) {" +
+"			ram[address >>> 1] = (ram[address >>> 1] & 0xFF) + (value * 256);" +
 "		}" +
 "		else {" +
-"			ram[address >> 1] = (ram[address >> 1] & 0xFF00) + value;" +
+"			ram[address >>> 1] = (ram[address >>> 1] & 0xFF00) + value;" +
 "		}" +
 "	}" +
 // Flash write bytes not implemented for now - does anyone use them ?
 "	else if (address >= 0x600000 && address < 0x800000) {" +
 "		write_hreg(address, value & 0xFF);" +
 "	}" +
-"}" +
-"" +
-"function ww_" + suffix + "_flash(address, value)" +
+"}";
+	eval(memory_write_function);
+
+	memory_write_function =
+"ww_" + suffix + "_flash = function ww_" + suffix + "_flash(address, value)" +
 "{" +
-"	address = address & 0xFFFFFF;" +
-"	if ((address % 2) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	address = address & 0xFFFFFE;" +
 "	if (address < 0x200000) {" +
-"		ram[(address & 0x3FFFF) / 2] = value;" +
+"		ram[(address & 0x3FFFF) >>> 1] = value;" +
 "	}" +
-"	else if (address >= " + flashmemoryaddress + " && address < " + eval(flashmemoryaddress + flashmemorysize) + ") {" +
+"	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
 "		if (flash_write_ready) {" + // Write the value to Flash, if we're ready.
-"			rom[(address - " + flashmemoryaddress + ") / 2] &= value;" +
+"			rom[(address - " + flashmemoryaddress + ") >>> 1 ] &= value;" +
 "			flash_write_ready--;" +
 "			flash_ret_or = 4294967295;" +
 "		}" +
@@ -2972,7 +2999,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "			if (flash_write_phase == 0x50) {" +
 "				flash_write_ready = 0;" +
 "				flash_ret_or = 0;" +
-//"console.log(\"Switch to normal\");" +
+//"stdlib.console.log(\"Switch to normal\");" +
 "				ww = ww_" + suffix + "_normal;" + // Redefine functions
 "				rw = rw_" + suffix + "_normal;" +
 "				rb = rb_" + suffix + "_normal;" +
@@ -2984,6 +3011,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "		write_hreg(address + 1, value & 0xFF);" +
 "	}" +
 "}";
+	eval(memory_write_function);
 }
 
 build_memory_write_functions("1", 0x400000, 0x200000); // 92+
@@ -2991,15 +3019,17 @@ build_memory_write_functions("3", 0x200000, 0x200000); // 89
 build_memory_write_functions("8", 0x200000, 0x400000); // V200
 build_memory_write_functions("9", 0x800000, 0x400000); // 89T
 
-eval(memory_write_functions);
-
 function wl(address, value)
 {
 	ww(address, value >>> 16);
 	ww(address + 2, value & 0xFFFF);
 }
 
-var movem_handlers = "";
+// Dummy implementations, will be overridden later.
+function store_multiple(address, mask, size) { }
+function store_multiple_predec(address, mask, size) { }
+function load_multiple_postinc(address, mask, size) { }
+function load_multiple(address, mask, size) { }
 
 // MOVEM handlers. We generate them because eval() takes a severe toll on performance (about an order of magnitude).
 // Might optimize them further (on average) by splitting all loops in 2, and returning if mask == 0.
@@ -3008,117 +3038,122 @@ function build_movem_handlers() {
 	var reg;
 
 // store_multiple
-	movem_handlers += "function store_multiple(address, mask, size) {" +
+	var movem_handler =
+"store_multiple = function store_multiple(address, mask, size) {" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			ww(address, d" + reg + ");" +
 "			address += 2;" +
 "		}" +
 "		mask >>>= 1;";
 	}
 	for (reg = 0; reg <= 3; reg++) {
-		movem_handlers += "			if (mask & 1) {" +
+		movem_handler += "			if (mask & 1) {" +
 "				ww(address, a" + reg + ");" +
 "				address += 2;" +
 "			}" +
 "			mask >>>= 1;";
 	}
-	movem_handlers += "if (!mask) return;";
+	movem_handler += "if (!mask) return;";
 	for (reg = 4; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			ww(address, a" + reg + ");" +
 "			address += 2;" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "	}" +
+	movem_handler += "	}" +
 "	else {";
 	for (reg = 0; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			wl(address, d" + reg + ");" +
 "			address += 4;" +
 "		}" +
 "		mask >>>= 1;";
 	}
 	for (reg = 0; reg <= 3; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			wl(address, a" + reg + ");" +
 "			address += 4;" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "if (!mask) return;";
+	movem_handler += "if (!mask) return;";
 	for (reg = 4; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			wl(address, a" + reg + ");" +
 "			address += 4;" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers +=  "	}" +
+	movem_handler +=  "	}" +
 "}";
+	eval(movem_handler);
 
 // store_multiple_predec
-	movem_handlers += "function store_multiple_predec(address, mask, size)" +
+	movem_handler =
+"store_multiple_predec = function store_multiple_predec(address, mask, size)" +
 "{" +
 "	if (size == 1) {";
 	for (reg = 7; reg >= 0; reg--) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			address -= 2;" +
 "			ww(address, a" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
 	for (reg = 7; reg >= 4; reg--) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			address -= 2;" +
 "			ww(address, d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "if (!mask) return address;";
+	movem_handler += "if (!mask) return address;";
 	for (reg = 3; reg >= 0; reg--) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			address -= 2;" +
 "			ww(address, d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "	}" +
+	movem_handler += "	}" +
 "	else {";
 	for (reg = 7; reg >= 0; reg--) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			address -= 4;" +
 "			wl(address, a" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
 	for (reg = 7; reg >= 4; reg--) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			address -= 4;" +
 "			wl(address, d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "if (!mask) return address;";
+	movem_handler += "if (!mask) return address;";
 	for (reg = 3; reg >= 0; reg--) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			address -= 4;" +
 "			wl(address, d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "	}" +
+	movem_handler += "	}" +
 "	return address;" +
 "}";
+	eval(movem_handler);
 
 // load_multiple
-	movem_handlers += "function load_multiple(address, mask, size)" +
+	movem_handler =
+"load_multiple = function load_multiple(address, mask, size)" +
 "{" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			d" + reg + "= value;" +
@@ -3126,26 +3161,26 @@ function build_movem_handlers() {
 "		mask >>>= 1;";
 	}
 	for (reg = 0; reg <= 3; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "if (!mask) return;";
+	movem_handler += "if (!mask) return;";
 	for (reg = 4; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "	}" +
+	movem_handler += "	}" +
 "	else {";
 	for (reg = 0; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
 "			d" + reg + "= value;" +
@@ -3153,31 +3188,33 @@ function build_movem_handlers() {
 "		mask >>>= 1;";
 	}
 	for (reg = 0; reg <= 3; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
 "			a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "if (!mask) return;";
+	movem_handler += "if (!mask) return;";
 	for (reg = 4; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
 "			a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "	}" +
+	movem_handler += "	}" +
 "}";
+	eval(movem_handler);
 
 // load_multiple_postinc
-	movem_handlers += "function load_multiple_postinc(address, mask, size)" +
+	movem_handler =
+"load_multiple_postinc = function load_multiple_postinc(address, mask, size)" +
 "{" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			d" + reg + "= + value;" +
@@ -3185,26 +3222,26 @@ function build_movem_handlers() {
 "		mask >>>= 1;";
 	}
 	for (reg = 0; reg <= 3; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "if (!mask) return address;";
+	movem_handler += "if (!mask) return address;";
 	for (reg = 4; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
 "			a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "	}" +
+	movem_handler += "	}" +
 "	else {";
 	for (reg = 0; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
 "			d" + reg + "= value;" +
@@ -3212,66 +3249,64 @@ function build_movem_handlers() {
 "		mask >>>= 1;";
 	}
 	for (reg = 0; reg <= 3; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
 "			a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "if (!mask) return address;";
+	movem_handler += "if (!mask) return address;";
 	for (reg = 4; reg <= 7; reg++) {
-		movem_handlers += "		if (mask & 1) {" +
+		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
 "			a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
-	movem_handlers += "	}" +
+	movem_handler += "	}" +
 "	return address;" +
 "}";
-
-//console.log(movem_handlers);
+	eval(movem_handler);
 }
 build_movem_handlers();
-eval(movem_handlers);
 
 // Most frequently used functions, according to profiling AMS 2.03 on Firefox Nightly on 2013/07/08.
-/*console.log("19679\t" + n[19679]);
-console.log("19694\t" +n[19694]);
-console.log("18663\t" +n[18663]);
-console.log("2050\t" +n[2050]);
-console.log("20083\t" +n[20083]);
-console.log("28672\t" +n[28672]);
-console.log("4604\t" +n[4604]);
-console.log("12840\t" +n[12840]);
-console.log("20085\t" +n[20085]);
-console.log("20936\t" +n[20936]);
-console.log("45672\t" +n[45672]);
-console.log("26368\t" +n[26368]);
-console.log("26112\t" +n[26112]);
-console.log("20153\t" +n[20153]);
-console.log("8828\t" +n[8828]);
-console.log("58760\t" +n[58760]);
-console.log("20154\t" +n[20154]);
-console.log("13329\t" +n[13329]);
-console.log("16952\t" +n[16952]);
-console.log("2048\t" +n[2048]);
-console.log("8316\t" +n[8316]);
-console.log("12306\t" +n[12306]);
-console.log("18172\t" +n[18172]);*/
+/*stdlib.console.log("19679\t" + n[19679]);
+stdlib.console.log("19694\t" +n[19694]);
+stdlib.console.log("18663\t" +n[18663]);
+stdlib.console.log("2050\t" +n[2050]);
+stdlib.console.log("20083\t" +n[20083]);
+stdlib.console.log("28672\t" +n[28672]);
+stdlib.console.log("4604\t" +n[4604]);
+stdlib.console.log("12840\t" +n[12840]);
+stdlib.console.log("20085\t" +n[20085]);
+stdlib.console.log("20936\t" +n[20936]);
+stdlib.console.log("45672\t" +n[45672]);
+stdlib.console.log("26368\t" +n[26368]);
+stdlib.console.log("26112\t" +n[26112]);
+stdlib.console.log("20153\t" +n[20153]);
+stdlib.console.log("8828\t" +n[8828]);
+stdlib.console.log("58760\t" +n[58760]);
+stdlib.console.log("20154\t" +n[20154]);
+stdlib.console.log("13329\t" +n[13329]);
+stdlib.console.log("16952\t" +n[16952]);
+stdlib.console.log("2048\t" +n[2048]);
+stdlib.console.log("8316\t" +n[8316]);
+stdlib.console.log("12306\t" +n[12306]);
+stdlib.console.log("18172\t" +n[18172]);*/
 
 function initemu()
 {
 	sr = 0;
 	if (!checkemu()) {
-		console.log("Emulation checks failed");
+		stdlib.console.log("Emulation checks failed");
 		return;
 	}
 
 	if (!detect_calculator_model()) {
-		console.log("Couldn't detect calculator model");
+		stdlib.console.log("Couldn't detect calculator model");
 		return;
 	}
 
@@ -3326,7 +3361,7 @@ function detect_calculator_model()
 				calculator_model = (rom[0x12008 >>> 1] & 0xFF00) >>> 8;
 			}
 			else {
-				console.log("Unhandled calculator model scheme or invalid data");
+				stdlib.console.log("Unhandled calculator model scheme or invalid data");
 				return false;
 			}
 			break;
@@ -3338,18 +3373,18 @@ function detect_calculator_model()
 				calculator_model = (rom[0x12006 >>> 1] & 0xFF00) >>> 8;
 			}
 			else {
-				console.log("Unhandled calculator model scheme or invalid data");
+				stdlib.console.log("Unhandled calculator model scheme or invalid data");
 				return false;
 			}
 			break;
 		}
 		default: // Probably invalid data, since valid OS upgrades are unlikely to have less than 256 bytes of code+data.
 		{
-			console.log("Unhandled OS size scheme or invalid data");
+			stdlib.console.log("Unhandled OS size scheme or invalid data");
 			return false;
 		}
 	}
-	//console.log("OS size is " + OSsize + " bytes (+ header and signature)");
+	//stdlib.console.log("OS size is " + OSsize + " bytes (+ header and signature)");
 
 	switch (calculator_model) {
 		case 1: ROM_base = 0x400000; FlashMemorySize = 0x200000; break; // 92+
@@ -3365,17 +3400,17 @@ function detect_calculator_model()
 		// There's a HWPB in this image.
 		var hwpboffset = (hwpbaddress - ROM_base) >>> 1;
 		var hwpbsize = rom[hwpboffset]; // Read size bytes.
-		//console.log("hwpbaddress=" + to_hex(hwpbaddress, 6) + " hwpboffset=" + to_hex(hwpboffset, 6) + " hwpbsize=" + to_hex(hwpbsize, 4));
+		//stdlib.console.log("hwpbaddress=" + to_hex(hwpbaddress, 6) + " hwpboffset=" + to_hex(hwpboffset, 6) + " hwpbsize=" + to_hex(hwpbsize, 4));
 		if (hwpbsize >= 6) {
 			// There's a hardware ID field in this HWPB.
 			calculator_model = rom[hwpboffset + 1] * 65536 + rom[hwpboffset + 2];
-			console.log("calculator_model=" + calculator_model);
+			stdlib.console.log("calculator_model=" + calculator_model);
 			if (calculator_model == 8 && ROM_base == 0x400000) {
-				console.log("Detected V200 ROM patched as 92+, forcing 92+ model");
+				stdlib.console.log("Detected V200 ROM patched as 92+, forcing 92+ model");
 				calculator_model = 1; FlashMemorySize = 0x200000;
 			}
 			else if (calculator_model == 9 && ROM_base == 0x200000) {
-				console.log("Detected 89T ROM patched as 89, forcing 89 model");
+				stdlib.console.log("Detected 89T ROM patched as 89, forcing 89 model");
 				calculator_model = 3; FlashMemorySize = 0x200000;
 			}
 		}
@@ -3389,9 +3424,11 @@ function detect_calculator_model()
 		}
 	}
 
-	console.log("Detected a supported OS, calculator model is " + calculator_model + ", hardware model is " + hardware_model);
+	stdlib.console.log("Detected a supported OS, calculator model is " + calculator_model + ", hardware model is " + hardware_model);
 	return true;
 }
+
+var reset = false;
 
 function initialize_calculator()
 {
@@ -3425,7 +3462,7 @@ function reset_calculator()
 		rb = rb_9_normal; rw = rw_9_normal; wb = wb_9_normal; ww = ww_9_normal;
 	}
 	else {
-		console.log("Invalid calculator type");
+		stdlib.console.log("Invalid calculator type");
 	}
 
 	pc = ROM_base+0x12188;
@@ -3441,7 +3478,7 @@ function fire_cpu_exception(e)
 	{
 		// these always resume
 		if (e == 31 || e == 30) {
-			console.log("Resuming from stop due to AUTO_INT_6 or AUTO_INT_7");
+			stdlib.console.log("Resuming from stop due to AUTO_INT_6 or AUTO_INT_7");
 			stopped = false;
 			// Return immediately, to prevent the emulator from failing to wake up from power off code executed at SR = 2700.
 			return;
@@ -3492,7 +3529,7 @@ function dump_incoming_queue(header)
 			dump += link_incoming_queue[y] + " ";
 		}
 	}
-	console.log(dump);
+	stdlib.console.log(dump);
 }
 
 function dump_outgoing_queue(header)
@@ -3507,7 +3544,7 @@ function dump_outgoing_queue(header)
 			dump += link_outgoing_queue[y] + " ";
 		}
 	}
-	console.log(dump);
+	stdlib.console.log(dump);
 }
 
 function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_and_length)
@@ -3601,7 +3638,7 @@ function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_a
 	// Equivalent of libticalcs: ti89_recv_ACK.
 	link_incoming_queue.push('WAIT_ACK');
 
-	console.log("finished processing for sending variable");
+	stdlib.console.log("finished processing for sending variable");
 
 	dump_incoming_queue("Incoming: " + link_incoming_queue.length + " (pseudo-)bytes\n");
 }
@@ -3688,7 +3725,7 @@ function recvfile(varname, vartype)
 	// * if the calculator sends an EOT packet, send final ACK.
 	recvfile_requestchunk();
 
-	console.log("finished processing for receiving variable (first chunk)");
+	stdlib.console.log("finished processing for receiving variable (first chunk)");
 
 	dump_incoming_queue("Incoming: " + link_incoming_queue.length + " (pseudo-)bytes\n");
 }
@@ -3729,7 +3766,7 @@ function timer_interrupts()
 
 function link_reset_state(packettype)
 {
-	console.log("Receiving " + packettype + " failed, resetting link state !");
+	stdlib.console.log("Receiving " + packettype + " failed, resetting link state !");
 	link_incoming_queue = new Array();
 	link_outgoing_queue = new Array();
 	fire_cpu_exception(30); // AUTO_INT_6
@@ -3757,7 +3794,7 @@ function link_build_output_file()
 	{
 		dump += to_hex(link_recv_filedata[y], 2) + " ";
 	}
-	console.log(dump);*/
+	stdlib.console.log(dump);*/
 
 	// 1) Magic number (8 bytes)
 	var output_file = new Array();
@@ -3778,7 +3815,7 @@ function link_build_output_file()
 		link_recv_foldername = link_recv_varname.substr(0, Math.min(separatoroffset, 8-1));
 		link_recv_varname = link_recv_varname.substr(separatoroffset + 1);
 		if (link_recv_varname.length > 8) {
-			console.log("Invalid varname, clamping to 8 characters");
+			stdlib.console.log("Invalid varname, clamping to 8 characters");
 			link_recv_varname = link_recv_varname.substr(0, 7);
 		}
 	}
@@ -3870,7 +3907,7 @@ function link_handling()
 	{
 		if (link_incoming_queue[0] == 'WAIT_ACK')
 		{
-			//console.log("Begin WAIT_ACK, outgoing queue length:", link_outgoing_queue.length);
+			//stdlib.console.log("Begin WAIT_ACK, outgoing queue length:", link_outgoing_queue.length);
 			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
 			{
 				//                                TI92p_PC / V200_PC                  CMD_ACK
@@ -3888,17 +3925,17 @@ function link_handling()
 
 						link_outgoing_queue.splice(x, x+4);
 						link_incoming_queue.shift();
-						console.log("Eaten an item in WAIT_ACK", x);
+						stdlib.console.log("Eaten an item in WAIT_ACK", x);
 
 						dump_outgoing_queue("After: ");
 					}
 				}
 			}
-			//console.log("End WAIT_ACK, outgoing queue length:", link_outgoing_queue.length);
+			//stdlib.console.log("End WAIT_ACK, outgoing queue length:", link_outgoing_queue.length);
 		}
 		else if (link_incoming_queue[0] == 'WAIT_CTS')
 		{
-			//console.log("Begin WAIT_CTS, outgoing queue length:", link_outgoing_queue.length);
+			//stdlib.console.log("Begin WAIT_CTS, outgoing queue length:", link_outgoing_queue.length);
 			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
 			{
 				//                                TI92p_PC / V200_PC                  CMD_CTS
@@ -3916,18 +3953,18 @@ function link_handling()
 
 						link_outgoing_queue.splice(0, x+4);
 						link_incoming_queue.shift();
-						console.log("Eaten an item in WAIT_CTS", x);
+						stdlib.console.log("Eaten an item in WAIT_CTS", x);
 
 						dump_outgoing_queue("After: ");
 					}
 				}
 			}
-			//console.log("End WAIT_CTS, outgoing queue length:", link_outgoing_queue.length);
+			//stdlib.console.log("End WAIT_CTS, outgoing queue length:", link_outgoing_queue.length);
 		}
 		else if (link_incoming_queue[0] == 'WAIT_VAR')
 		{
 			// WIP
-			//console.log("Begin WAIT_VAR, outgoing queue length:", link_outgoing_queue.length);
+			//stdlib.console.log("Begin WAIT_VAR, outgoing queue length:", link_outgoing_queue.length);
 			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
 			{
 				//                                TI92p_PC / V200_PC                  CMD_VAR
@@ -3942,17 +3979,17 @@ function link_handling()
 					// Skip 4-byte header.
 					link_outgoing_queue.splice(0, x+4); // 2 checksum bytes
 					link_incoming_queue.shift();
-					console.log("Eaten an item in WAIT_VAR", x);
+					stdlib.console.log("Eaten an item in WAIT_VAR", x);
 
 					dump_outgoing_queue("After: ");
 				}
 			}
-			//console.log("End WAIT_VAR, outgoing queue length:", link_outgoing_queue.length);
+			//stdlib.console.log("End WAIT_VAR, outgoing queue length:", link_outgoing_queue.length);
 		}
 		else if (link_incoming_queue[0] == 'WAIT_XDP')
 		{
 			// WIP
-			//console.log("Begin WAIT_XDP, outgoing queue length:", link_outgoing_queue.length);
+			//stdlib.console.log("Begin WAIT_XDP, outgoing queue length:", link_outgoing_queue.length);
 			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
 			{
 				//                                TI92p_PC / V200_PC                  CMD_XDP
@@ -3974,31 +4011,31 @@ function link_handling()
 						link_recv_varname += String.fromCharCode(link_outgoing_queue[6+i]);
 						computed_checksum += link_outgoing_queue[6+i];
 					}
-					console.log("link_recv_varsize = " + link_recv_varsize);
-					console.log("link_recv_vartype = " + link_recv_vartype);
-					console.log("strl = " + strl);
-					console.log("link_recv_varname = " + link_recv_varname);
+					stdlib.console.log("link_recv_varsize = " + link_recv_varsize);
+					stdlib.console.log("link_recv_vartype = " + link_recv_vartype);
+					stdlib.console.log("strl = " + strl);
+					stdlib.console.log("link_recv_varname = " + link_recv_varname);
 
 					link_recv_filedata = new Uint8Array(link_recv_varsize);
 					var packet_checksum = link_outgoing_queue[x-2] + link_outgoing_queue[x-1] * 256;
 					if ((computed_checksum & 0xFFFF) != packet_checksum) {
-						console.log("WAIT_XDP: Wrong checksum: computed=" + to_hex(computed_checksum, 4) + " packet=" + to_hex(packet_checksum, 4) + "!");
+						stdlib.console.log("WAIT_XDP: Wrong checksum: computed=" + to_hex(computed_checksum, 4) + " packet=" + to_hex(packet_checksum, 4) + "!");
 					}
 
 					// Skip what we processed.
 					link_outgoing_queue.splice(0, x+4);
 					link_incoming_queue.shift();
-					console.log("Eaten an item in WAIT_XDP", x);
+					stdlib.console.log("Eaten an item in WAIT_XDP", x);
 
 					dump_outgoing_queue("After: ");
 				}
 			}
-			//console.log("End WAIT_XDP, outgoing queue length:", link_outgoing_queue.length);
+			//stdlib.console.log("End WAIT_XDP, outgoing queue length:", link_outgoing_queue.length);
 		}
 		else if (link_incoming_queue[0] == 'WAIT_CNT')
 		{
 			// WIP
-			//console.log("Begin WAIT_CNT, outgoing queue length:", link_outgoing_queue.length);
+			//stdlib.console.log("Begin WAIT_CNT, outgoing queue length:", link_outgoing_queue.length);
 			for (var x = 0; x + 4 <= link_outgoing_queue.length; x++)
 			{
 				//                                TI92p_PC / V200_PC                  CMD_CNT
@@ -4024,14 +4061,14 @@ function link_handling()
 
 					var packet_checksum = link_outgoing_queue[x-2] + link_outgoing_queue[x-1] * 256;
 					if ((computed_checksum & 0xFFFF) != packet_checksum) {
-						console.log("WAIT_CNT: Wrong checksum: computed=" + to_hex(computed_checksum, 4) + " packet=" + to_hex(packet_checksum, 4) + "!");
+						stdlib.console.log("WAIT_CNT: Wrong checksum: computed=" + to_hex(computed_checksum, 4) + " packet=" + to_hex(packet_checksum, 4) + "!");
 					}
 
-					console.log("link_recv_filedata has length " + link_recv_filedata.length);
+					stdlib.console.log("link_recv_filedata has length " + link_recv_filedata.length);
 
 					link_outgoing_queue.splice(0, x+4);
 					link_incoming_queue.shift();
-					console.log("Eaten an item in WAIT_CNT", x);
+					stdlib.console.log("Eaten an item in WAIT_CNT", x);
 
 					if (packet_type == 0x92) {
 						// EOT, we'll be able to create the target file.
@@ -4051,14 +4088,14 @@ function link_handling()
 					dump_outgoing_queue("After: ");
 				}
 			}
-			//console.log("End WAIT_CNT, outgoing queue length:", link_outgoing_queue.length);
+			//stdlib.console.log("End WAIT_CNT, outgoing queue length:", link_outgoing_queue.length);
 		}
 	}
 };
 
 function execute_instructions(number)
 {
-	for (var inner = 0; inner < number; inner++) {
+	for (var inner = 0; inner < number && !stopped; inner++) {
 		var opcode = rw(pc);
 		if (tracecount > 0) {
 			tracecount--;
@@ -4068,9 +4105,15 @@ function execute_instructions(number)
 			}
 		}
 		pc += 2;
-
 		t[opcode]();
 	}
+}
+
+function execute_one_instruction()
+{
+	var opcode = rw(pc);
+	pc += 2;
+	t[opcode]();
 }
 
 function emu_main_loop()
@@ -4107,13 +4150,13 @@ function emu_main_loop()
 		if (e == "STOP")
 		{
 			stopped = true;
-			//console.log("stopped at " + to_hex(pc,9) + " SR = " + to_hex(sr,5));
+			//stdlib.console.log("stopped at " + to_hex(pc,9) + " SR = " + to_hex(sr,5));
 		}
 		else if (isNaN(e) || e < 0 || e > 255 || e != Math.floor(e))
 		{
 			// this is a real javascript exception
-			console.log("real javascript exception " + e);
-			console.log(e.stack);
+			stdlib.console.log("real javascript exception " + e);
+			stdlib.console.log(e.stack);
 			stdlib.clearInterval(interval);
 			return;
 		}
@@ -4139,7 +4182,7 @@ function emu_main_loop()
 		var buf = new Uint8Array(inputrom);
 		if (inputrom.byteLength == 0x200000 || inputrom.byteLength == 0x400000)
 		{
-			console.log("Processing plain ROM image");
+			stdlib.console.log("Processing plain ROM image");
 			rom = new Uint16Array(inputrom.byteLength / 2);
 			for (var x = 0; x < inputrom.byteLength; x += 2)
 			{
@@ -4149,7 +4192,7 @@ function emu_main_loop()
 		}
 		else
 		{
-			console.log("Processing TIB/9XU image");
+			stdlib.console.log("Processing TIB/9XU image");
 			var start = 0;
 			if (buf[0] == 0x2A && buf[1] == 0x2A && buf[2] == 0x54 && buf[3] == 0x49 && buf[4] == 0x46 && buf[5] == 0x4C && buf[6] == 0x2A && buf[7] == 0x2A)
 			{
@@ -4163,7 +4206,7 @@ function emu_main_loop()
 					}
 				}
 			}
-			console.log("Offset = " + start);
+			stdlib.console.log("Offset = " + start);
 
 			rom = new Uint16Array(0x400000 / 2); // Allocate an array of maximum size.
 			var offset = 0;
@@ -4190,10 +4233,12 @@ function emu_main_loop()
 	{
 		var buf;
 		if (typeof(newfileready) == "object") { // The contents were loaded from a JS function further down
-			buf = new Uint8Array(newfileready.result);
-		}
-		else if (typeof(newfileready) == "array") { // The contents were stored directly into an array
-			buf = newfileready;
+			if (newfileready instanceof Array) { // The contents were stored directly into an array
+				buf = newfileready;
+			}
+			else {
+				buf = new Uint8Array(newfileready.result);
+			}
 		}
 		newfileready = false;
 
@@ -4221,10 +4266,12 @@ function emu_main_loop()
 	{
 		var buf;
 		if (typeof(newflashfileready) == "object") { // The contents were loaded from a JS function further down
-			buf = new Uint8Array(newflashfileready.result);
-		}
-		else if (typeof(newflashfileready) == "array") { // The contents were stored directly into an array
-			buf = newflashfileready;
+			if (newflashfileready instanceof Array) { // The contents were stored directly into an array
+				buf = newflashfileready;
+			}
+			else {
+				buf = new Uint8Array(newflashfileready.result);
+			}
 		}
 		newflashfileready = false;
 
@@ -4246,18 +4293,18 @@ function emu_main_loop()
 function loadrom()
 {
 	var infile = document.getElementById("romfile").files[0];
-	console.log("starting to read file " + infile.name);
+	stdlib.console.log("starting to read file " + infile.name);
 	var extension = infile.name.toLowerCase().substr(-4);
 	if ((infile.size == 0x200000 || infile.size == 0x400000) && extension == ".rom")
 	{
-		console.log("Loading as plain ROM");
+		stdlib.console.log("Loading as plain ROM");
 		var reader = new FileReader();
 		reader.onload = function() { newromready = reader; unhandled_count = 0; };
 		reader.readAsArrayBuffer(infile);
 	}
 	if (infile.size >= 1024 && infile.size < 0x200000 && (extension == ".tib" || extension == ".9xu" || extension == ".89u" || extension == ".v2u"))
 	{
-		console.log("Starting to load as TIB / OS upgrade");
+		stdlib.console.log("Starting to load as TIB / OS upgrade");
 		var reader = new FileReader();
 		reader.onload = function() { newromready = reader; unhandled_count = 0; };
 		reader.readAsArrayBuffer(infile);
@@ -4287,7 +4334,7 @@ function loadrom()
 	        || ".9xy.89y.v2y".indexOf(extension) != -1 // Other
 	        || ".9xz.89z.v2z".indexOf(extension) != -1 // Assembly program
 	       )) {
-		console.log("Starting to load as variable");
+		stdlib.console.log("Starting to load as variable");
 		var reader = new FileReader();
 		reader.onload = function() { newfileready = reader; unhandled_count = 0; };
 		reader.readAsArrayBuffer(infile);
@@ -4296,7 +4343,7 @@ function loadrom()
 	    && (   ".9xk.89k.v2k".indexOf(extension) != -1 // FlashApp
 	        //|| ".9xq.89q.v2q".indexOf(extension) != -1 // Certificate - useless nowadays since we can resign FlashApps
 	       )) {
-		console.log("Starting to load as Flash variable - WIP");
+		stdlib.console.log("Starting to load as Flash variable - WIP");
 		var reader = new FileReader();
 		reader.onload = function() { newflashfileready = reader; unhandled_count = 0; };
 		reader.readAsArrayBuffer(infile);
@@ -4336,7 +4383,7 @@ function getFileData()
 {
 	// http://stackoverflow.com/a/16213045
 	var blob = new Blob([link_recv_filedata], {type: "application/octet-binary"});
-	var url = URL.createObjectURL(blob);
+	var url = stdlib.URL.createObjectURL(blob);
 	var a = document.querySelector("#downloadFile");
 	a.href = url;
 	a.download = link_recv_foldername + "." + link_recv_varname + buildFileExtensionFromVartype();
@@ -4348,49 +4395,49 @@ function check_subl() {
 
 	result = subl(0x12345678, 0x12345678);
 	if (result != 0x0 || sr != 4) {
-		console.log("subl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("subl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0x1234567, 0x12345678);
 	if (result != 0x11111111 || sr != 0) {
-		console.log("subl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("subl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0x23456789, 0x12345678);
 	if (result != 0xEEEEEEEF || sr != 0x19) {
-		console.log("subl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("subl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0x12345678, 0xFF000000);
 	if (result != 0xECCBA988 || sr != 0x08) {
-		console.log("subl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("subl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0xFF000000, 0x12345678);
 	if (result != 0x13345678 || sr != 0x11) {
-		console.log("subl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("subl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0x7FFFFFFF, 0x7FFFFFFF);
 	if (result != 0 || sr != 4) {
-		console.log("subl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("subl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0x7FFFFFFF, 0xFF000000);
 	if (result != 0x7F000001 || sr != 0x02) {
-		console.log("subl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("subl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0xFF000018, 0xFF000000);
 	if (result != 0xFFFFFFE8 || sr != 0x19) {
-		console.log("subl 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("subl 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4402,43 +4449,43 @@ function check_addl() {
 
 	result = addl(0x12345678, 0x12345678);
 	if (result != 0x2468ACF0 || sr != 0) {
-		console.log("addl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("addl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0x1234567, 0x12345678);
 	if (result != 0x13579BDF || sr != 0) {
-		console.log("addl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("addl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0x23456789, 0x12345678);
 	if (result != 0x3579BE01 || sr != 0) {
-		console.log("addl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("addl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0x12345678, 0xFF000000);
 	if (result != 0x11345678 || sr != 0x11) {
-		console.log("addl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("addl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0x7FFFFFFF, 0x7FFFFFFF);
 	if (result != 0xFFFFFFFE || sr != 0xA) {
-		console.log("addl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("addl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0x7FFFFFFF, 0xFF000000);
 	if (result != 0x7EFFFFFF || sr != 0x11) {
-		console.log("addl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("addl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0xFF000018, 0xFF000000);
 	if (result != 0xFE000018 || sr != 0x19) {
-		console.log("addl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("addl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4452,19 +4499,19 @@ function check_cmpl() {
 
 	result = cmpl(0x12345678, 0x12345678);
 	if (result != 0x0 || sr != 4) {
-		console.log("cmpl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("cmpl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = cmpl(0x1234567, 0x12345678);
 	if (result != 0x11111111 || sr != 0) {
-		console.log("cmpl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("cmpl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = cmpl(0x23456789, 0x12345678);
 	if (result != 0xEEEEEEEF || sr != 0x09) {
-		console.log("cmpl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("cmpl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4472,19 +4519,19 @@ function check_cmpl() {
 
 	result = cmpl(0x12345678, 0xFF000000);
 	if (result != 0xECCBA988 || sr != 0x18) {
-		console.log("cmpl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("cmpl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = cmpl(0xFF000000, 0x12345678);
 	if (result != 0x13345678 || sr != 0x11) {
-		console.log("cmpl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("cmpl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = cmpl(0x7FFFFFFF, 0xFF000000);
 	if (result != 0x7F000001 || sr != 0x12) {
-		console.log("cmpl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("cmpl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4492,13 +4539,13 @@ function check_cmpl() {
 
 	result = cmpl(0xFF000018, 0xFF000000);
 	if (result != 0xFFFFFFE8 || sr != 0x9) {
-		console.log("cmpl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("cmpl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = cmpl(0xFF000000, 0x320);
 	if (sr != 0x1) {
-		console.log("cmpl 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("cmpl 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4512,7 +4559,7 @@ function check_abcd() {
 
 	result = abcd(0x00, 0x00);
 	if (result != 0x0 || sr != 4) { // Z should be unchanged.
-		console.log("abcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("abcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4520,13 +4567,13 @@ function check_abcd() {
 
 	result = abcd(0x00, 0x00);
 	if (result != 0x0 || sr != 0) { // Z should be unchanged.
-		console.log("abcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("abcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = abcd(0x00, 0x01);
 	if (result != 0x1 || sr != 0) { // Z should be clear
-		console.log("abcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("abcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4534,7 +4581,7 @@ function check_abcd() {
 
 	result = abcd(0x01, 0x01);
 	if (result != 0x2 || sr != 0) {
-		console.log("abcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("abcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4542,7 +4589,7 @@ function check_abcd() {
 
 	result = abcd(0x01, 0x09);
 	if (result != 0x10 || sr != 0) {
-		console.log("abcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("abcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4550,20 +4597,20 @@ function check_abcd() {
 
 	result = abcd(0x01, 0x99);
 	if (result != 0x00 || sr != 0x15) { // X and C set, Z unchanged
-		console.log("abcd 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("abcd 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	sr = 0x11; // X, C
 	result = abcd(0x00, 0x99);
 	if (result != 0x00 || sr != 0x11) { // The carry should remain
-		console.log("abcd 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("abcd 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = abcd(0x00, 0x99);
 	if (result != 0x00 || sr != 0x11) { // The carry should remain
-		console.log("abcd 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("abcd 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4577,7 +4624,7 @@ function check_sbcd() {
 
 	result = sbcd(0x00, 0x00);
 	if (result != 0x0 || sr != 4) { // Z should be unchanged
-		console.log("sbcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("sbcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4585,19 +4632,19 @@ function check_sbcd() {
 
 	result = sbcd(0x00, 0x00);
 	if (result != 0x0 || sr != 0) { // Z should be unchanged
-		console.log("sbcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("sbcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = sbcd(0x00, 0x01);
 	if (result != 0x99 || (sr & 0x15) != 0x11) { // There was a borrow.
-		console.log("sbcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("sbcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = sbcd(0x01, 0x01);
 	if (result != 0x99 || (sr & 0x15) != 0x11) { // There was a borrow.
-		console.log("sbcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("sbcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4605,7 +4652,7 @@ function check_sbcd() {
 
 	result = sbcd(0x01, 0x01);
 	if (result != 0x0 || sr != 0x0) { // There was no borrow.
-		console.log("sbcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("sbcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4619,7 +4666,7 @@ function check_nbcd() {
 
 	result = nbcd(0x00);
 	if (result != 0x0 || sr != 4) { // Z should be unchanged
-		console.log("nbcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("nbcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4627,27 +4674,27 @@ function check_nbcd() {
 
 	result = nbcd(0x01);
 	if (result != 0x99 || (sr & 0x15) != 0x11) { // X, C but not Z
-		console.log("nbcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("nbcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = nbcd(0x02);
 	if (result != 0x97 || (sr & 0x15) != 0x11) { // X, C but not Z
-		console.log("nbcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("nbcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	sr = 0;
 	result = nbcd(0x09);
 	if (result != 0x91 || (sr & 0x15) != 0x11) { // X, C but not Z
-		console.log("nbcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("nbcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	sr = 0;
 	result = nbcd(0x0A);
 	if (result != 0x90 || (sr & 0x15) != 0x11) { // X, C but not Z
-		console.log("nbcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("nbcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4655,21 +4702,21 @@ function check_nbcd() {
 	/*sr = 0;
 	result = nbcd(0x0F);
 	if (result != 0x8B || (sr & 0x15) != 0x11) { // X, C but not Z
-		console.log("nbcd 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("nbcd 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}*/
 
 	sr = 0;
 	result = nbcd(0x10);
 	if (result != 0x90 || (sr & 0x15) != 0x11) { // X, N, C but not Z
-		console.log("nbcd 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("nbcd 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	sr = 0;
 	result = nbcd(0x11);
 	if (result != 0x89 || (sr & 0x15) != 0x11) { // X, N, C but not Z
-		console.log("nbcd 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("nbcd 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4694,64 +4741,67 @@ function check_subx() {
 
 function check_muls()
 {
+	var result;
+
 	sr = 0;
+
 	result = muls(0x0, 0x0);
 	if (result != 0 || sr != 4) {
-		console.log("muls 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("muls 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0x0, 0x1);
 	if (result != 0 || sr != 4) {
-		console.log("muls 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("muls 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0x1, 0x0);
 	if (result != 0 || sr != 4) {
-		console.log("muls 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("muls 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0x1, 0x1);
 	if (result != 1 || sr != 0) {
-		console.log("muls 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("muls 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0x1, 0x10001);
 	if (result != 1 || sr != 0) {
-		console.log("muls 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("muls 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0x10001, 0x10001);
 	if (result != 1 || sr != 0) {
-		console.log("muls 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("muls 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0xFFFF, 0xFFFF);
 	if (result != 0x00000001 || sr != 0) {
-		console.log("muls 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		stdlib.console.log("muls 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = muls(0xFFFF, 0x7FFF);
 	if (result != 0xFFFF8001 || sr != 8) {
-		console.log("muls 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		stdlib.console.log("muls 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = muls(0x7FFF, 0x7FFF);
 	if (result != 0x3FFF0001 || sr != 0) {
-		console.log("muls 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		stdlib.console.log("muls 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = muls(0x7FFF, 0xFFFF);
 	if (result != 0xFFFF8001 || sr != 8) {
-		console.log("muls 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		stdlib.console.log("muls 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
@@ -4760,64 +4810,67 @@ function check_muls()
 
 function check_mulu()
 {
+	var result;
+
 	sr = 0;
+
 	result = mulu(0x0, 0x0);
 	if (result != 0 || sr != 4) {
-		console.log("mulu 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("mulu 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0x0, 0x1);
 	if (result != 0 || sr != 4) {
-		console.log("mulu 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("mulu 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0x1, 0x0);
 	if (result != 0 || sr != 4) {
-		console.log("mulu 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("mulu 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0x1, 0x1);
 	if (result != 1 || sr != 0) {
-		console.log("mulu 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("mulu 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0x1, 0x10001);
 	if (result != 1 || sr != 0) {
-		console.log("mulu 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("mulu 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0x10001, 0x10001);
 	if (result != 1 || sr != 0) {
-		console.log("mulu 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("mulu 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0xFFFF, 0xFFFF);
 	if (result != 0xFFFE0001 || sr != 8) {
-		console.log("mulu 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		stdlib.console.log("mulu 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = mulu(0xFFFF, 0x7FFF);
 	if (result != 0x7FFE8001 || sr != 0) {
-		console.log("mulu 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		stdlib.console.log("mulu 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = mulu(0x7FFF, 0x7FFF);
 	if (result != 0x3FFF0001 || sr != 0) {
-		console.log("mulu 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		stdlib.console.log("mulu 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = mulu(0x7FFF, 0xFFFF);
 	if (result != 0x7FFE8001 || sr != 0) {
-		console.log("mulu 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+		stdlib.console.log("mulu 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
@@ -4830,43 +4883,43 @@ function check_divu() {
 	sr = 0;
 	result = divu(0x10, 0x12345678);
 	if (result != 0x12345678 || (sr & 3) != 2) { // N undefined when V.
-		console.log("divu 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divu 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0x10, 0xFF000000);
 	if (result != 0xFF000000 || (sr & 3) != 2) { // N undefined when V.
-		console.log("divu 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divu 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0xCCCCFFFF, 0xFF000000);
 	if (result != 0xFF00FF00 || sr != 0x8) {
-		console.log("divu 2 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divu 2 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0x1, 0x10000);
 	if (result != 0x10000 || (sr & 3) != 2) { // N undefined when V.
-		console.log("divu 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divu 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0x10, 0x10000);
 	if (result != 0x1000 || sr != 0) {
-		console.log("divu 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divu 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0x10001, 0x10);
 	if (result != 0x00000010 || sr != 0) {
-		console.log("divu 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divu 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0x10100, 0x10);
 	if (result != 0x00100000 || sr != 4) {
-		console.log("divu 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divu 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4880,67 +4933,67 @@ function check_divs()
 	sr = 0;
 	result = divs(0x10, 0x12345678);
 	if (result != 0x12345678 || (sr & 3) != 2) { // N undefined when V.
-		console.log("divs 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divs 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0x10, 0xFF000000);
 	if (result != 0xFF000000 || (sr & 3) != 2) { // N undefined when V.
-		console.log("divs 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divs 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0xCCCCFFFF, 0x7F000000);
 	if (result != 0x7F000000 || (sr & 3) != 2) { // N undefined when V.
-		console.log("divs 2 " + to_hex2(result, 9) + " " + to_hex2(0x7F000000, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divs 2 " + to_hex2(result, 9) + " " + to_hex2(0x7F000000, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0xCCCCFFFF, 0xFF000000);
 	if (result != 0xFF000000 || (sr & 3) != 2) {
-		console.log("divs 3 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divs 3 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0xCCCC7FFF, 0x7F000000);
 	if (result != 0x7F000000 || (sr & 3) != 2) {
-		console.log("divs 4 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divs 4 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0xCCCC7FFF, 0x7E000000);
 	if (result != 0x7E000000 || (sr & 3) != 2) { // N undefined when V.
-		console.log("divs 5 " + to_hex2(result, 9) + " " + to_hex2(0x7E000000, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divs 5 " + to_hex2(result, 9) + " " + to_hex2(0x7E000000, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0xCCCC7FFF, 0x3F000000);
 	if (result != 0x7E007E00 || sr != 0) {
-		console.log("divs 6 " + to_hex2(result, 9) + " " + to_hex2(0x7E007E00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divs 6 " + to_hex2(result, 9) + " " + to_hex2(0x7E007E00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0x1, 0x10000);
 	if (result != 0x10000 || (sr & 3) != 2) {
-		console.log("divs 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divs 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0x10, 0x10000);
 	if (result != 0x1000 || sr != 0) {
-		console.log("divs 8 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divs 8 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0x10001, 0x10);
 	if (result != 0x00000010 || sr != 0) {
-		console.log("divs 9 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divs 9 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0x10100, 0x10);
 	if (result != 0x00100000 || sr != 4) {
-		console.log("divs 10 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("divs 10 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4955,7 +5008,7 @@ function check_lsl()
 
 	result = lsl(0x80000000, 1, 2);
 	if (result != 0x00000000 || sr != 0x15) {
-		console.log("lsl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("lsl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5006,7 +5059,7 @@ function check_rol()
 
 	result = rol(0x80000000, 1, 2);
 	if (result != 0x00000001 || sr != 0x1) {
-		console.log("rol 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("rol 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5192,6 +5245,7 @@ return {
 }
 
 function EmulatorUIModule(stdlib) {
+"use strict";
 
 var calcscreen = new Uint8Array(240 * 128 * 3); // stores three frames of pixel data for averaging
 var frame = 0;
@@ -5199,7 +5253,7 @@ var emu = false;
 var bitmap = false;
 var context = false;
 var calculator_model = 0;
-var set_skin = false;
+var set_skin = function() { };
 var screen_scaling_ratio = 2; // 2:1 by default
 
 function draw_calcscreen(address, ram)
@@ -6086,7 +6140,7 @@ function setEmu(newemu) {
 }
 
 function setSkin(scaling) {
-	console.log("old scaling ratio: " +  screen_scaling_ratio + "\tnew scaling ratio: " + scaling);
+	stdlib.console.log("old scaling ratio: " +  screen_scaling_ratio + "\tnew scaling ratio: " + scaling);
 	if (screen_scaling_ratio != scaling) {
 		screen_scaling_ratio = scaling;
 		setCalculatorModel(calculator_model);
