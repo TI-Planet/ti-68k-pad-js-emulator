@@ -57,6 +57,7 @@ var link_config = 1; // 0x60000C
 var transmit_finished = false; // deduced from 0x60000C
 var lcd_address_high = 9; // 0x600010: stores LCD address / 8, corresponding to the default 0x4c00
 var lcd_address_low = 0x80; // 0x600011
+var lcd_address = 0x4c00; // 0x700017: LCD address deduced from snoop palette range.
 var screen_height = 128; // 0x600013
 var interrupt_control = 0x1B; // 0x600015
 var interrupt_rate = 0x200; // deduced from 0x600015
@@ -66,7 +67,8 @@ var keystatus = new Uint8Array(80); // status of each key is at ROW * 8 + COLUMN
 var keymaskhigh = 0xFF; // 0x600018
 var keymasklow = 0xFF; // 0x600019: which key rows are selected to read
 var port_60001A = 0x02; // 0x60001A: ON key not pressed
-var port_60001D = 0; // 0x60001D
+var port_60001D = 0x8D; // 0x60001D
+var port_700017 = 0; // 0x700017
 var port_70001D = 0; // 0x70001D
 var port_70001F = 0; // 0x70001F
 
@@ -928,6 +930,7 @@ function lsl(x, shift, size)
 	if (size == 2) overflow = 4294967296;
 	var neg = overflow / 2;
 	x &= overflow - 1;
+	sr &= 0xFFF0; // initially clear all user condition flags but X
 	while (shift > 0)
 	{
 		if (x & neg) sr |= 0x11; // set carry and extend if last bit shifted out is 1
@@ -2596,14 +2599,14 @@ function read_hreg(reg)
 			return result;
 		}
 
-		case 0x60001d: // 0x60001d
+		case 0x60001d: // 0x60001d: contrast setting
 		{
-			return port_60001D; // contrast setting - 0x8F would be better ?
+			return port_60001D;
 		}
 
 		case 0x700017: // 0x700017: HW2 snoop palette range.
 		{
-			return 0x00;
+			return port_700017;
 		}
 
 		case 0x70001d: // 0x70001d
@@ -2759,6 +2762,7 @@ function write_hreg(reg, value)
 		case 0x60001d: // 0x60001d
 		{
 			port_60001D = value;
+			ui.set_screen_enabled_and_contrast(calculator_model, hardware_model, port_60001D, port_70001D, port_70001F);
 			break;
 		}
 
@@ -2797,6 +2801,14 @@ function write_hreg(reg, value)
 			break;
 		}
 
+		case 0x700017: // 0x700017: LCD snoop palette range
+		{
+			port_700017 = value & 0x03;
+			lcd_address = 0x4c00 + (port_700017 * 0x1000);
+			stdlib.console.log("Setting LCD address to " + address);
+			break;
+		}
+
 		case 0x70001c: // 0x70001c
 		{
 			// Ignore: the battery checker code does word writes, but there's nothing at 70001C, AFAWCT.
@@ -2806,12 +2818,14 @@ function write_hreg(reg, value)
 		case 0x70001d: // 0x70001d
 		{
 			port_70001D = value;
+			ui.set_screen_enabled_and_contrast(calculator_model, hardware_model, port_60001D, port_70001D, port_70001F);
 			break;
 		}
 
 		case 0x70001f: // 0x70001f
 		{
 			port_70001F = value;
+			ui.set_screen_enabled_and_contrast(calculator_model, hardware_model, port_60001D, port_70001D, port_70001F);
 			break;
 		}
 
@@ -2831,11 +2845,11 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "{" +
 "	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
 "	address = address & 0xFFFFFE;" +
-"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - for now, ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
-"		return ram[(address & 0x3FFFF) >>> 1];" +
+"	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
+"		return ram[(address & 0x3FFFE) >>> 1];" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
-"		return rom[(address - " + flashmemoryaddress + ")/2];" +
+"		return rom[(address - " + flashmemoryaddress + ") >>> 1];" +
 "	}" +
 "	else if (address >= 0x600000 && address < 0x800000) {" +
 "		return read_hreg(address) * 256 + read_hreg(address + 1);" +
@@ -2849,7 +2863,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "rb_" + suffix + "_normal = function rb_" + suffix + "_normal(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - for now, ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+"	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		address &= 0x3FFFF;" +
 "		if ((address & 1) == 0) {" +
 "			return ram[address >>> 1] >>> 8;" +
@@ -2877,10 +2891,10 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 	memory_read_function =
 "rw_" + suffix + "_flashspecial = function rw_" + suffix + "_flashspecial(address)" +
 "{" +
-"	address = address & 0xFFFFFF;" +
 "	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
-"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - for now, ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
-"		return ram[(address & 0x3FFFF) >>> 1];" +
+"	address = address & 0xFFFFFE;" +
+"	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
+"		return ram[(address & 0x3FFFE) >>> 1];" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
 "		if (flash_write_phase == 0x90) {" + // Read identifier codes mode
@@ -2891,7 +2905,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "			}" +
 "		}" +
 "		else {" +
-"			return rom[(address - " + flashmemoryaddress + ")/2] | flash_ret_or;" +
+"			return rom[(address - " + flashmemoryaddress + ") >>> 1] | flash_ret_or;" +
 "		}" +
 "	}" +
 "	else if (address >= 0x600000 && address < 0x800000) {" +
@@ -2904,13 +2918,13 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "rb_" + suffix + "_flashspecial = function rb_" + suffix + "_flashspecial(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - for now, ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+"	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		address &= 0x3FFFF;" +
 "		if ((address & 1) == 0) {" +
-"			return ram[address] >>> 8;" +
+"			return ram[address >>> 1] >>> 8;" +
 "		}" +
 "		else {" +
-"			return ram[address] & 0xFF;" +
+"			return ram[address >>> 1] & 0xFF;" +
 "		}" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
@@ -2959,7 +2973,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "{" +
 "	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
 "	address = address & 0xFFFFFE;" +
-"	if (address < 0x200000) {" +
+"	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		ram[(address & 0x3FFFF) >>> 1] = value;" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" + // Flash write support.
@@ -2982,8 +2996,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "wb_" + suffix + "_normal = function wb_" + suffix + "_normal(address, value)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if (address < 0x200000)" +
-"	{" +
+"	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		address &= 0x3FFFF;" +
 "		if ((address & 1) == 0) {" +
 "			ram[address >>> 1] = (ram[address >>> 1] & 0xFF) + (value * 256);" +
@@ -3004,7 +3017,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "{" +
 "	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
 "	address = address & 0xFFFFFE;" +
-"	if (address < 0x200000) {" +
+"	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		ram[(address & 0x3FFFF) >>> 1] = value;" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
@@ -3451,7 +3464,7 @@ function detect_calculator_model()
 
 	// Post-process hardware model from the information contained in HWPB, if any.
 	var hwpbaddress = rom[0x104 / 2] * 65536 + rom[0x106 / 2]; // Address of HWPB, if any.
-	if (hwpbaddress != 4294967295) {
+	if (hwpbaddress >= ROM_base && hwpbaddress <= ROM_base + FlashMemorySize) {
 		// There's a HWPB in this image.
 		var hwpboffset = (hwpbaddress - ROM_base) >>> 1;
 		var hwpbsize = rom[hwpboffset]; // Read size bytes.
@@ -3475,8 +3488,13 @@ function detect_calculator_model()
 			hardware_model = rom[hwpboffset + 11] * 65536 + rom[hwpboffset + 12];
 		}
 		else {
+			// HWPB is too short (shouldn't occur for V200 or 89T), use default value.
 			hardware_model = (calculator_model == 9) ? 3 : ((calculator_model == 8) ? 2 : 1); // Assume HW3 for 89T, HW2 for V200 (always correct), HW1 for 89 & 92+.
 		}
+	}
+	else {
+		// There's no HWPB in this image
+		hardware_model = (calculator_model == 9) ? 3 : ((calculator_model == 8) ? 2 : 1); // Assume HW3 for 89T, HW2 for V200 (always correct), HW1 for 89 & 92+.
 	}
 
 	stdlib.console.log("Detected a supported OS, calculator model is " + calculator_model + ", hardware model is " + hardware_model);
@@ -3501,7 +3519,7 @@ function reset_calculator()
 
 	// start here to skip the boot code (which is missing in TIB based images)
 
-	for (var i = 0; i < 128; i++) ram[i] = rom[i + 0x12088 / 2];
+	for (var i = 0; i < 128; i++) ram[i] = rom[i + (0x12088 / 2)];
 
 	// Redefine memory read / write functions
 	if (calculator_model == 1) { // 92+
@@ -3522,6 +3540,7 @@ function reset_calculator()
 
 	pc = ROM_base+0x12188;
 	sr = 0x2700;
+	port_60001D = (hardware_model == 1) ? 0x9D : 0x8D;
 
 	link_incoming_queue = new Array();
 	link_outgoing_queue = new Array();
@@ -3788,7 +3807,7 @@ function recvfile(varname, vartype)
 // Extracted out of main_loop to help profiling.
 function timer_interrupts()
 {
-	osc2_counter += 128; // XXX 32
+	osc2_counter += 32;
 
 	if (osc2_counter >= 0x1000000) osc2_counter -= 0x1000000;
 
@@ -4217,7 +4236,14 @@ function emu_main_loop()
 		}
 	}
 
-	ui.draw_screen((lcd_address_low + (lcd_address_high << 8)) << 2, ram);
+	if (hardware_model == 1) {
+		ui.draw_screen(((lcd_address_high << 8) + lcd_address_low) << (3 - 1), ram);
+	}
+	else {
+		ui.draw_screen(lcd_address >>> 1, ram);
+		// Toggle FS bit
+	}
+	toggle_framesync();
 
 	var endtime = (new Date).getTime();
 
@@ -5260,6 +5286,11 @@ function resume_emulator()
 	interval = stdlib.setInterval(emu_main_loop, 11);
 }
 
+function toggle_framesync()
+{
+	port_70001D ^= 0x80;
+}
+
 return {
 	// Functions called directly from events on elements in the HTML page
 	initemu : initemu,
@@ -5323,10 +5354,13 @@ return {
 	calculator_model : get_calculator_model,
 	jmp_tbl : get_jmp_tbl,
 	ROM_base : get_ROM_base,
-	FlashMemorySize : get_FlashMemorySize
+	FlashMemorySize : get_FlashMemorySize,
+
+	toggle_framesync : toggle_framesync
 };
 
 }
+
 
 function EmulatorUIModule(stdlib) {
 "use strict";
@@ -5339,30 +5373,42 @@ var context = false;
 var calculator_model = 0;
 var set_skin = function() { };
 var screen_scaling_ratio = 2; // 2:1 by default
+var screen_enabled = true;
+var contrast = 0x0;
+var black_color = 0x00;
+var white_color = 0x50;
 
 function draw_calcscreen(address, ram)
 {
 	var pixel = frame;
-	for (var y = 0; y < 128; y++)
-		for (var x = 0; x < 15; x++) {
-			var b = ram[address++];
-			for (var bit = 15; bit >= 0; bit--) {
-				var color = b & 0x8000 ? 0 : 0x50;
-				b <<= 1;
-				calcscreen[pixel] = color;
-				pixel += 3;
+	//if (screen_enabled) {
+		for (var y = 0; y < 128; y++) {
+			for (var x = 0; x < 15; x++) {
+				var b = ram[address++];
+				for (var bit = 15; bit >= 0; bit--) {
+					var color = b & 0x8000 ? black_color : white_color;
+					b <<= 1;
+					calcscreen[pixel] = color;
+					pixel += 3;
+				}
 			}
 		}
+	/*}
+	else {
+		for (var y = 0; y < 128 * 240; y++) {
+			calcscreen[pixel] = 0x50;
+			pixel += 3;
+		}
+	}*/
 
 	frame++;
 	if (frame == 3) frame = 0;
 };
 
-function output_calcscreen_to_bitmap_scale1()
+function output_calcscreen_to_bitmap_scale1(calcscreen, buff)
 {
 	var pixel = 0;
 	var p = 0;
-	var buff = bitmap.data;
 
 	for (var y = 0; y < 3840 * 128; y += 3840) {
 		for (var x = 0; x < 240; x++) {
@@ -5373,15 +5419,12 @@ function output_calcscreen_to_bitmap_scale1()
 			p+=4;
 		}
 	}
-
-	context.putImageData(bitmap, 0, 0);
 };
 
-function output_calcscreen_to_bitmap_scale2()
+function output_calcscreen_to_bitmap_scale2(calcscreen, buff)
 {
 	var pixel = 0;
 	var p = 0;
-	var buff = bitmap.data;
 
 	for (var y = 0; y < 3840 * 128; y += 3840) {
 		for (var x = 0; x < 240; x++) {
@@ -5402,8 +5445,6 @@ function output_calcscreen_to_bitmap_scale2()
 		}
 		p += 1920;
 	}
-
-	context.putImageData(bitmap, 0, 0);
 };
 
 // Split the function to help with profiling.
@@ -5411,10 +5452,12 @@ function draw_screen(address, ram)
 {
 	draw_calcscreen(address, ram);
 	if (screen_scaling_ratio == 2) {
-		output_calcscreen_to_bitmap_scale2();
+		output_calcscreen_to_bitmap_scale2(calcscreen, bitmap.data);
+		context.putImageData(bitmap, 0, 0);
 	}
 	else if (screen_scaling_ratio == 1) {
-		output_calcscreen_to_bitmap_scale1();
+		output_calcscreen_to_bitmap_scale1(calcscreen, bitmap.data);
+		context.putImageData(bitmap, 0, 0);
 	}
 	// else do nothing.
 };
@@ -6294,6 +6337,41 @@ function resume_emulator()
 	document.getElementById('resume_emulator').style.display='none';
 }
 
+function set_screen_enabled_and_contrast(calculator_model, hardware_model, port_60001D, port_70001D, port_70001F)
+{
+	//stdlib.console.log(emu.to_hex(port_60001D, 2));
+	if (hardware_model == 1) {
+		var new_screen_enabled = (port_60001D & 0x10) ? false : true; // Bit 4 of 60001D.
+		if (new_screen_enabled ^ screen_enabled) {
+			stdlib.console.log("Changing screen state: " + new_screen_enabled + "\tpc=" + emu.to_hex(emu.pc(), 6) + "\thardware_model=" + hardware_model + "\t60001D=" + emu.to_hex(port_60001D, 2) + "\t70001D=" + emu.to_hex(port_70001D, 2) + "\t70001F=" + emu.to_hex(port_70001F, 2));
+		}
+		screen_enabled = new_screen_enabled;
+		// LCD contrast level on 4 bits
+		port_60001D &= 0x0F;
+		if (calculator_model == 1 || calculator_model == 8) { // 92+ & V200
+			port_60001D = 0x10 - port_60001D;
+		}
+		contrast = port_60001D;
+		// TODO: modify black_color and white_color.
+		black_color = 0x50 - 5 * contrast;
+	}
+	else {
+		var new_screen_enabled = (port_70001D & 0x2) ? true : false; // Bit 1 of 70001D.
+		if (new_screen_enabled ^ screen_enabled) {
+			stdlib.console.log("Changing screen state: " + new_screen_enabled + "\tpc=" + emu.to_hex(emu.pc(), 6) + "\thardware_model=" + hardware_model + "\t60001D=" + emu.to_hex(port_60001D, 2) + "\t70001D=" + emu.to_hex(port_70001D, 2) + "\t70001F=" + emu.to_hex(port_70001F, 2));
+		}
+		screen_enabled = new_screen_enabled;
+		// LCD contrast level on 5 bits, unless bit 0 of port 70001F is clear
+		port_60001D &= (port_70001F & 1) ? 0x1F : 0x0F;
+		if (calculator_model == 1 || calculator_model == 8) { // 92+ & V200
+			port_60001D = ((port_70001F & 1) ? 0x20 : 0x10) - port_60001D;
+		}
+		contrast = port_60001D;
+		// TODO: modify black_color and white_color.
+		black_color = (0xA0 - (5 * contrast)) >> 1;
+	}
+}
+
 return {
 	// Functions called directly from events on elements in the HTML page
 	setSkin : setSkin,
@@ -6309,6 +6387,7 @@ return {
 	initemu : initemu,
 	initscreen : initscreen,
 	draw_screen : draw_screen,
+	set_screen_enabled_and_contrast : set_screen_enabled_and_contrast,
 
 	// Setter functions called by a script in the HTML page.
 	setEmu : setEmu
