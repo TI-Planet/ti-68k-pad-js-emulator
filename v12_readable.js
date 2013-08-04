@@ -122,36 +122,36 @@ function to_hex2(number, digits)
 
 // Dummy implementations, will be overridden later.
 var rb_1_normal = function(address) { return 0x14; }
-var rb_1_flash = function(address) { return 0x14; }
+var rb_1_flashspecial = function(address) { return 0x14; }
 var rw_1_normal = function(address) { return 0x1400; }
-var rw_1_flash = function(address) { return 0x1400; }
+var rw_1_flashspecial = function(address) { return 0x1400; }
 var wb_1_normal = function(address, value) { }
 var ww_1_normal = function(address, value) { }
-var ww_1_flash = function(address, value) { }
+var ww_1_flashspecial = function(address, value) { }
 
 var rb_3_normal = function(address) { return 0x14; }
-var rb_3_flash = function(address) { return 0x14; }
+var rb_3_flashspecial = function(address) { return 0x14; }
 var rw_3_normal = function(address) { return 0x1400; }
-var rw_3_flash = function(address) { return 0x1400; }
+var rw_3_flashspecial = function(address) { return 0x1400; }
 var wb_3_normal = function(address, value) { }
 var ww_3_normal = function(address, value) { }
-var ww_3_flash = function(address, value) { }
+var ww_3_flashspecial = function(address, value) { }
 
 var rb_8_normal = function(address) { return 0x14; }
-var rb_8_flash = function(address) { return 0x14; }
+var rb_8_flashspecial = function(address) { return 0x14; }
 var rw_8_normal = function(address) { return 0x1400; }
-var rw_8_flash = function(address) { return 0x1400; }
+var rw_8_flashspecial = function(address) { return 0x1400; }
 var wb_8_normal = function(address, value) { }
 var ww_8_normal = function(address, value) { }
-var ww_8_flash = function(address, value) { }
+var ww_8_flashspecial = function(address, value) { }
 
 var rb_9_normal = function(address) { return 0x14; }
-var rb_9_flash = function(address) { return 0x14; }
+var rb_9_flashspecial = function(address) { return 0x14; }
 var rw_9_normal = function(address) { return 0x1400; }
-var rw_9_flash = function(address) { return 0x1400; }
+var rw_9_flashspecial = function(address) { return 0x1400; }
 var wb_9_normal = function(address, value) { }
 var ww_9_normal = function(address, value) { }
-var ww_9_flash = function(address, value) { }
+var ww_9_flashspecial = function(address, value) { }
 
 var rb = function(address) { return 0x14; }
 var rw = function(address) { return 0x1400; }
@@ -928,9 +928,10 @@ function lsl(x, shift, size)
 	if (size == 2) overflow = 4294967296;
 	var neg = overflow / 2;
 	x &= overflow - 1;
-	while (shift != 0)
+	while (shift > 0)
 	{
 		if (x & neg) sr |= 0x11; // set carry and extend if last bit shifted out is 1
+		else sr &= 0xFFEE;
 		x <<= 1;
 		if (x >= overflow) {
 			x -= overflow;
@@ -950,39 +951,49 @@ function asl(x, shift, size)
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
 	if (size == 2) overflow = 4294967296;
+	var neg = overflow / 2;
+	x &= overflow - 1;
 	sr &= 0xFFE1; // initially clear all user condition flags but carry
 	if (shift > 0) sr &= 0xFFE0; // clear carry if nonzero shift
-	while (shift--)
+	while (shift > 0)
 	{
+		if (x & neg) sr |= 0x11; // set carry and extend if last bit shifted out is 1
+		else sr &= 0xFFEE;
 		var old = x;
-		x = x + x;
-		if (x & overflow) {
+		x <<= 1;
+		if (x >= overflow) {
 			x -= overflow;
-			if (shift == 0) sr |= 0x11; // set carry and extend if last bit shifted out is 1
 		}
-		if ((x & (overflow / 2)) != (old & (overflow / 2))) sr |= 2; // set overflow flag if high bit changed
+		if ((x & neg) != (old & neg)) sr |= 2; // set overflow flag if high bit changed
+		shift--;
 	}
-	if (x + x & overflow) sr |= 8 // negative flag
+	x &= overflow - 1;
+	if (x & neg) sr |= 8 // negative flag
 	if (x == 0) sr |= 4; // zero flag
-	return x & 4294967295;
+	return x;
 }
 
 function lsr(x, shift, size)
 {
 	//if (shift == 0) stdlib.console.log ("LSR 0 at " + to_hex(pc, 6));
-	
+
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
 	if (size == 2) overflow = 4294967296;
+	var neg = overflow / 2;
+	x &= overflow - 1;
 	sr &= 0xFFE0; // initially clear all user condition flags
-	while (shift--)
+	while (shift > 0)
 	{
-		if ((shift == 0) && (x & 1)) sr |= 0x11; // set carry and extend if last bit shifted out is 1
+		if (x & 1) sr |= 0x11; // set carry and extend if last bit shifted out is 1
+		else sr &= 0xFFEE;
 		x >>>= 1;
+		shift--;
 	}
-	if (x + x & overflow) sr |= 8 // negative flag
+	x &= overflow - 1;
+	if (x & neg) sr |= 8 // negative flag
 	if (x == 0) sr |= 4; // zero flag
-	return x & 4294967295;
+	return x;
 }
 
 function asr(x, shift, size)
@@ -992,36 +1003,49 @@ function asr(x, shift, size)
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
 	if (size == 2) overflow = 4294967296;
+	var neg = overflow / 2;
+	x &= overflow - 1;
 	sr &= 0xFFF0; // initially clear all user condition flags but X
 	if (shift > 0) sr &= 0xFFEF; // clear X if nonzero shift count
-	while (shift--)
+	while (shift > 0)
 	{
-		if ((shift == 0) && (x & 1)) sr |= 0x11; // set carry and extend if last bit shifted out is 1
-		if (x & (overflow / 2)) x += overflow;
-		x = Math.floor(x / 2);
+		if (x & 1) sr |= 0x11; // set carry and extend if last bit shifted out is 1
+		else sr &= 0xFFEE;
+		if (x & neg) {
+			x >>>= 1;
+			x |= neg;
+		}
+		else {
+			x >>>= 1;
+		}
+		shift--;
 	}
-	if (x + x & overflow) sr |= 8 // negative flag
+	x &= overflow - 1;
+	if (x & neg) sr |= 8 // negative flag
 	if (x == 0) sr |= 4; // zero flag
-	return x & 4294967295;
+	return x;
 }
 
 function ror(x, shift, size)
 {
 	//if (shift == 0) stdlib.console.log ("ROR 0 at " + to_hex(pc, 6));
-	
+
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
 	if (size == 2) overflow = 4294967296;
+	var neg = overflow / 2;
+	x &= overflow - 1;
 	sr &= 0xFFF0; // initially clear all user condition flags but X
 	while (shift--)
 	{
 		var out = x & 1;
 		x >>>= 1;
-		if (out) x = x + overflow / 2;
+		if (out) x = x + neg;
 	}
-	if (x + x & overflow) sr |= 0x9 // negative flag and carry flag
+	x &= overflow - 1;
+	if (x & neg) sr |= 0x9 // negative flag and carry flag
 	if (x == 0) sr |= 4; // zero flag
-	return x & 4294967295;
+	return x;
 }
 
 function rol(x, shift, size)
@@ -1060,18 +1084,21 @@ function roxr(x, shift, size)
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
 	if (size == 2) overflow = 4294967296;
+	var neg = overflow / 2;
+	x &= overflow - 1;
 	while (shift--)
 	{
 		var out = x & 1;
 		x >>>= 1;
-		if (sr & 0x10) x = x + overflow / 2; // shift 1 in if X was set
+		if (sr & 0x10) x = x + neg; // shift 1 in if X was set
 		sr = sr & 0xFFE0; // clear all user condition flags including X
 		if (out) sr += 0x10; // set X if bit shifted out was set
 	}
-	if (x + x & overflow) sr |= 0x9 // negative flag and carry flag
+	x &= overflow - 1;
+	if (x & neg) sr |= 0x9 // negative flag and carry flag
 	if (x == 0) sr |= 4; // zero flag
 	if (sr & 0x10) sr |= 1; // carry flag gets a copy of the X flag
-	return x & 4294967295;
+	return x;
 }
 
 function roxl(x, shift, size)
@@ -1079,20 +1106,40 @@ function roxl(x, shift, size)
 	var overflow = 0x100;
 	if (size == 1) overflow = 0x10000;
 	if (size == 2) overflow = 4294967296;
-	while (shift--)
+	var neg = overflow / 2;
+	x &= overflow - 1;
+	sr &= 0xFFF0; // initially clear all user condition flags but X
+	while (shift > 0)
 	{
-		x = x + x;
+		var old = x;
+		x <<= 1;
+		if (sr & 0x10) x = x + 1; // shift 1 in if X was set
+		if (old & neg) {
+			sr |= 0x10; // set X if bit was shifted out
+		}
+		else {
+			sr &= 0xFFEF; // clear X
+		}
+		if (x >= overflow) {
+			x -= overflow;
+		}
+		shift--;
+	}
+	/*while (shift--)
+	{
+		x <<= 1;
 		if (sr & 0x10) x = x + 1; // shift 1 in if X was set
 		sr &= 0xFFE0; // clear all user condition flags including X
 		if (x >= overflow) {
-			x = x - overflow;
+			x -= overflow;
 			sr += 0x10; // set X if bit was shifted out
 		}
-	}
-	if (x + x & overflow) sr |= 0x8; // negative flag
+	}*/
+	x &= overflow - 1;
+	if (x & neg) sr |= 0x8; // negative flag
 	if (sr & 0x10) sr |= 1; // carry flag gets a copy of the X flag
 	if (x == 0) sr |= 4; // zero flag
-	return x & 4294967295;
+	return x;
 }
 
 function aline() { pc -= 2; fire_cpu_exception(10); } // A-Line
@@ -2784,7 +2831,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "{" +
 "	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
 "	address = address & 0xFFFFFE;" +
-"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - for now, ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
 "		return ram[(address & 0x3FFFF) >>> 1];" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
@@ -2802,7 +2849,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "rb_" + suffix + "_normal = function rb_" + suffix + "_normal(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - for now, ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
 "		address &= 0x3FFFF;" +
 "		if ((address & 1) == 0) {" +
 "			return ram[address >>> 1] >>> 8;" +
@@ -2828,11 +2875,11 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 	eval(memory_read_function);
 
 	memory_read_function =
-"rw_" + suffix + "_flash = function rw_" + suffix + "_flash(address)" +
+"rw_" + suffix + "_flashspecial = function rw_" + suffix + "_flashspecial(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
 "	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
-"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - for now, ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
 "		return ram[(address & 0x3FFFF) >>> 1];" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
@@ -2854,10 +2901,10 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 	eval(memory_read_function);
 
 	memory_read_function =
-"rb_" + suffix + "_flash = function rb_" + suffix + "_flash(address)" +
+"rb_" + suffix + "_flashspecial = function rb_" + suffix + "_flashspecial(address)" +
 "{" +
 "	address = address & 0xFFFFFF;" +
-"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+"	if (address < 0x200000) {" + // RAM and ghosts (HW1, HW2 - for now, ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
 "		address &= 0x3FFFF;" +
 "		if ((address & 1) == 0) {" +
 "			return ram[address] >>> 8;" +
@@ -2918,10 +2965,10 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" + // Flash write support.
 "		if ((pc < 0x40000) && !Protection_enabled) {" + // This write runs from RAM, with Protection disabled... chances are that we want to switch to the special mode.
 //"stdlib.console.log(\"Switch to special\");" +
-"			ww = ww_" + suffix + "_flash;" + // Redefine functions
-"			rw = rw_" + suffix + "_flash;" +
-"			rb = rb_" + suffix + "_flash;" +
-"			ww_" + suffix + "_flash(address, value);" + // Forward to special function
+"			ww = ww_" + suffix + "_flashspecial;" + // Redefine functions
+"			rw = rw_" + suffix + "_flashspecial;" +
+"			rb = rb_" + suffix + "_flashspecial;" +
+"			ww_" + suffix + "_flashspecial(address, value);" + // Forward to special function
 "		}" +
 "	}" +
 "	else if (address >= 0x600000 && address < 0x800000) {" +
@@ -2953,7 +3000,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 	eval(memory_write_function);
 
 	memory_write_function =
-"ww_" + suffix + "_flash = function ww_" + suffix + "_flash(address, value)" +
+"ww_" + suffix + "_flashspecial = function ww_" + suffix + "_flashspecial(address, value)" +
 "{" +
 "	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
 "	address = address & 0xFFFFFE;" +
@@ -3040,6 +3087,8 @@ function build_movem_handlers() {
 // store_multiple
 	var movem_handler =
 "store_multiple = function store_multiple(address, mask, size) {" +
+"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
 		movem_handler += "		if (mask & 1) {" +
@@ -3049,11 +3098,11 @@ function build_movem_handlers() {
 "		mask >>>= 1;";
 	}
 	for (reg = 0; reg <= 3; reg++) {
-		movem_handler += "			if (mask & 1) {" +
-"				ww(address, a" + reg + ");" +
-"				address += 2;" +
-"			}" +
-"			mask >>>= 1;";
+		movem_handler += "		if (mask & 1) {" +
+"			ww(address, a" + reg + ");" +
+"			address += 2;" +
+"		}" +
+"		mask >>>= 1;";
 	}
 	movem_handler += "if (!mask) return;";
 	for (reg = 4; reg <= 7; reg++) {
@@ -3095,6 +3144,8 @@ function build_movem_handlers() {
 	movem_handler =
 "store_multiple_predec = function store_multiple_predec(address, mask, size)" +
 "{" +
+"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 7; reg >= 0; reg--) {
 		movem_handler += "		if (mask & 1) {" +
@@ -3151,6 +3202,8 @@ function build_movem_handlers() {
 	movem_handler =
 "load_multiple = function load_multiple(address, mask, size)" +
 "{" +
+"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
 		movem_handler += "		if (mask & 1) {" +
@@ -3212,6 +3265,8 @@ function build_movem_handlers() {
 	movem_handler =
 "load_multiple_postinc = function load_multiple_postinc(address, mask, size)" +
 "{" +
+"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
 		movem_handler += "		if (mask & 1) {" +
@@ -5019,7 +5074,13 @@ function check_asl()
 {
 	var result;
 
-	// TODO
+	sr = 0;
+
+	result = asl(0x80000000, 1, 2);
+	if (result != 0x00000000 || sr != 0x17) {
+		stdlib.console.log("asl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
 
 	return true;
 }
@@ -5122,26 +5183,45 @@ function setUI(newui) {
 }
 
 function get_d0() { return d0; }
+function set_d0(value) { d0 = value; }
 function get_d1() { return d1; }
+function set_d1(value) { d1 = value; }
 function get_d2() { return d2; }
+function set_d2(value) { d2 = value; }
 function get_d3() { return d3; }
+function set_d3(value) { d3 = value; }
 function get_d4() { return d4; }
+function set_d4(value) { d4 = value; }
 function get_d5() { return d5; }
+function set_d5(value) { d5 = value; }
 function get_d6() { return d6; }
+function set_d6(value) { d6 = value; }
 function get_d7() { return d7; }
+function set_d7(value) { d7 = value; }
 
 function get_a0() { return a0; }
+function set_a0(value) { a0 = value; }
 function get_a1() { return a1; }
+function set_a1(value) { a1 = value; }
 function get_a2() { return a2; }
+function set_a2(value) { a2 = value; }
 function get_a3() { return a3; }
+function set_a3(value) { a3 = value; }
 function get_a4() { return a4; }
+function set_a4(value) { a4 = value; }
 function get_a5() { return a5; }
+function set_a5(value) { a5 = value; }
 function get_a6() { return a6; }
+function set_a6(value) { a6 = value; }
 function get_a7() { return a7; }
+function set_a7(value) { a7 = value; }
 function get_a8() { return a8; }
+function set_a8(value) { a8 = value; }
 
 function get_sr() { return sr; }
+function set_sr(value) { sr = value; }
 function get_pc() { return pc; }
+function set_pc(value) { pc = value; }
 
 function get_rom() { return rom; }
 function get_ram() { return ram; }
@@ -5220,6 +5300,10 @@ return {
 	a0 : get_a0, a1 : get_a1, a2 : get_a2, a3 : get_a3, a4 : get_a4, a5 : get_a5, a6 : get_a6, a7 : get_a7, a8 : get_a8,
 	sr : get_sr, pc : get_pc,
 	dn : dn, an : an,
+
+	set_d0 : set_d0, set_d1 : set_d1, set_d2 : set_d2, set_d3 : set_d3, set_d4 : set_d4, set_d5 : set_d5, set_d6 : set_d6, set_d7 : set_d7,
+	set_a0 : set_a0, set_a1 : set_a1, set_a2 : set_a2, set_a3 : set_a3, set_a4 : set_a4, set_a5 : set_a5, set_a6 : set_a6, set_a7 : set_a7, set_a8 : set_a8,
+	set_sr : set_sr, set_pc : set_pc,
 
 	rom : get_rom,
 	ram : get_ram,
