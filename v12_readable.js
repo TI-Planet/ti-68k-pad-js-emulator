@@ -3540,7 +3540,7 @@ function reset_calculator()
 
 	pc = ROM_base+0x12188;
 	sr = 0x2700;
-	port_60001D = (hardware_model == 1) ? 0x9D : 0x8D;
+	//port_60001D = (hardware_model == 1) ? 0x9D : 0x8D;
 
 	link_incoming_queue = new Array();
 	link_outgoing_queue = new Array();
@@ -3807,7 +3807,7 @@ function recvfile(varname, vartype)
 // Extracted out of main_loop to help profiling.
 function timer_interrupts()
 {
-	osc2_counter += 32;
+	osc2_counter += 128; // XXX 32
 
 	if (osc2_counter >= 0x1000000) osc2_counter -= 0x1000000;
 
