@@ -3022,7 +3022,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
 "		if (flash_write_ready) {" + // Write the value to Flash, if we're ready.
-"			rom[(address - " + flashmemoryaddress + ") >>> 1 ] &= value;" +
+"			rom[(address - " + flashmemoryaddress + ") >>> 1] &= value;" +
 "			flash_write_ready--;" +
 "			flash_ret_or = 4294967295;" +
 "		}" +
@@ -3807,7 +3807,7 @@ function recvfile(varname, vartype)
 // Extracted out of main_loop to help profiling.
 function timer_interrupts()
 {
-	osc2_counter += 128; // XXX 32
+	osc2_counter += 128; // XXX Should really be 32, but the AMS UI is _really_ unusable (instead of significantly annoying) with that value...
 
 	if (osc2_counter >= 0x1000000) osc2_counter -= 0x1000000;
 
