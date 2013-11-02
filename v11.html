@@ -2170,9 +2170,11 @@ function create_button(shape, coords, keynumber)
 	area.shape = shape;
 	area.coords = coords;
 	area.onmousedown = function() { keystatus[keynumber] = 1; }
-	area.ontouchdown = function() { keystatus[keynumber] = 1; }
+	area.ontouchstart = function() { keystatus[keynumber] = 1; }
 	area.onmouseup = function() { keystatus[keynumber] = 0; }
-	area.ontouchup = function() { keystatus[keynumber] = 0; }
+	area.ontouchend = function() { keystatus[keynumber] = 0; }
+	area.ontouchleave = function() { keystatus[keynumber] = 0;} 
+	area.ontouchcancel = function() { keystatus[keynumber] = 0; }
 	map.appendChild(area);
 }
 
