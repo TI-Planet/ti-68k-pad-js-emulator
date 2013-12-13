@@ -2805,7 +2805,7 @@ function write_hreg(reg, value)
 		{
 			port_700017 = value & 0x03;
 			lcd_address = 0x4c00 + (port_700017 * 0x1000);
-			stdlib.console.log("Setting LCD address to " + address);
+			stdlib.console.log("Setting LCD address to " + to_hex(lcd_address, 4));
 			break;
 		}
 
@@ -4337,6 +4337,13 @@ function emu_main_loop()
 		}
 
 		var vartype = buf[0x48];
+		// Modify vartype according to the locked / archived byte (libticalcs: calc_89.c: send_var).
+		if (buf[0x49] == 1) { // Locked
+			vartype = 0x26;
+		}
+		else if (buf[0x49] == 2 || buf[0x49] == 3) { // Archived
+			vartype = 0x27;
+		}
 
 		var data_len = buf[0x57] + buf[0x56] * 256;
 
