@@ -1,350 +1,34 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-<title>
-TI-89 / TI-92+ / TI-V200 / TI-89T emulator (beta version 12-debrouxl)
-</title>
-
-<!--
-TODO LIST:
-MUST (before the emulator is generally usable):
-	IMPORTANT BUGFIXES:
-		* highest usability annoyance: completely fix the frequent emulator hangs upon user clicks or keypresses... if only we could identify where they come from, but how ?
-		  One of the simple reproducers is pressing F1 in the APPS Desktop on V200 AMS 3.10.
-		  It's not a consequence of port 600005 emulation being missing (the situation is not better after adding it).
-		  2013/07/27: a slightly less wrong implementation of the keyboard handling seems to help.
-		* lsl(), asl(), lsr(), asr(), rol(), ror(), roxl() and roxr() should be generated, optimized, and probably have the "size" argument constant-propagated.
-		* the add*(), cmp*() and sub*() functions should be generated.
-		* investigate why the emulator's memory consumption increases over time in such a way that the process ends up being killed in Chrome (even though profiling shows nothing of the appropriate order of magnitude), and fix.
-		* when the emulated V200 calculator turns off, ON does not properly put it back, even with the code added 2013/07/25 in fire_cpu_exception().
-		  pc definitely points to the next instruction, so we're not re-executing the same instruction over and over.
-		* check build_* functions against M68000PRM. Two errors wrt. address registers have already been found (and ~600 instructions which should have been illegal made so), chances are that there are more problems.
-		* investigate emulator slowness on Firefox Nightly (it doesn't seem to occur on Chrome ?) after transferring a file.
-		  The slowness doesn't seem to disappear on its own, but it tends to disappear a while after the VAR-Link is launched and exited. Might be linking-related ??
-		  Idea: "WAIT_OK_LAST" special value, upon which the emulator should clear the incoming and outgoing queues ?
-		* fix rate of OSC2, which seems too low now that port 600005 is emulated.
-		  On V200 AMS 3.10, the clock increments too slowly in the APPS Desktop, and the HOME cursor blinks too slowly as well.
-		* fix files transfer to PedroM
-		  According to critor, even PedroM 0.82 fails to understand the linking emulation now, while I seem to be generating the exact same data as libticalcs. For a reasonably general-purpose, non-developer-user-oriented emulator, it's more important for AMS to work than for PedroM to work - but still...
-
-	IMPORTANT FEATURES:
-		* harden the HTML element manipulation code against unavailable elements, add default actions where it makes sense. Reported by critor.
-		* add support for sending keypresses. Reported by critor.
-		* finish screen on/off handling (HW1: bit 4 of 60001D; HW2+: bit 1 of 70001D). At the moment, usage of screen_enabled in draw_calcscreen() is disabled because:
-			* on 92+, values in 60001D are odd as well, and the screen is turned off;
-			* on V200, values in 60001D are odd, but the screen is turned on;
-			* on 89 and 89T, screen state is alright (for AMS usage, at least).
-		* modularize the code further:
-			* move linking emulation code to another object (jsTIfied does it: http://www.cemetech.net/projects/item.php?id=42 )... but that references some state from the core.
-		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
-		* save state support...
-		  Ideas:
-			* a new JS exception, like STOP for 600005 emulation;
-			* generating a JS object containing all of the relevant emulator state and exporting it as JSON [jsTIfied uses JSON];
-			* loading the JSON, regenerating reset() and launching initemu().
-		* some form of debugger (note: would ease implementation of some other features) - well, basically, implement the features from JM's modified VTI & TIEmu :P
-			* (mostly done) implement disassembly(address, count) - in the beginning, through simple string substitution, we'll see whether that's enough;
-			* traverse the VAT - see core/ti_sw/var.c in TIEmu;
-			* add ROM_CALL table in an external file in JSON format, and have ROM_CALL() handle string arguments (for returning the address of a ROM_CALL). Maybe 3 objects: one sorted by ROM_CALL number, one sorted by name, one sorted by address, so that we can use binary search in all situations;
-			* etc.
-		  Breakpoints are going to kill emulation speed :(
-		* unimplemented semi-infrequent processor instructions:
-			* TAS (implemented - not checked)
-			* NBCD (used by PedroM, PreOS, probably as a way to detect VTI - not checked)
-		* disassembly support for all remaining unimplemented instructions.
-		* linking emulation: support for non-silent linking
-		* 3:1 and 4:1 screen scaling ratios for screenshots.
-		* use asm.js for time-critical chunks of the emulator, as Kerm & jacobly are doing for jsTIfied. Requires modularizing the code, see https://github.com/dherman/asm.js .
-		  Non-typed arrays are forbidden ?
-		* expand test suite.
-		  The one started by debrouxl is currently pitiful. Finding a ready-made test program for a 68000 seems to be extremely hard, though - debrouxl spent hours looking in emulators and with generic search engine, to no avail.
-
-	LESS IMPORTANT BUGFIXES / FEATURES:
-		* have SR-manipulating instructions, e.g. RTE and STOP, check for S bit if necessary !
-		* disassembler: for address register indexed with displacement, warn if scale bits != 0 (CPU32+) or bd/od present (68020+).
-		* useful hardware ports not handled:
-			* writes to 60001B: acknowledge AUTO_INT_2 for keyboard.
-		* unimplemented infrequent processor instructions:
-			* CHK (implementation is definitely wrong)
-			* STOP (currently wrongly implemented as a 4-byte NOP; rarely used, but there are several occurrences of STOP in AMS, usually dead ends because they're followed by a branch which gets back to the stop)
-		  Useful resources: M68000PRM.pdf, http://goldencrystal.free.fr/M68kOpcodes.pdf:
-		* ExtGraph demo32: grayscale flickers. The grayscale handling algorithm might be a bit simplistic.
-
-SHOULD at some point:
-	* optimize more
-	  NOTE: with default optimization level Google Closure compiler doesn't seem to help much, on either Firefox or Chrome.
-	  NOTE: various weirdness and counter-intuitive behaviour was met while trying to optimize, see the changelog below.
-	  Might use arrays of 16-bit signed integers for link_incoming_queue and link_outgoing_queue, the special values being negative numbers ? But then, no Array.push()...
-	  lsl(), rol() and several other shift/rotates were pessimized as a result of correctness fixes.
-	* make a more immediate implementation of pause / restart emulation: somehow stop immediately, instead of removing interval timer for emu_main_loop().
-	* count clock cycles
-	  Probably at high speed cost, given that merely counting instructions in the inner loop made the emulator ~50% slower !!
-	* linking support: improved support for silent linking:
-		* dirlist support. Using the VAT / handle traversal code [not yet] made for the debugger, and direct memory reads, would require us to rebuild metadata such as file type ourselves.
-		* UI for retrieving files from the emulator through silent linking.
-
-MIGHT:
-	* unimplemented hardware hardware ports whose implementation can wait for finite or infinite amount of time:
-		- 600000 (battery checker bit). Don't care on emulator.
-		- 600001 (for vectorprotect). However, proper emulation of that would make emulation slower due to extra checks in memory write functions...
-		- 600018 not fully handled: battery checker bits. Don't care on emulator.
-		- 600012 (for LCD logical width), 60001C (LCD row sync frequency): largely useless, though they provide a way to detect the screen being turned off.
-		- R/W 700000-700007, 700008-70000F, 700012: RAM execution protection, ghost of RAM execution protection, and Flash execution protection. Emulating these harmful things would make everything slower.
-		- 700011 "something to do with link port transfer speed". Nobody uses that.
-		- R/W 700014 (RTC with extra slow incrementation).
-		- R/W 70001D battery checker bits
-	* unimplemented processor instructions: proper implementation of the strange movep (not sure whoever used that on the TI-68k series and whether it works :D). Disassembly of movep works.
-
-
-Changelog from PatrickD's version / work log:
-	* generated memory read and write functions
-	  (debrouxl, 2012)
-	* trace reads and writes to unimplemented MMIO ports
-	  (debrouxl, 2012)
-	* AMS 2.xx support
-	  (debrouxl, spring of 2013: values > 32 bits wide in an and dn wrecked havoc)
-	* 89, V200 & 89T support in memory read and write functions - easy once the functions are generated.
-	  (debrouxl, 2013/07)
-	* profiling round 1, and subsequent optimization of movem emulation by nearly an order of magnitude through removal of eval
-	  (debrouxl, 2013/07/07-09)
-	* basic screenshot support
-	  (Adriweb 2013/07/09)
-	* add support for sending files to AMS (works with an old version of PedroM, but not with AMS)
-	  (debrouxl 2013/07/10-11: checked against libticalcs' code, then examined libticables dumps, and adjusted several items)
-	* move the try / catch from inside the innermost loop of emu_main_loop() to outside that loop, making emulation ~5% faster on Chrome.
-	  (debrouxl 2013/07/11)
-	* make it possible to transfer files to a folder other than main (trivial)
-	  (debrouxl 2013/07/12)
-	* fix SIN / COS / TAN keys (reported by critor)
-	* add 1:1 screen output, without scaling
-	  (debrouxl 2013/07/13)
-	* moved the try / catch even further up, and used fire_cpu_exception instead of throw. Makes emulation faster while not affecting correctness, AFAICS.
-	  (debrouxl 2013/07/13)
-	* add a button for resetting calculator - effectively, triggering initialize_calculator()
-	  (debrouxl 2013/07/13)
-	* write memory dump function, needed for debugger
-	  (debrouxl 2013/07/13)
-	* write handles traversal functions, needed for debugger
-	  (debrouxl 2013/07/13)
-	* extremely crude support for Flash memory, needs patching the OS image to NOP out all of the writes in the worker routine of FL_write.
-	  (debrouxl 2013/07/13)
-	* v4tibconv.py needs to be able to cope with .xxu files (like the JS part of the emulator does). Easy, should check for **TIFL** + other markers and skip the appropriate number of bytes.
-	  (debrouxl 2013/07/14)
-	* fix port 600019 handling: the code referenced an undefined variable. Needed for 89 support.
-	  (debrouxl 2013/07/14)
-	* use ROM_base instead of hard-coded value for initial PC in reset_calculator(). Needed for 89 support.
-	  (debrouxl 2013/07/14)
-	* add port 600018 (keyboard & battery) / 60001D (contrast & HW1 screen disable) / 70001D (HW2 LCD FS bit & screen enable) / 70001F (HW2 interrupts master switch) R/W.
-	  (debrouxl 2013/07/14-15)
-	* fix dozens of errors reported by Google Closure compiler in VERBOSE warning mode
-	  (debrouxl 2013/07/14)
-	* slightly optimize creation of initial instruction handlers: do not make A000-AFFF and F000-FFFF unhandled only to redefine them shortly thereafter
-	  (debrouxl 2013/07/14)
-	* add 89/89T keyboard handling in handle_keys() - thanks !
-	  (critor 2013/07/15)
-	* have v4tibconv.py auto-detect the calculator model
-	  (debrouxl 2013/07/14-15)
-	* use a typed array for rom, which means creating a new version of v4tibconv.py (v11tibconv.py): no push() on typed arrays.
-	  (debrouxl 2013/07/14-15)
-	* add support for transferring files to 89 / 89T. It was enough to handle the 89/89T linking calc IDs.
-	  (debrouxl 2013/07/15)
-	* rewrite rb/rw/wb/ww generation and assignation again.
-	  The aim is to pre-generate all variants (92+, 89, V200, 89T) in both normal and special (during Flash writes) mode, and to dynamically assign one of them to each of rb/rw/wb/ww, depending on calculator model (in reset_calculator()) and Flash write mode (from the memory read / write functions themselves).
-	  (debrouxl 2013/07/15)
-	* unimplemented processor instructions: RTR, ILLEGAL, TRAPV
-	  (debrouxl 2013/07/15)
-	* WIP: unimplemented processor instructions: CHK, TAS
-	  (debrouxl 2013/07/15)
-	* decode SR flags
-	  (debrouxl 2013/07/15)
-	* add proper support for Flash memory, which doesn't require editing the OS image
-	  (debrouxl 2013/07/16)
-	* refactor the code for sending files to the emulator, so that the largely common code paths for regular files and Flash files can be shared.
-	  The format of Flash files is different from the format of regular files, the differences are handled by the callers.
-	  (debrouxl 2013/07/16)
-	* add linking-side support for sending FlashApps (which can be > 64 KB) to AMS. Requires slightly different linking protocol, with a loop.
-	  The linking emulation is alright (it can cope with the likes of 100+KB GTC), but for some reason, the two first bytes of the header, and possibly other bytes, are written incorrectly; that can be worked around by using tiosmod+amspatch.
-	  (debrouxl 2013/07/16)
-	* fix a couple keymap definitions for 89 / 89T
-	  (critor 2013/07/17)
-	* split handle_keys() into two functions, one for 89 / 89T and one for 92+ / V200
-	  (debrouxl 2013/07/17)
-	* split calls to create_button() to their own function (needs more refactoring later, should probably be moved to another, new file)
-	  (debrouxl 2013/07/17)
-	* start disassembler implementation, based on post-processing the contents of the n[] array (for now).
-	  Several TODOs written down in the code.
-	  (debrouxl 2013/07/18)
-	* when importing a ROM image in emu_main_loop(), use a typed array.
-	  (debrouxl 2013/07/18)
-	* attempt to auto-detect calculator model from the imported OS image / ROM dump before reinitializing the entire emulator, as the calculator model may have changed. No need for a complicated method, Lionel, you can just rely on the calculator model field in the header (and post-process it with the contents of the HWPB if necessary)...
-	  (debrouxl 2013/07/18-19)
-	* in v11tibconv.py, store the appropriate HWPB address, the appropriate model ID, and a likely gate array revision, into the HWPB.
-	  (debrouxl 2013/07/19)
-	* when importing a TIB / XXU image in emu_main_loop(), use a typed array.
-	  (debrouxl 2013/07/19)
-	* add button for ON key with mousedown/touchdown/mouseup/touchup handlers and 60001A port state
-	  (debrouxl 2013/07/19)
-	* split and factor dumping of incoming and outgoing link queues to separate functions
-	  (debrouxl 2013/07/19)
-	* rename WAIT_OK link pseudo-state to WAIT_ACK
-	  (debrouxl 2013/07/19)
-	* add skeleton of the support for getting files out of the emulator.
-	  For now, packets sent by the calculator are skipped properly, and the variable name needs to be passed to recvfile() as an array of integers.
-	  (debrouxl 2013/07/19)
-	* make recvfile() able to deal with a varname passed as string instead of an array of integers.
-	  (debrouxl 2013/07/20)
-	(* fail to optimize movem handlers by manually constant-propagating "size" argument and generating two different routines for each load/store_multiple: doing so seems to consistently slow down on Firefox !
-	  (debrouxl 2013/07/21))
-	(* fail to find why memory consumption increases over time: Chrome's profiling over 8 hours (at speed ~ 1/10 of native) shows no allocation above 256 KB, and that allocation seems to simply replace the old one
-	  (debrouxl 2013/07/21))
-	* add a create_buttons variable, initialized with create_buttons_large_92p_skin().
-	  (debrouxl 2013/07/23)
-	* disassembler improvements (movem regs decoding) and fixes (LINK, ADD/SUB/OR/AND/EOR, ABCD/SBCD, d(an,ix), d(pc,ix), MOVEQ).
-	  (debrouxl 2013/07/23)
-	* eliminate invalid instructions from emulation core:
-	  * build_moves(): eliminate byte moves _from_ address registers (byte moves _to_ address registers were already forbidden);
-	  * build_bit_operation(): BCHG / BCLR / BSET / BTST to address registers are forbidden.
-	  (debrouxl 2013/07/23)
-	* add hopefully correct implementation of NBCD, and build NBCD instructions.
-	  (debrouxl 2013/07/24)
-	* build the highly infrequent MOVEP instructions, implemented by 4-byte NOPs for now (but disassembly works, that's what I aimed at).
-	  (debrouxl 2013/07/24)
-	* add initial support for retrieving files from the emulator:
-	  * additional button + link in the HTML code (should be made simpler if possible !);
-	  * moved core of recvfile() to recvfile_requestchunk() so that it can be called by link_handling() for receiving more than one chunk;
-	  * add link_reset_state() to factor out some duplicated code (and reset more variables);
-	  * add link_build_output_file() (simplified from libtifiles: ti9x_file_write_regular()), link_magic_number();
-	  * when handling WAIT_ACK, eat less data from link_outgoing_queue;
-	  * when handling WAIT_VAR, eat less data from link_outgoing_queue;
-	  * when handling WAIT_XDP, process contents from VAR packet (varsize, vartype, varname);
-	  * when handling WAIT_CNT, process contents from XDP packet, and either build output file (when receiving EOT) or request another chunk (when receiving CNT);
-	  * add getFileData() and helper buildFileExtensionFromVartype() function.
-	  (debrouxl 2013/07/25)
----------------------------------------
-	* create version 12
-	  (debrouxl 2013/07/25)
-	* uncomment a line to enable support for port 600005, which tremendously reduces browser CPU consumption (~3x-4x) when idling in AMS. Add a trace for resuming in fire_cpu_exception.
-	  (debrouxl 2013/07/25)
-	* when downloading the file created by recvfile(), prepend folder name to file name.
-	  (debrouxl 2013/07/25)
-	* in file reception, when processing the contents of VAR and XDP packets, compare checksums modulo 2^16, so as to avoid spurious "wrong checksum" messages.
-	  (debrouxl 2013/07/25)
-	* move innermost loop out of emu_main_loop() into execute_instructions(). Should have low (enough) speed impact, and will enable debugger usage (execute N instructions). While at it, remove more than 10 KB of outdated debugging code.
-	  (debrouxl 2013/07/26)
-	* early modularization work: wrap everything into a single object which exports a subset of its internals, used by the HTML code or for debugging.
-	  (debrouxl 2013/07/26)
-	* as a result of the modularization work, move emulator checking code into the emulator object (instead of having to export a number of internal functions to the outside...)
-	  (debrouxl 2013/07/26)
-	* make it possible to select screen scaling through the HTML page, instead of having to change the JS code.
-	  (debrouxl 2013/07/26)
-	* further modularization work: move some of the UI into a second object.
-	  (debrouxl 2013/07/26)
-	* slightly less wrong emulation of the keyboard: fire AUTO_INT_2 from setKey() when a key which wasn't pressed before is pressed.
-	  Makes the highest usability annoyance a bit less annoying, but doesn't fix it.
-	  (debrouxl 2013/07/27)
-	* move getPNG() and pngButtons() from core to UI.
-	  (debrouxl 2013/07/27)
-	* implement emulator pause / resume by using clearInterval() / setInterval().
-	  (debrouxl 2013/07/27)
-	* integrate critor's small skins and button definitions; rework HTML; dynamically change more HTML elements.
-	  (debrouxl 2013/07/27)
-	* repurpose "screen scaling ratio" radio buttons for "small skin" / "large skin" selection.
-	  (debrouxl 2013/07/27)
-	* add getter and setter for newfileready and newflashfileready, which can be used by other HTML pages to inject files. Reported by critor.
-	  (debrouxl 2013/07/28)
-	* fix broken keymaps after switching keyboard - the child "area" elements of the map should be cleared. Reported by critor.
-	  (debrouxl 2013/07/28)
-	* export to_hex(), to_hex2(), memory_dump() from core
-	  (debrouxl 2013/07/28)
-	* add testcases for subl(), divu(), divs(), mulu(), muls().
-	  (debrouxl 2013/07/28)
-	* make divs() more correct by clamping divisor value to 0-FFFF.
-	  (debrouxl 2013/07/28)
-	* fix sbcd(): shouldn't use variable "finalresult" before it is defined, should read borrow from X.
-	  (debrouxl 2013/07/29)
-	* fix nbcd(): shouldn't use variable "finalresult" before it is defined.
-	  (debrouxl 2013/07/29)
-	* rewrite addx() to be more similar to add*() functions
-	  (debrouxl 2013/07/29)
-	* fix update_sr(): ignore nonexistent flags.
-	  (debrouxl 2013/07/29)
-	* negx building: clear N, Z, V, C before computing negation with extend.
-	  (debrouxl 2013/07/29)
-	* add empty check_addx(), check_subx(), check_asl(), check_lsr(), check_asr(), check_ror(), check_roxr(), check_roxl()
-	* rewrite lsl() and rol() for correctness, add check_lsl() and check_rol() with a single testcase.
-	  Fixes ExtGraph demo13-17 + demo29, which had glitches when scrolling rightwards, and demo32, where some of the 32-pixel sprites had glitches.
-	  (debrouxl 2013/07/30)
-	(* fail to optimize rw_*_normal, by:
-		* using a pre-generated switch statement with 4096 cases: on Firefox, it consistently slows down the emulator by ~10%, and on Chrome, the slowdown is a horrendous ~5x !
-		* using a pre-generated array of 4096 functions (suggested by benryves & shaun on #cemetech): on Firefox, it's about the same as a switch statement, and on Chrome, the slowdown is ~2x...
-	  (debrouxl 2013/07/31))
-	(* fail to optimize rw_*_normal with 256-case switch and 256-element array of functions: still slower than the original code...
-	  (debrouxl 2013/08/01))
-	* add execute_one_instruction() function.
-	  (debrouxl 2013/08/03)
-	* hopefully make the code work with "use strict" statements (there might remain undeclared variables).
-	  (debrouxl 2013/08/03)
-	* add setters for d0-d7, a0-a8, sr and pc
-	  (debrouxl 2013/08/04)
-	* rename rw_*_flash to rw_*_flashspecial
-	  (debrouxl 2013/08/04)
-	(* fail to optimize movem emulation by using special versions of rw/rl/ww/wl which care only about RAM, it barely makes a difference - JS optimization is definitely highly peculiar and a moving target...
-	  (debrouxl 2013/08/04))
-	* fix multiple shift and rotate routines, fixing highly visible bugs which had been noticed for a while:
-		* some floating-point routines are broken:
-			* sin^-1, cos^-1 and tan^-1 return garbage;
-			* x, x^2, e^x, 1/x, sin, cos, tan, sqrt, sinh, cosh, tanh, sinh^-1, cosh^-1, tanh^-1 are OK.
-		* in the graph screen, F7 Draw - 4 Circle circles have a... um, strange shape.
-		* modified DrawGrayBuffer_TRANW and DrawGrayBuffer_RPLC routines, with roxl instead of rol, show bugginess in the emulation of roxl.
-	  (debrouxl 2013/08/04)
-	* fix 89T bootup by properly emulating the 0-200000 address space (no ghosts of the RAM). The code of rw_*_normal used to be wrong until recently, but it happened to trick the ghost space checking code in AMS (82241C subroutine in 3.10); the version which does not access outside of the bounds of RAM was correct, but didn't make it possible to boot the 89T OS. Bug reported by critor.
-	  (debrouxl 2013/08/04)
-	* add emulation of 70001D bit 7 (LCD FS) for HW2+.
-	  (debrouxl 2013/08/04)
-	* sketch out support of LCD contrast and LCD enable:
-		* move colors out of draw_calcscreen();
-		* add screen_enabled and set_screen_enabled_and_contrast();
-		* call set_screen_enabled_and_contrast() when ports 60001D, 70001D or 70001F are changed;
-	  (debrouxl 2013/08/04)
-	* emulate HW2+ snoop palette range (700017).
-	  (debrouxl 2013/08/04)
-	* make one more fix for lsl(): should clear N, Z, V, C at the beginning. Failure to do so tripped the VTI detection in ExtGraph's alternate grayscale routine, which wrongly failed to take the bpl on HW2.
-	  (debrouxl 2013/08/04)
-	* change screen pixel colors according to contrast setting (60001D, 70001F).
-	  (debrouxl 2013/08/04)
-	(* notice that FlashApps, which used not to be written correctly, now work :)
-	  It is possible to use pristine OS upgrades whose Flashapp validation is not rendered ineffective (Flashappy / tiosmod+amspatch).
-	  The fact that the 2 first bytes of the header (which might be written last ?) were not written properly could have been a consequence of the fact something else is wrong with either the FlashApp's contents or the bignum computations, which might have been a consequence of badness in shifts and rotates ?
-	  (debrouxl 2013/08/06))
-	* when sending a file to the emulator, take into account the "archive" / "lock" byte contained in computer files. Reported by critor.
-	  (debrouxl 2013/08/07)
-
-Achievements:
-	* this emulator uncovered a 6-year-old bug, due to a flat out invalid optimization in a HW1-only code path, in the alternate grayscale routine for ExtGraph (gray.o) :)
-	  The bug prevented demo12-demo17, demo19, demo22, demo24-demo26 from displaying the expected data on the emulator.
-	  Subsequently, these demos provided a nice bunch of reduced testcases for:
-		* pinpointing and fixing a problem in lsl() and rol();
-		* showing that asl instead of lsl in DrawGrayBuffer_RPLC and DrawGrayBuffer_TRANW (used by demo13) doesn't yield the same graphical glitch, so asl() was probably free from the bug previously in lsl();
-		* however, using roxl instead of rol in the same routines yields far more graphical glitches than expected (and than on TIEmu), so roxl was buggy as well.
--->
-
-<script type="text/javascript" src="v12_readable.js"></script>
+<meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+<title>TI-89 / TI-92+ / TI-V200 / TI-89T emulator (beta version 12-debrouxl)</title>
+<script type="text/javascript" src="v12_readable_new.js"></script>
 <script type="text/javascript">
-var emu = EmulatorCoreModule(window);
-var ui = EmulatorUIModule(window);
+var emu = TI68kEmulatorCoreModule(window);
+var ui = TI68kEmulatorUIModule(window);
+var link = TI68kEmulatorLinkModule(window);
 </script>
 
-<script type="text/javascript" src="v4rom.js"></script>
-<script type="text/javascript" src="v4sav.js"></script>
+<script type="text/javascript" src="v12rom.js"></script>
+<script type="text/javascript" src="v12sav.js"></script>
 <script type="text/javascript">
+if (emu.apiversion() != 1) {
+    throw "API version has changed, the script may have to be updated";
+}
 emu.setRom(rom);
 emu.setReset(reset);
 ui.setEmu(emu);
+ui.setLink(link);
 emu.setUI(ui);
+emu.setLink(link);
+link.setEmu(emu);
+link.setUI(ui);
+
+// Here, you could call a bunch of set_elementid_* functions on ui, e.g. set_elementid_calcimg(), to link your document's element IDs with the script.
 </script>
-
-
 </head>
+
 <body onload="javascript:emu.initemu()">
 <h3>Javascript TI-89 / TI-92+ / TI-V200 / TI-89T emulator (beta version 12) by Patrick Davidson &amp; Lionel Debroux</h3>
 
@@ -356,12 +40,12 @@ emu.setUI(ui);
 
 <div id="textandbuttons" style="position:relative">
 <form>
-<p> <input type="file" onchange="javascript:emu.loadrom()" id="romfile"> Choose a ROM image (in TIB, ??U, or plain ROM format) to load the new ROM and reset the calculator.  Choose a file to upload a new variable to
+<p> <input type="file" onchange="javascript:ui.loadrom()" id="romfile"> Choose a ROM image (in TIB, ??U, or plain ROM format) to load the new ROM and reset the calculator.  Choose a file to upload a new variable to
 the calculator (you must be on the home screen to do this).  Note that while the pre-loaded programs are quite
 compatible with this emulator, compability with other programs is limited in this version.</p>
 <p>
-<input type="button" value="Pause emulator" id="pause_emulator" onclick="javascript:ui.pause_emulator()"/>
-<input type="button" value="Resume emulator" id="resume_emulator" style="display:none" onclick="javascript:ui.resume_emulator()"/><br/>
+<input type="button" value="Pause emulator" id="pauseemulator" onclick="javascript:ui.pause_emulator()"/>
+<input type="button" value="Resume emulator" id="resumeemulator" style="display:none" onclick="javascript:ui.resume_emulator()"/><br/>
 
 <input type="button" value="Reset calculator" id="reset_calculator" onclick="javascript:emu.initialize_calculator()"/><br>
 
@@ -370,7 +54,7 @@ compatible with this emulator, compability with other programs is limited in thi
 <input type="button" value="Close PNG screenshot" id="hideButton" style="display:none" onclick="javascript:ui.pngButtons()"/><img id="pngimage" src=""/><br/>
 <!-- http://stackoverflow.com/a/16213045  -->
 
-<input type="button" value="Make data created by recvfile() available" id="downloadFileButton" onclick="javascript:emu.getFileData()"/></form><br/>
+<input type="button" value="Make data created by recvfile() available" id="downloadFileButton" onclick="javascript:link.getFileData()"/></form><br/>
 <a href="" id="downloadFile" style="display:none">Download data created by recvfile()</a>
 
 Skin type: <form>
