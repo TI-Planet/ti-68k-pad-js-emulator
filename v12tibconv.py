@@ -9,7 +9,7 @@ import sys;
 
 print "Opening " + sys.argv[1] + "."
 infile = open(sys.argv[1], "rb")
-outfile = open("v4rom.js", "w")
+outfile = open("v12rom.js", "w")
 
 o = 0
 high = 0
