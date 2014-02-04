@@ -13,14 +13,11 @@ MUST (before the emulator is generally usable):
 		  One of the simple reproducers is pressing F1 in the APPS Desktop on V200 AMS 3.10.
 		  It's not a consequence of port 600005 emulation being missing (the situation is not better after adding it).
 		  2013/07/27: a slightly less wrong implementation of the keyboard handling seems to help.
-		* some floating-point routines are broken, e.g. tan(tan^-1(x)) is garbage. x, x^2, e^x, 1/x, sin, cos, tan, sin^-1, cos^-1 seem OK.
-		* in the graph screen, F7 Draw - 4 Circle circles have a... um, strange shape.
+		* lsl(), asl(), lsr(), asr(), rol(), ror(), roxl() and roxr() should be generated, optimized, and probably have the "size" argument constant-propagated.
+		* the add*(), cmp*() and sub*() functions should be generated.
 		* investigate why the emulator's memory consumption increases over time in such a way that the process ends up being killed in Chrome (even though profiling shows nothing of the appropriate order of magnitude), and fix.
-		* investigate why FlashApps are not written entirely correctly (starting with the 2 first bytes of the header), and fix.
-		  When that is done, it becomes possible to use pristine OS upgrades whose Flashapp validation is not bypassed (the effect of Flashappy / tiosmod+amspatch) :)
-		  Note: perhaps the fact that the 2 first bytes of the header (which might be written last ?) are not written properly is a consequence of the fact something else is wrong with the FlashApp's contents ?
-		* when the calculator turns off, ON does not properly put it back, even with the code added 2013/07/25 in fire_cpu_exception().
-		  pc points to the next instruction, so we're not re-executing the same instruction over and over.
+		* when the emulated V200 calculator turns off, ON does not properly put it back, even with the code added 2013/07/25 in fire_cpu_exception().
+		  pc definitely points to the next instruction, so we're not re-executing the same instruction over and over.
 		* check build_* functions against M68000PRM. Two errors wrt. address registers have already been found (and ~600 instructions which should have been illegal made so), chances are that there are more problems.
 		* investigate emulator slowness on Firefox Nightly (it doesn't seem to occur on Chrome ?) after transferring a file.
 		  The slowness doesn't seem to disappear on its own, but it tends to disappear a while after the VAR-Link is launched and exited. Might be linking-related ??
@@ -32,8 +29,13 @@ MUST (before the emulator is generally usable):
 
 	IMPORTANT FEATURES:
 		* harden the HTML element manipulation code against unavailable elements, add default actions where it makes sense. Reported by critor.
+		* add support for sending keypresses. Reported by critor.
+		* finish screen on/off handling (HW1: bit 4 of 60001D; HW2+: bit 1 of 70001D). At the moment, usage of screen_enabled in draw_calcscreen() is disabled because:
+			* on 92+, values in 60001D are odd as well, and the screen is turned off;
+			* on V200, values in 60001D are odd, but the screen is turned on;
+			* on 89 and 89T, screen state is alright (for AMS usage, at least).
 		* modularize the code further:
-			* at least, move linking emulation code to another object (jsTIfied does it: http://www.cemetech.net/projects/item.php?id=42 ).
+			* move linking emulation code to another object (jsTIfied does it: http://www.cemetech.net/projects/item.php?id=42 )... but that references some state from the core.
 		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
 		* save state support...
 		  Ideas:
@@ -43,7 +45,7 @@ MUST (before the emulator is generally usable):
 		* some form of debugger (note: would ease implementation of some other features) - well, basically, implement the features from JM's modified VTI & TIEmu :P
 			* (mostly done) implement disassembly(address, count) - in the beginning, through simple string substitution, we'll see whether that's enough;
 			* traverse the VAT - see core/ti_sw/var.c in TIEmu;
-			* add ROM_CALL table in an external file, and have ROM_CALL() handle string arguments (for returning the address of a ROM_CALL). Maybe 3 objects: one sorted by ROM_CALL number, one sorted by name, one sorted by address, so that we can use binary search in all situations;
+			* add ROM_CALL table in an external file in JSON format, and have ROM_CALL() handle string arguments (for returning the address of a ROM_CALL). Maybe 3 objects: one sorted by ROM_CALL number, one sorted by name, one sorted by address, so that we can use binary search in all situations;
 			* etc.
 		  Breakpoints are going to kill emulation speed :(
 		* unimplemented semi-infrequent processor instructions:
@@ -54,6 +56,8 @@ MUST (before the emulator is generally usable):
 		* 3:1 and 4:1 screen scaling ratios for screenshots.
 		* use asm.js for time-critical chunks of the emulator, as Kerm & jacobly are doing for jsTIfied. Requires modularizing the code, see https://github.com/dherman/asm.js .
 		  Non-typed arrays are forbidden ?
+		* expand test suite.
+		  The one started by debrouxl is currently pitiful. Finding a ready-made test program for a 68000 seems to be extremely hard, though - debrouxl spent hours looking in emulators and with generic search engine, to no avail.
 
 	LESS IMPORTANT BUGFIXES / FEATURES:
 		* have SR-manipulating instructions, e.g. RTE and STOP, check for S bit if necessary !
@@ -64,37 +68,35 @@ MUST (before the emulator is generally usable):
 			* CHK (implementation is definitely wrong)
 			* STOP (currently wrongly implemented as a 4-byte NOP; rarely used, but there are several occurrences of STOP in AMS, usually dead ends because they're followed by a branch which gets back to the stop)
 		  Useful resources: M68000PRM.pdf, http://goldencrystal.free.fr/M68kOpcodes.pdf:
-		* contrast handling, screen on/off handling (minor impacts on draw_calcscreen()).
+		* ExtGraph demo32: grayscale flickers. The grayscale handling algorithm might be a bit simplistic.
 
 SHOULD at some point:
 	* optimize more
 	  NOTE: with default optimization level Google Closure compiler doesn't seem to help much, on either Firefox or Chrome.
+	  NOTE: various weirdness and counter-intuitive behaviour was met while trying to optimize, see the changelog below.
 	  Might use arrays of 16-bit signed integers for link_incoming_queue and link_outgoing_queue, the special values being negative numbers ? But then, no Array.push()...
+	  lsl(), rol() and several other shift/rotates were pessimized as a result of correctness fixes.
 	* make a more immediate implementation of pause / restart emulation: somehow stop immediately, instead of removing interval timer for emu_main_loop().
-	* expand test suite.
-	  The one started by debrouxl is currently pitiful. Finding a ready-made test program for a 68000 seems to be extremely hard, though - debrouxl spent hours looking in emulators and with generic search engine, to no avail.
 	* count clock cycles
 	  Probably at high speed cost, given that merely counting instructions in the inner loop made the emulator ~50% slower !!
 	* linking support: improved support for silent linking:
 		* dirlist support. Using the VAT / handle traversal code [not yet] made for the debugger, and direct memory reads, would require us to rebuild metadata such as file type ourselves.
 		* UI for retrieving files from the emulator through silent linking.
 
-
 MIGHT:
 	* unimplemented hardware hardware ports whose implementation can wait for finite or infinite amount of time:
 		- 600000 (battery checker bit). Don't care on emulator.
 		- 600001 (for vectorprotect). However, proper emulation of that would make emulation slower due to extra checks in memory write functions...
 		- 600018 not fully handled: battery checker bits. Don't care on emulator.
-		- 600012 (for LCD logical width), 60001C (LCD row sync frequency): largely useless.
+		- 600012 (for LCD logical width), 60001C (LCD row sync frequency): largely useless, though they provide a way to detect the screen being turned off.
 		- R/W 700000-700007, 700008-70000F, 700012: RAM execution protection, ghost of RAM execution protection, and Flash execution protection. Emulating these harmful things would make everything slower.
 		- 700011 "something to do with link port transfer speed". Nobody uses that.
 		- R/W 700014 (RTC with extra slow incrementation).
-		- R/W 700017 (HW2+ display snoop memory range). Pretty much nobody uses that.
 		- R/W 70001D battery checker bits
 	* unimplemented processor instructions: proper implementation of the strange movep (not sure whoever used that on the TI-68k series and whether it works :D). Disassembly of movep works.
 
 
-Changelog from PatrickD's version:
+Changelog from PatrickD's version / work log:
 	* generated memory read and write functions
 	  (debrouxl, 2012)
 	* trace reads and writes to unimplemented MMIO ports
@@ -248,7 +250,7 @@ Changelog from PatrickD's version:
 	  (debrouxl 2013/07/27)
 	* repurpose "screen scaling ratio" radio buttons for "small skin" / "large skin" selection.
 	  (debrouxl 2013/07/27)
-	* add getter and setter for newfileready, which can be used by other HTML pages to inject files. Reported by critor.
+	* add getter and setter for newfileready and newflashfileready, which can be used by other HTML pages to inject files. Reported by critor.
 	  (debrouxl 2013/07/28)
 	* fix broken keymaps after switching keyboard - the child "area" elements of the map should be cleared. Reported by critor.
 	  (debrouxl 2013/07/28)
@@ -256,8 +258,74 @@ Changelog from PatrickD's version:
 	  (debrouxl 2013/07/28)
 	* add testcases for subl(), divu(), divs(), mulu(), muls().
 	  (debrouxl 2013/07/28)
-	* make divs() more correct
+	* make divs() more correct by clamping divisor value to 0-FFFF.
 	  (debrouxl 2013/07/28)
+	* fix sbcd(): shouldn't use variable "finalresult" before it is defined, should read borrow from X.
+	  (debrouxl 2013/07/29)
+	* fix nbcd(): shouldn't use variable "finalresult" before it is defined.
+	  (debrouxl 2013/07/29)
+	* rewrite addx() to be more similar to add*() functions
+	  (debrouxl 2013/07/29)
+	* fix update_sr(): ignore nonexistent flags.
+	  (debrouxl 2013/07/29)
+	* negx building: clear N, Z, V, C before computing negation with extend.
+	  (debrouxl 2013/07/29)
+	* add empty check_addx(), check_subx(), check_asl(), check_lsr(), check_asr(), check_ror(), check_roxr(), check_roxl()
+	* rewrite lsl() and rol() for correctness, add check_lsl() and check_rol() with a single testcase.
+	  Fixes ExtGraph demo13-17 + demo29, which had glitches when scrolling rightwards, and demo32, where some of the 32-pixel sprites had glitches.
+	  (debrouxl 2013/07/30)
+	(* fail to optimize rw_*_normal, by:
+		* using a pre-generated switch statement with 4096 cases: on Firefox, it consistently slows down the emulator by ~10%, and on Chrome, the slowdown is a horrendous ~5x !
+		* using a pre-generated array of 4096 functions (suggested by benryves & shaun on #cemetech): on Firefox, it's about the same as a switch statement, and on Chrome, the slowdown is ~2x...
+	  (debrouxl 2013/07/31))
+	(* fail to optimize rw_*_normal with 256-case switch and 256-element array of functions: still slower than the original code...
+	  (debrouxl 2013/08/01))
+	* add execute_one_instruction() function.
+	  (debrouxl 2013/08/03)
+	* hopefully make the code work with "use strict" statements (there might remain undeclared variables).
+	  (debrouxl 2013/08/03)
+	* add setters for d0-d7, a0-a8, sr and pc
+	  (debrouxl 2013/08/04)
+	* rename rw_*_flash to rw_*_flashspecial
+	  (debrouxl 2013/08/04)
+	(* fail to optimize movem emulation by using special versions of rw/rl/ww/wl which care only about RAM, it barely makes a difference - JS optimization is definitely highly peculiar and a moving target...
+	  (debrouxl 2013/08/04))
+	* fix multiple shift and rotate routines, fixing highly visible bugs which had been noticed for a while:
+		* some floating-point routines are broken:
+			* sin^-1, cos^-1 and tan^-1 return garbage;
+			* x, x^2, e^x, 1/x, sin, cos, tan, sqrt, sinh, cosh, tanh, sinh^-1, cosh^-1, tanh^-1 are OK.
+		* in the graph screen, F7 Draw - 4 Circle circles have a... um, strange shape.
+		* modified DrawGrayBuffer_TRANW and DrawGrayBuffer_RPLC routines, with roxl instead of rol, show bugginess in the emulation of roxl.
+	  (debrouxl 2013/08/04)
+	* fix 89T bootup by properly emulating the 0-200000 address space (no ghosts of the RAM). The code of rw_*_normal used to be wrong until recently, but it happened to trick the ghost space checking code in AMS (82241C subroutine in 3.10); the version which does not access outside of the bounds of RAM was correct, but didn't make it possible to boot the 89T OS. Bug reported by critor.
+	  (debrouxl 2013/08/04)
+	* add emulation of 70001D bit 7 (LCD FS) for HW2+.
+	  (debrouxl 2013/08/04)
+	* sketch out support of LCD contrast and LCD enable:
+		* move colors out of draw_calcscreen();
+		* add screen_enabled and set_screen_enabled_and_contrast();
+		* call set_screen_enabled_and_contrast() when ports 60001D, 70001D or 70001F are changed;
+	  (debrouxl 2013/08/04)
+	* emulate HW2+ snoop palette range (700017).
+	  (debrouxl 2013/08/04)
+	* make one more fix for lsl(): should clear N, Z, V, C at the beginning. Failure to do so tripped the VTI detection in ExtGraph's alternate grayscale routine, which wrongly failed to take the bpl on HW2.
+	  (debrouxl 2013/08/04)
+	* change screen pixel colors according to contrast setting (60001D, 70001F).
+	  (debrouxl 2013/08/04)
+	(* notice that FlashApps, which used not to be written correctly, now work :)
+	  It is possible to use pristine OS upgrades whose Flashapp validation is not rendered ineffective (Flashappy / tiosmod+amspatch).
+	  The fact that the 2 first bytes of the header (which might be written last ?) were not written properly could have been a consequence of the fact something else is wrong with either the FlashApp's contents or the bignum computations, which might have been a consequence of badness in shifts and rotates ?
+	  (debrouxl 2013/08/06))
+	* when sending a file to the emulator, take into account the "archive" / "lock" byte contained in computer files. Reported by critor.
+	  (debrouxl 2013/08/07)
+
+Achievements:
+	* this emulator uncovered a 6-year-old bug, due to a flat out invalid optimization in a HW1-only code path, in the alternate grayscale routine for ExtGraph (gray.o) :)
+	  The bug prevented demo12-demo17, demo19, demo22, demo24-demo26 from displaying the expected data on the emulator.
+	  Subsequently, these demos provided a nice bunch of reduced testcases for:
+		* pinpointing and fixing a problem in lsl() and rol();
+		* showing that asl instead of lsl in DrawGrayBuffer_RPLC and DrawGrayBuffer_TRANW (used by demo13) doesn't yield the same graphical glitch, so asl() was probably free from the bug previously in lsl();
+		* however, using roxl instead of rol in the same routines yields far more graphical glitches than expected (and than on TIEmu), so roxl was buggy as well.
 -->
 
 <script type="text/javascript" src="v12_readable.js"></script>
