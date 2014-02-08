@@ -20,20 +20,22 @@ MUST:
 		  The slowness doesn't seem to disappear on its own, but it tends to disappear a while after the VAR-Link is launched and exited. Might be linking-related ??
 		  Idea: "WAIT_OK_LAST" special value, upon which the emulator should clear the incoming and outgoing queues ?
 		  Or maybe it's just bad interaction with the GC's mechanics...
-		* fix rate of OSC2, which seems too low now that port 600005 is emulated.
-		  On V200 AMS 3.10, the clock increments too slowly in the APPS Desktop, and the HOME cursor blinks too slowly as well.
-		* fix files transfer to PedroM
-		  According to critor, even PedroM 0.82 fails to understand the linking emulation now, while I seem to be generating the exact same data as libticalcs. For a reasonably general-purpose, non-developer-user-oriented emulator, it's more important for AMS to work than for PedroM to work - but still...
+		* fix rate of OSC2, which seems too low now that port 600005 is emulated... or maybe not.
+		  On V200 AMS 3.10:
+			* the clock increments too slowly in the APPS Desktop (2014/02/05: ~15 real minutes to reach 12:05), and the HOME cursor blinks too slowly as well;
+			* after the APD, in ~5 real minutes, the AUTO_INT_3 timer has incremented the RTC by ~5 emulated minutes.
+		  TODO: busy-wait loops based on while (!OSTimerExpired(APD_TIMER)), with and without instructions in the loop body.
+		* fix files transfer to PedroM if necessary ?
+		  2013/08: according to critor, PedroM 0.82 failed to understand the linking emulation now, while I seem to be generating the exact same data as libticalcs. For a reasonably general-purpose, non-developer-user-oriented emulator, it's more important for AMS to work than for PedroM to work - but still...
+		  2014/02/05: for Folco, transferring a program worked on the first try, so it's not totally broken - or it was somehow fixed in-between.
 
 	IMPORTANT FEATURES:
-		* harden the HTML element manipulation code against unavailable elements, add default actions where it makes sense. Reported by critor.
-		* finish screen on/off handling (HW1: bit 4 of 60001D; HW2+: bit 1 of 70001D). At the moment, usage of screen_enabled in draw_calcscreen() is disabled because:
-			* on 92+, values in 60001D are odd as well, and the screen is turned off;
-			* on V200, values in 60001D are odd, but the screen is turned on;
-			* on 89 and 89T, screen state is alright (for AMS usage, at least).
+		* harden the HTML element manipulation code against unavailable elements (that is, getElementById not finding the element), add default actions where it makes sense. Reported by critor.
 		* modularize the code further ? At least, the linking emulation code is now separated from the core code.
 		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
-		* save state support...
+		* add / change key bindings in handle_keys_89_89T() and handle_keys_92P_V200(): for consistency with VTI and TIEmu, it would be great if F10 triggered the file input (romfile). Reported by Folco.
+		* add the ability to _select_ and send multiple files. Suggested by Folco. The TI-Planet integration already shows how to send multiple files.
+		* add save state (and restore state, obviously) support...
 		  Ideas:
 			* a new JS exception, like STOP for 600005 emulation;
 			* generating a JS object containing all of the relevant emulator state and exporting it as JSON [jsTIfied uses JSON];
@@ -44,9 +46,9 @@ MUST:
 			* add ROM_CALL table in an external file in JSON format, and have ROM_CALL() handle string arguments (for returning the address of a ROM_CALL). Maybe 3 objects: one sorted by ROM_CALL number, one sorted by name, one sorted by address, so that we can use binary search in all situations;
 			* etc.
 		  Breakpoints are going to kill emulation speed :(
-		* unimplemented semi-infrequent processor instructions:
-			* TAS (implemented - not checked)
-			* NBCD (used by PedroM, PreOS, probably as a way to detect VTI - not checked)
+		* partially implemented semi-infrequent processor instructions:
+			* TAS: implemented - not checked
+			* NBCD: implemented, it's alright for normal inputs but fails with garbage inputs like VTI does.
 		* lsl(), asl(), lsr(), asr(), rol(), ror(), roxl() and roxr() should be generated, optimized, and probably have the "size" argument constant-propagated.
 		* the add*(), cmp*() and sub*() functions should be generated.
 		* disassembly support for all remaining unimplemented instructions.
@@ -54,7 +56,9 @@ MUST:
 			* support for non-silent linking.
 			* silent dirlist support. Using the VAT / handle traversal code [not yet] made for the debugger, and direct memory reads, would require us to rebuild metadata such as file type ourselves.
 			* UI for retrieving files from the emulator through silent linking.
-		* 3:1 and 4:1 screen scaling ratios for screenshots.
+		* make it possible to generate screenshots with 3:1 and 4:1 scaling. The code for upscaling with those factors already exists inside the UI part, but it's not exposed yet.
+		* optimized screen drawing and scaling on 89/89T: no need to compute 240x128 pixels, we can just compute 160x100 pixels.
+		* generation of animated GIF images, see e.g. https://github.com/antimatter15/jsgif and https://github.com/deanm/omggif .
 		* use asm.js for time-critical chunks of the emulator, as Kerm & jacobly have worked on doing for jsTIfied. Requires modularizing the code, see https://github.com/dherman/asm.js .
 		  Non-typed arrays are forbidden ?
 		* expand test suite.
@@ -71,14 +75,14 @@ MUST:
 		* ExtGraph demo32: grayscale flickers. The grayscale handling algorithm is certainly a bit simplistic. Not that we want to do something as complex as TIEmu's code, though...
 
 SHOULD at some point:
-	* optimize more
+	* optimize more...
 	  NOTE: with default optimization level Google Closure compiler doesn't seem to help much, on either Firefox or Chrome.
 	  NOTE: various weirdness and counter-intuitive behaviour was met while trying to optimize, see the changelog below.
 	  Might use arrays of 16-bit signed integers for link_incoming_queue and link_outgoing_queue, the special values being negative numbers ? But then, no Array.push()...
 	  lsl(), rol() and several other shift/rotates were pessimized as a result of correctness fixes.
 	* make a more immediate implementation of pause / restart emulation: somehow stop immediately, instead of removing interval timer for emu_main_loop().
 	* count clock cycles for non-trivial instructions.
-	  Probably at high speed cost, given that merely counting instructions in the inner loop made the emulator ~50% slower !!
+	  Probably at high speed cost, given that merely counting instructions in the inner loop made the emulator ~50% slower !! (at some point)
 	* add symbolic key codes to sendkeys() ?
 
 MIGHT:
@@ -359,12 +363,22 @@ Changelog from PatrickD's version / work log:
 	  (debrouxl 2014/02/04)
 	* improve link.sendkeys() to handle both numbers and strings in the passed array, so that link.sendkeys(['exec("4e444e750000")', 0xD]); becomes possible.
 	  (debrouxl 2014/02/04)
-	* implement RESET instruction (4E70)
+	* implement RESET (4E70) instruction.
 	  (debrouxl 2014/02/04)
 	* have all remaining privileged instructions check for S bit, e.g. ANDI to SR, EORI to SR, ORI to SR, MOVE to SR.
 	  (debrouxl 2014/02/04)
 	* implement instruction costs for ANDI to SR, EORI to SR, ORI to SR, CMPM, ADDX, SUBX, ABCD, SBCD, A-Line, F-Line.
 	  (debrouxl 2014/02/04)
+	* in build_moves(), if the destination is an address register, make the mnemonic "MOVEA" instead of "MOVE". Indirectly reported by Folco.
+	  (debrouxl 2014/02/05)
+	* add 3:1 and 4:1 screen scaling ratio support, the scaling routines are fairly slow.
+	  (debrouxl 2014/02/08)
+	* add several classic key bindings known from VTI & TIEmu in handle_keys_89_89T() and handle_keys_92P_V200(): Shift, Diamond, 2nd, Clear, Hand. Some of them reported by Folco.
+	  On a wide range of browsers, left shift has code 16, left Ctrl has code 17, left Alt has code 18, Caps Lock has code 20, Delete has code 46. See e.g. http://javascript.info/tutorial/keyboard-events for a test program, and http://unixpapa.com/js/key.html for analysis on old browsers.
+	  (debrouxl 2014/02/08)
+	* remove F10 -> Shift key binding from handle_keys_89_89T() and handle_keys_92P_V200(), for consistency with VTI and TIEmu, which map "Send file to emulator..." onto F10.
+	  (debrouxl 2014/02/08)
+
 
 Achievements:
 	* this emulator uncovered a 6-year-old bug, due to a flat out invalid optimization in a HW1-only code path, in the alternate grayscale routine for ExtGraph (gray.o) :)
@@ -373,7 +387,7 @@ Achievements:
 		* pinpointing and fixing a problem in the emulation of lsl() and rol();
 		* showing that asl instead of lsl in DrawGrayBuffer_RPLC and DrawGrayBuffer_TRANW (used by demo13) doesn't yield the same graphical glitch, so asl() was probably free from the bug previously in lsl();
 		* however, using roxl instead of rol in the same routines yields far more graphical glitches than expected (and than on TIEmu), so roxl was buggy as well.
-		Fixing these instructions fixed both some floating-point computations (and non-deterministic graphing) and ellipse drawing in AMS.
+		Fixing these instructions fixed both some non-deterministic floating-point computations (and therefore graphing) and ellipse drawing in AMS, see an entry from 2013/08/04.
 */
 
 function TI68kEmulatorCoreModule(stdlib) {
@@ -2099,7 +2113,7 @@ function build_moves(name, size, pattern)
 					if (valid_source(srcmode, srcreg) && valid_dest(dstmode, dstreg))
 					{
 						var opcode = pattern + (dstreg << 9) + (dstmode << 6) + (srcmode << 3) + srcreg
-						var fullname = name + " " + amode_name(srcmode, srcreg, size) + "," + amode_name(dstmode, dstreg, size)
+						var fullname = ((dstmode == 1) ? name : name.replace("MOVE", "MOVEA")) + " " + amode_name(srcmode, srcreg, size) + "," + amode_name(dstmode, dstreg, size)
 						var code = amode_read(srcmode, srcreg, size, true)
 						code += amode_write(dstmode, dstreg, size, "s")
 						// set condition codes, except when writing to a registers
@@ -2836,7 +2850,7 @@ build_muldiv("MULU", 0xC0C0, "mulu")
 build_bit_operation("BCLR", 0x880)
 build_bit_operation("BTST", 0x800)
 build_bit_operation("BCHG", 0x840)
-build_bit_operation("BSET", 0x8c0);
+build_bit_operation("BSET", 0x8c0)
 build_shifts("ASL", 0xE100, 0xE1C0, "asl")
 build_shifts("ASR", 0xE000, 0xE0C0, "asr")
 build_shifts("LSL", 0xE108, 0xE3C0, "lsl")
@@ -6136,7 +6150,7 @@ function output_calcscreen_to_bitmap_scale1(calcscreen, buff)
 	var pixel = 0;
 	var p = 0;
 
-	for (var y = 0; y < 3840 * 128; y += 3840) {
+	for (var y = 0; y < 128; y++) {
 		for (var x = 0; x < 240; x++) {
 			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
 			buff[p] = color;
@@ -6152,7 +6166,7 @@ function output_calcscreen_to_bitmap_scale2(calcscreen, buff)
 	var pixel = 0;
 	var p = 0;
 
-	for (var y = 0; y < 3840 * 128; y += 3840) {
+	for (var y = 0; y < 128; y++) {
 		for (var x = 0; x < 240; x++) {
 			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
 			buff[p] = color;
@@ -6173,16 +6187,127 @@ function output_calcscreen_to_bitmap_scale2(calcscreen, buff)
 	}
 };
 
+function output_calcscreen_to_bitmap_scale3(calcscreen, buff)
+{
+	var pixel = 0;
+	var p = 0;
+
+	for (var y = 0; y < 128; y++) {
+		for (var x = 0; x < 240; x++) {
+			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
+			buff[p] = color;
+			buff[p + 1] = color;
+			buff[p + 2] = color;
+			buff[p + 4] = color;
+			buff[p + 5] = color;
+			buff[p + 6] = color;
+			buff[p + 8] = color;
+			buff[p + 9] = color;
+			buff[p + 10] = color;
+			buff[p + 2880] = color;
+			buff[p + 2881] = color;
+			buff[p + 2882] = color;
+			buff[p + 2884] = color;
+			buff[p + 2885] = color;
+			buff[p + 2886] = color;
+			buff[p + 2888] = color;
+			buff[p + 2889] = color;
+			buff[p + 2890] = color;
+			buff[p + 5760] = color;
+			buff[p + 5761] = color;
+			buff[p + 5762] = color;
+			buff[p + 5764] = color;
+			buff[p + 5765] = color;
+			buff[p + 5766] = color;
+			buff[p + 5768] = color;
+			buff[p + 5769] = color;
+			buff[p + 5770] = color;
+			p+=12;
+		}
+		p += 5760;
+	}
+};
+
+function output_calcscreen_to_bitmap_scale4(calcscreen, buff)
+{
+	var pixel = 0;
+	var p = 0;
+
+	for (var y = 0; y < 3840 * 128; y += 3840) {
+		for (var x = 0; x < 240; x++) {
+			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
+						buff[p] = color;
+			buff[p + 1] = color;
+			buff[p + 2] = color;
+			buff[p + 4] = color;
+			buff[p + 5] = color;
+			buff[p + 6] = color;
+			buff[p + 8] = color;
+			buff[p + 9] = color;
+			buff[p + 10] = color;
+			buff[p + 12] = color;
+			buff[p + 13] = color;
+			buff[p + 14] = color;
+			buff[p + 3840] = color;
+			buff[p + 3841] = color;
+			buff[p + 3842] = color;
+			buff[p + 3844] = color;
+			buff[p + 3845] = color;
+			buff[p + 3846] = color;
+			buff[p + 3848] = color;
+			buff[p + 3849] = color;
+			buff[p + 3850] = color;
+			buff[p + 3852] = color;
+			buff[p + 3853] = color;
+			buff[p + 3854] = color;
+			buff[p + 7680] = color;
+			buff[p + 7681] = color;
+			buff[p + 7682] = color;
+			buff[p + 7684] = color;
+			buff[p + 7685] = color;
+			buff[p + 7686] = color;
+			buff[p + 7688] = color;
+			buff[p + 7689] = color;
+			buff[p + 7690] = color;
+			buff[p + 7692] = color;
+			buff[p + 7693] = color;
+			buff[p + 7694] = color;
+			buff[p + 11520] = color;
+			buff[p + 11521] = color;
+			buff[p + 11522] = color;
+			buff[p + 11524] = color;
+			buff[p + 11525] = color;
+			buff[p + 11526] = color;
+			buff[p + 11528] = color;
+			buff[p + 11529] = color;
+			buff[p + 11530] = color;
+			buff[p + 11532] = color;
+			buff[p + 11533] = color;
+			buff[p + 11534] = color;
+			p+=16;
+		}
+		p += 11520;
+	}
+};
+
 // Split the function to help with profiling.
 function draw_screen(address, ram)
 {
 	draw_calcscreen(address, ram);
-	if (screen_scaling_ratio == 2) {
+	if (screen_scaling_ratio == 1) {
+		output_calcscreen_to_bitmap_scale1(calcscreen, bitmap.data);
+		context.putImageData(bitmap, 0, 0);
+	}
+	else if (screen_scaling_ratio == 2) {
 		output_calcscreen_to_bitmap_scale2(calcscreen, bitmap.data);
 		context.putImageData(bitmap, 0, 0);
 	}
-	else if (screen_scaling_ratio == 1) {
-		output_calcscreen_to_bitmap_scale1(calcscreen, bitmap.data);
+	else if (screen_scaling_ratio == 3) {
+		output_calcscreen_to_bitmap_scale3(calcscreen, bitmap.data);
+		context.putImageData(bitmap, 0, 0);
+	}
+	else if (screen_scaling_ratio == 4) {
+		output_calcscreen_to_bitmap_scale4(calcscreen, bitmap.data);
 		context.putImageData(bitmap, 0, 0);
 	}
 	// else do nothing.
@@ -6236,8 +6361,8 @@ function handle_keys_89_89T(event)
 
 	switch (e.keyCode)
 	{
-		case 113: emu.setKey(39, value); break; // F2
 		case 112: emu.setKey(47, value); break; // F1
+		case 113: emu.setKey(39, value); break; // F2
 		case 114: emu.setKey(31, value); break; // F3
 		case 115: emu.setKey(23, value); break; // F4
 		case 116: emu.setKey(15, value); break; // F5
@@ -6257,6 +6382,7 @@ function handle_keys_89_89T(event)
 		case 111: emu.setKey(12, value); break; // /
 
 		case 8: emu.setKey(22, value); break; // backspace
+		case 46: emu.setKey(14, value); break; // Del, simulated clear
 		case 192: emu.setKey(4, value); break; // backquote, simulated 2nd
 		case 38: emu.setKey(0, value); break; // up
 		case 40: emu.setKey(2, value); break; // down
@@ -6267,7 +6393,9 @@ function handle_keys_89_89T(event)
 		case 117: emu.setKey(47, value); break; // F6 is treated as F1
 		case 118: emu.setKey(39, value); break; // F7 is treated as F2
 		case 119: emu.setKey(31, value); break; // F8 is treated as F3
-		case 121: emu.setKey(5, value); break; // F10 is treated as SHIFT
+		case 16: emu.setKey(5, value); break; // SHIFT
+		case 17: emu.setKey(6, value); break; // Ctrl, simulated Diamond
+		case 18: emu.setKey(4, value); break; // Alt, simulated 2nd
 		case 48: emu.setKey(32, value); break; // 0
 		case 49: emu.setKey(33, value); break; // 1
 		case 50: emu.setKey(25, value); break; // 2
@@ -6329,6 +6457,8 @@ function handle_keys_92P_V200(event)
 
 		case 32: emu.setKey(32, value); break; // spacebar
 		case 8: emu.setKey(64, value); break; // backspace
+		case 46: emu.setKey(61, value); break; // Del, simulated Clear
+		case 20: emu.setKey(3, value); break; // Caps Lock, simulated LOCK (hand)
 		case 220: emu.setKey(3, value); break; // backslash, simulated LOCK (hand)
 		case 192: emu.setKey(0, value); break; // backquote, simulated 2nd
 		case 38: emu.setKey(5, value); break; // up
@@ -6338,7 +6468,9 @@ function handle_keys_92P_V200(event)
 		case 190: emu.setKey(78, value); break; // . (decimal point)
 		case 13: emu.setKey(73, value); break; // ENTER
 		case 120: emu.setKey(52, value); break; // F9 is treated as F1
-		case 121: emu.setKey(2, value); break; // F10 is treated as SHIFT
+		case 16: emu.setKey(2, value); break; // SHIFT
+		case 17: emu.setKey(1, value); break; // Ctrl, simulated Diamond
+		case 18: emu.setKey(0, value); break; // Alt, simulated 2nd
 		case 48: emu.setKey(77, value); break; // 0
 		case 49: emu.setKey(13, value); break; // 1
 		case 50: emu.setKey(14, value); break; // 2
@@ -7023,7 +7155,15 @@ function initscreen()
 	var elem = document.getElementById(elementid_screen);
 	context = elem.getContext('2d');
 
-	if (screen_scaling_ratio == 2) {
+	if (screen_scaling_ratio == 1) {
+		if (context.createImageData)
+			bitmap = context.createImageData(240, 128);
+		else if (context.getImageData)
+			bitmap = context.getImageData(0, 0, 960, 512);
+		else
+			bitmap = {'width' : 240, 'height' : 128, 'data' : new Uint8Array(240 * 128 * 4)};
+	}
+	else if (screen_scaling_ratio == 2) {
 		if (context.createImageData)
 			bitmap = context.createImageData(480, 256);
 		else if (context.getImageData)
@@ -7031,13 +7171,21 @@ function initscreen()
 		else
 			bitmap = {'width' : 480, 'height' : 256, 'data' : new Uint8Array(480 * 256 * 4)};
 	}
-	else if (screen_scaling_ratio == 1) {
+	else if (screen_scaling_ratio == 3) {
 		if (context.createImageData)
-			bitmap = context.createImageData(240, 128);
+			bitmap = context.createImageData(720, 384);
 		else if (context.getImageData)
 			bitmap = context.getImageData(0, 0, 960, 512);
 		else
-			bitmap = {'width' : 240, 'height' : 128, 'data' : new Uint8Array(240 * 128 * 4)};
+			bitmap = {'width' : 720, 'height' : 384, 'data' : new Uint8Array(720 * 384 * 4)};
+	}
+	else if (screen_scaling_ratio == 4) {
+		if (context.createImageData)
+			bitmap = context.createImageData(960, 512);
+		else if (context.getImageData)
+			bitmap = context.getImageData(0, 0, 960, 512);
+		else
+			bitmap = {'width' : 960, 'height' : 512, 'data' : new Uint8Array(960 * 512 * 4)};
 	}
 
 	// set all alpha channels to 255 (fully opaque)
