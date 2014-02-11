@@ -14,20 +14,19 @@ MUST:
 		  It's not a consequence of port 600005 emulation being missing (the situation is not better after adding it).
 		  2013/07/27: a slightly less wrong implementation of the keyboard handling seems to help.
 		  2014/02/03: after implementing pending interrupts, the fact of no longer raising AUTO_INT_2 (with simplistic and wrong code) seems to help. 
-		* investigate why the emulator's memory consumption increases over time in such a way that the process ends up being killed in Chrome (even though profiling shows nothing of the appropriate order of magnitude ?!), and fix.
 		* check build_* functions against M68000PRM. Two errors wrt. address registers have already been found (and ~600 instructions which should have been illegal made so), chances are that there are more problems.
-		* investigate emulator slowness on Firefox Nightly (it doesn't seem to occur on Chrome ?) after transferring a file.
-		  The slowness doesn't seem to disappear on its own, but it tends to disappear a while after the VAR-Link is launched and exited. Might be linking-related ??
-		  Idea: "WAIT_OK_LAST" special value, upon which the emulator should clear the incoming and outgoing queues ?
-		  Or maybe it's just bad interaction with the GC's mechanics...
 		* fix rate of OSC2, which seems too low now that port 600005 is emulated... or maybe not.
 		  On V200 AMS 3.10:
 			* the clock increments too slowly in the APPS Desktop (2014/02/05: ~15 real minutes to reach 12:05), and the HOME cursor blinks too slowly as well;
 			* after the APD, in ~5 real minutes, the AUTO_INT_3 timer has incremented the RTC by ~5 emulated minutes.
 		  TODO: busy-wait loops based on while (!OSTimerExpired(APD_TIMER)), with and without instructions in the loop body.
-		* fix files transfer to PedroM if necessary ?
-		  2013/08: according to critor, PedroM 0.82 failed to understand the linking emulation now, while I seem to be generating the exact same data as libticalcs. For a reasonably general-purpose, non-developer-user-oriented emulator, it's more important for AMS to work than for PedroM to work - but still...
-		  2014/02/05: for Folco, transferring a program worked on the first try, so it's not totally broken - or it was somehow fixed in-between.
+		* investigate why the emulator's memory consumption increases over time in such a way that the process ends up being killed in Chrome (even though profiling shows nothing of the appropriate order of magnitude ?!), and fix.
+		  2014/02/10: does that still occur 8 months later ?
+		* investigate emulator slowness on Firefox Nightly (it doesn't seem to occur on Chrome ?) after transferring a file.
+		  The slowness doesn't seem to disappear on its own, but it tends to disappear a while after the VAR-Link is launched and exited. Might be linking-related ??
+		  Idea: "WAIT_OK_LAST" special value, upon which the emulator should clear the incoming and outgoing queues ?
+		  Or maybe it's just bad interaction with the GC's mechanics...
+		  2014/02/10: does that still occur 8 months later ?
 
 	IMPORTANT FEATURES:
 		* harden the HTML element manipulation code against unavailable elements (that is, getElementById not finding the element), add default actions where it makes sense. Reported by critor.
@@ -38,8 +37,8 @@ MUST:
 		* add save state (and restore state, obviously) support...
 		  Ideas:
 			* a new JS exception, like STOP for 600005 emulation;
-			* generating a JS object containing all of the relevant emulator state and exporting it as JSON [jsTIfied uses JSON];
-			* loading the JSON, regenerating reset() and launching initemu().
+			* generating a JS object containing all of the relevant emulator state and exporting it as JSON [jsTIfied uses JSON, makes sense anyway];
+			* loading the JSON, regenerating reset() and instructions and launching initemu().
 		* some form of debugger (note: would ease implementation of some other features) - well, basically, implement the features from JM's modified VTI & TIEmu :P
 			* (mostly done) implement disassembly(address, count) - in the beginning, through simple string substitution, we'll see whether that's enough;
 			* traverse the VAT - see core/ti_sw/var.c in TIEmu;
@@ -63,9 +62,14 @@ MUST:
 		  Non-typed arrays are forbidden ?
 		* expand test suite.
 		  The one started by debrouxl is currently pretty small. Finding a ready-made test program for a 68000 seems to be extremely hard, though - debrouxl spent hours looking in emulators such as Cyclone, and with generic search engine, to no avail ?
+		* improve ROM import and reset, so that the initial PC and SSP are loaded from rom[0] to rom[3] (with last-resort fallback to hard-coded values ?), i.e. that when there's a boot code, it is run.
+		* make it possible to reset without erasing the contents of the RAM, like in TIEmu.
+		* show direct feedback to the user when no ROM is loaded.
 
 	LESS IMPORTANT BUGFIXES / FEATURES:
 		* disassembler: for address register indexed with displacement, warn if scale bits != 0 (CPU32+) or bd/od present (68020+).
+		* do what it takes to add 8 MB support to 89T emulation, if possible.
+		  The 89T attempts to detect the size of the Flash memory at one place - maybe we could get to know what a 8 MB 89T would have looked like ?
 		* useful hardware ports not handled:
 			* writes to 60001B: acknowledge AUTO_INT_2 for keyboard.
 		* unimplemented infrequent processor instructions:
@@ -373,11 +377,20 @@ Changelog from PatrickD's version / work log:
 	  (debrouxl 2014/02/05)
 	* add 3:1 and 4:1 screen scaling ratio support, the scaling routines are fairly slow.
 	  (debrouxl 2014/02/08)
-	* add several classic key bindings known from VTI & TIEmu in handle_keys_89_89T() and handle_keys_92P_V200(): Shift, Diamond, 2nd, Clear, Hand. Some of them reported by Folco.
-	  On a wide range of browsers, left shift has code 16, left Ctrl has code 17, left Alt has code 18, Caps Lock has code 20, Delete has code 46. See e.g. http://javascript.info/tutorial/keyboard-events for a test program, and http://unixpapa.com/js/key.html for analysis on old browsers.
+	* add several classic key bindings known from VTI & TIEmu in handle_keys_89_89T() and handle_keys_92P_V200(): Shift, Diamond, 2nd, Clear, Hand, ON. Some of them reported by Folco.
+	  On a wide range of browsers, left shift has code 16, left Ctrl has code 17, left Alt has code 18, Caps Lock has code 20, Delete has code 46. On at least a couple modern browsers, Scroll Lock has code 145. See e.g. http://javascript.info/tutorial/keyboard-events for a test program, and http://unixpapa.com/js/key.html for analysis on old browsers.
 	  (debrouxl 2014/02/08)
 	* remove F10 -> Shift key binding from handle_keys_89_89T() and handle_keys_92P_V200(), for consistency with VTI and TIEmu, which map "Send file to emulator..." onto F10.
 	  (debrouxl 2014/02/08)
+	* fix bug in v12tibconv.py: for the last chunk of non-0xFFFF words, it sometimes failed to add ',' where necessary and produced the following invalid output on V200 AMS 3.10:
+	  rom.set([55068,2483265535,...)
+	  (debrouxl 2014/02/10)
+	* remove F9 -> F1 key binding from handle_keys_92P_V200(), map APPS onto F9 instead for both 89/89T and 92+/V200, for consistency with VTI and TIEmu.
+	  (debrouxl 2014/02/10)
+	* make additional tests which show that files transfer to PedroM, broken at some point, was fixed later without noticing.
+	  2013/08: according to critor, PedroM 0.82 failed to understand the linking emulation now, while I seem to be generating the exact same data as libticalcs. For a reasonably general-purpose, non-developer-user-oriented emulator, it's more important for AMS to work than for PedroM to work - but still...
+	  2014/02/05: for Folco, transferring a program worked on the first try, so it's not totally broken - or it was somehow fixed in-between.
+	  (debrouxl 2014/02/10)
 
 
 Achievements:
@@ -421,7 +434,7 @@ var rom = new Uint16Array(0x200000);
 var ram = new Uint16Array(131072); // 256K of RAM, treat as array of words
 var t = new Array(65536); // Instruction handlers.
 var n = new Array(65536); // Instruction names.
-var cycle = new Uint8Array(65536); // Instruction names.
+var cycles = new Uint8Array(65536); // Instruction names.
 
 // Emulator variables, part 1.
 var unhandled_count = 0; // number of unhandled instructions encountered
@@ -1608,7 +1621,7 @@ function insert_inst2(opcode, code, name, count)
 {
 	instruction_list += "t[" + opcode +"] = function() { " + code + "};";
 	n[opcode] = name;
-	cycle[opcode] = count;
+	cycles[opcode] = count;
 }
 
 // Check whether the given effective address is valid for common uses
@@ -2798,7 +2811,7 @@ function build_initial_instructions_handlers()
 	for (i = 0xA000; i <= 0xAFFF; i++) {
 		t[i] = aline;
 		n[i] = "ALINE " + to_hex(i,3);
-		cycle[i] = 34;
+		cycles[i] = 34;
 	}
 
 	for (i = 0xB000; i < 0xF000; i++) {
@@ -2808,7 +2821,7 @@ function build_initial_instructions_handlers()
 	for (i = 0xF000; i <= 0xFFFF; i++) {
 		t[i] = fline;
 		n[i] = "FLINE " + to_hex(i,3);
-		cycle[i] = 34;
+		cycles[i] = 34;
 	}
 }
 
@@ -2914,7 +2927,7 @@ for (var i = 0; i < 65536; i++) {
 		unknown++;
 		n[i] = "DC.W " + hex_prefix + to_hex(i, 4);
 	}
-	if (cycle[i] == 0) {
+	if (cycles[i] == 0) {
 		nocost++;
 	}
 }
@@ -6236,7 +6249,7 @@ function output_calcscreen_to_bitmap_scale4(calcscreen, buff)
 	for (var y = 0; y < 3840 * 128; y += 3840) {
 		for (var x = 0; x < 240; x++) {
 			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
-						buff[p] = color;
+			buff[p] = color;
 			buff[p + 1] = color;
 			buff[p + 2] = color;
 			buff[p + 4] = color;
@@ -6393,6 +6406,7 @@ function handle_keys_89_89T(event)
 		case 117: emu.setKey(47, value); break; // F6 is treated as F1
 		case 118: emu.setKey(39, value); break; // F7 is treated as F2
 		case 119: emu.setKey(31, value); break; // F8 is treated as F3
+		case 120: emu.setKey(40, value); break; // F9, simulated APPS
 		case 16: emu.setKey(5, value); break; // SHIFT
 		case 17: emu.setKey(6, value); break; // Ctrl, simulated Diamond
 		case 18: emu.setKey(4, value); break; // Alt, simulated 2nd
@@ -6410,6 +6424,8 @@ function handle_keys_89_89T(event)
 		case 88: emu.setKey(45, value); break; // X
 		case 89: emu.setKey(37, value); break; // Y
 		case 90: emu.setKey(29, value); break; // Z
+
+		case 145: emu.setONKeyPressed(); emu.setONKeyReleased(); break; // Scroll Lock, simulated ON.
 	}
 
 	return true; // suppress default action
@@ -6467,7 +6483,7 @@ function handle_keys_92P_V200(event)
 		case 39: emu.setKey(6, value); break; // right
 		case 190: emu.setKey(78, value); break; // . (decimal point)
 		case 13: emu.setKey(73, value); break; // ENTER
-		case 120: emu.setKey(52, value); break; // F9 is treated as F1
+		case 120: emu.setKey(62, value); break; // F9, simulated APPS
 		case 16: emu.setKey(2, value); break; // SHIFT
 		case 17: emu.setKey(1, value); break; // Ctrl, simulated Diamond
 		case 18: emu.setKey(0, value); break; // Alt, simulated 2nd
@@ -6507,6 +6523,8 @@ function handle_keys_92P_V200(event)
 		case 88: emu.setKey(17, value); break;
 		case 89: emu.setKey(43, value); break;
 		case 90: emu.setKey(9, value); break;
+
+		case 145: if (value == 1) emu.setONKeyPressed(); else emu.setONKeyReleased(); break; // Scroll Lock, simulated ON.
 	}
 
 	return true; // suppress default action
