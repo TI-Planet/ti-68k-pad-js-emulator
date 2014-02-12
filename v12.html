@@ -50,13 +50,13 @@ compatible with this emulator, compability with other programs is limited in thi
 
 <input type="button" value="Reset calculator" id="reset_calculator" onclick="javascript:emu.initialize_calculator()"/><br>
 
-<input type="button" value="PNG screenshot" id="pngButton" onclick="javascript:ui.getPNG()"/>
+<input type="button" value="PNG screenshot" id="pngbutton" onclick="javascript:ui.getPNG()"/>
 &nbsp;&nbsp;
-<input type="button" value="Close PNG screenshot" id="hideButton" style="display:none" onclick="javascript:ui.pngButtons()"/><img id="pngimage" src=""/><br/>
+<input type="button" value="Close PNG screenshot" id="hidebutton" style="display:none" onclick="javascript:ui.pngButtons()"/><img id="pngimage" src=""/><br/>
 <!-- http://stackoverflow.com/a/16213045  -->
 
 <input type="button" value="Make data created by recvfile() available" id="downloadFileButton" onclick="javascript:link.getFileData()"/></form><br/>
-<a href="" id="downloadFile" style="display:none">Download data created by recvfile()</a>
+<a href="" id="downloadfile" style="display:none">Download data created by recvfile()</a>
 
 Skin type: <form>
 <input type="radio" id="smallskin" name="skin_type" value="1" onclick="javascript:ui.setSkin(1)">1:1&nbsp;&nbsp;</input>
