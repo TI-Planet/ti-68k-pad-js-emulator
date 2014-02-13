@@ -29,8 +29,11 @@ MUST:
 		  2014/02/10: does that still occur 8 months later ?
 
 	IMPORTANT FEATURES:
-		* harden the HTML element manipulation code against unavailable elements (that is, getElementById not finding the element), add default actions where it makes sense. Reported by critor.
-		* modularize the code further ? At least, the linking emulation code is now separated from the core code.
+		* improve ROM import and reset, so that the initial PC and SSP are loaded from rom[0] to rom[3] (with last-resort fallback to hard-coded values ?), i.e. that when there's a boot code, it is run.
+		* make it possible to reset without erasing the contents of the RAM, like in TIEmu.
+		* show direct feedback to the user when no ROM is loaded.
+		* linking emulation: silent dirlist support.
+ 		* modularize the code further. The linking emulation code is now separated from the core code, but maybe the CPU, for instance, could be separated from the core ??
 		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
 		* add / change key bindings in handle_keys_89_89T() and handle_keys_92P_V200(): for consistency with VTI and TIEmu, it would be great if F10 triggered the file input (romfile). Reported by Folco.
 		* add the ability to _select_ and send multiple files. Suggested by Folco. The TI-Planet integration already shows how to send multiple files.
@@ -41,7 +44,7 @@ MUST:
 			* loading the JSON, regenerating reset() and instructions and launching initemu().
 		* some form of debugger (note: would ease implementation of some other features) - well, basically, implement the features from JM's modified VTI & TIEmu :P
 			* (mostly done) implement disassembly(address, count) - in the beginning, through simple string substitution, we'll see whether that's enough;
-			* traverse the VAT - see core/ti_sw/var.c in TIEmu;
+			* traverse the VAT - see core/ti_sw/var.c in TIEmu. That, and direct memory reads, could be used for dirlist, but then we'd have to rebuild metadata such as file types ourselves;
 			* add ROM_CALL table in an external file in JSON format, and have ROM_CALL() handle string arguments (for returning the address of a ROM_CALL). Maybe 3 objects: one sorted by ROM_CALL number, one sorted by name, one sorted by address, so that we can use binary search in all situations;
 			* etc.
 		  Breakpoints are going to kill emulation speed :(
@@ -51,20 +54,14 @@ MUST:
 		* lsl(), asl(), lsr(), asr(), rol(), ror(), roxl() and roxr() should be generated, optimized, and probably have the "size" argument constant-propagated.
 		* the add*(), cmp*() and sub*() functions should be generated.
 		* disassembly support for all remaining unimplemented instructions.
-		* linking emulation:
-			* support for non-silent linking.
-			* silent dirlist support. Using the VAT / handle traversal code [not yet] made for the debugger, and direct memory reads, would require us to rebuild metadata such as file type ourselves.
-			* UI for retrieving files from the emulator through silent linking.
+		* linking emulation: support for non-silent linking.
+		* linking emulation: UI for retrieving files from the emulator through silent linking.
 		* make it possible to generate screenshots with 3:1 and 4:1 scaling. The code for upscaling with those factors already exists inside the UI part, but it's not exposed yet.
-		* optimized screen drawing and scaling on 89/89T: no need to compute 240x128 pixels, we can just compute 160x100 pixels.
 		* generation of animated GIF images, see e.g. https://github.com/antimatter15/jsgif and https://github.com/deanm/omggif .
 		* use asm.js for time-critical chunks of the emulator, as Kerm & jacobly have worked on doing for jsTIfied. Requires modularizing the code, see https://github.com/dherman/asm.js .
 		  Non-typed arrays are forbidden ?
 		* expand test suite.
 		  The one started by debrouxl is currently pretty small. Finding a ready-made test program for a 68000 seems to be extremely hard, though - debrouxl spent hours looking in emulators such as Cyclone, and with generic search engine, to no avail ?
-		* improve ROM import and reset, so that the initial PC and SSP are loaded from rom[0] to rom[3] (with last-resort fallback to hard-coded values ?), i.e. that when there's a boot code, it is run.
-		* make it possible to reset without erasing the contents of the RAM, like in TIEmu.
-		* show direct feedback to the user when no ROM is loaded.
 
 	LESS IMPORTANT BUGFIXES / FEATURES:
 		* disassembler: for address register indexed with displacement, warn if scale bits != 0 (CPU32+) or bd/od present (68020+).
@@ -378,7 +375,7 @@ Changelog from PatrickD's version / work log:
 	* add 3:1 and 4:1 screen scaling ratio support, the scaling routines are fairly slow.
 	  (debrouxl 2014/02/08)
 	* add several classic key bindings known from VTI & TIEmu in handle_keys_89_89T() and handle_keys_92P_V200(): Shift, Diamond, 2nd, Clear, Hand, ON. Some of them reported by Folco.
-	  On a wide range of browsers, left shift has code 16, left Ctrl has code 17, left Alt has code 18, Caps Lock has code 20, Delete has code 46. On at least a couple modern browsers, Scroll Lock has code 145. See e.g. http://javascript.info/tutorial/keyboard-events for a test program, and http://unixpapa.com/js/key.html for analysis on old browsers.
+	  On a wide range of browsers, left shift has code 16, left Ctrl has code 17, left Alt has code 18, Caps Lock has code 20, Insert has code 45, Delete has code 46. On at least a couple modern browsers, Scroll Lock has code 145. See e.g. http://javascript.info/tutorial/keyboard-events for a test program, and http://unixpapa.com/js/key.html for analysis on old browsers.
 	  (debrouxl 2014/02/08)
 	* remove F10 -> Shift key binding from handle_keys_89_89T() and handle_keys_92P_V200(), for consistency with VTI and TIEmu, which map "Send file to emulator..." onto F10.
 	  (debrouxl 2014/02/08)
@@ -391,6 +388,26 @@ Changelog from PatrickD's version / work log:
 	  2013/08: according to critor, PedroM 0.82 failed to understand the linking emulation now, while I seem to be generating the exact same data as libticalcs. For a reasonably general-purpose, non-developer-user-oriented emulator, it's more important for AMS to work than for PedroM to work - but still...
 	  2014/02/05: for Folco, transferring a program worked on the first try, so it's not totally broken - or it was somehow fixed in-between.
 	  (debrouxl 2014/02/10)
+	* make additional tests which show that Punix beta 5, which this emulator used to fail emulating, now works, even if the upper part of the screen refreshes
+	  (debrouxl 2014/02/12)
+	* in ui.initEmu(), print a warning to the console if one of the HTML DOM elements was not found by getElementById(). Reported by critor last summer.
+	  (debrouxl 2014/02/12)
+	* perform more work on key bindings:
+		* in handle_keys_89_89T():
+			* reorder code in ascending order of index into the emulated keyboard;
+			* add A-S, U-W mappings (significant usability improvement);
+			* map CATALOG onto F6 (instead of F1), for consistency with TIEmu;
+			* for 89/89T, map EE onto Insert, for consistency with TIEmu;
+		* in handle_keys_92P_V200():
+			* reorder code in ascending order of index into the emulated keyboard;
+			* fix index of ; for simulated (-): should be 79 instead of 81, which is out of the bounds of the array.
+	  (debrouxl 2014/02/12)
+	* set initial value of tracecount to 0.
+	  (debrouxl 2014/02/12)
+	* optimize screen drawing and scaling on 89/89T: no need to compute 240x128 pixels, we can just compute 160x100 pixels.
+	  (debrouxl 2014/02/13)
+	* optimize screen drawing and scaling on 89/89T: no need to compute 240x128 pixels, we can just compute 160x100 pixels.
+	  (debrouxl 2014/02/13)
 
 
 Achievements:
@@ -439,7 +456,7 @@ var cycles = new Uint8Array(65536); // Instruction names.
 // Emulator variables, part 1.
 var unhandled_count = 0; // number of unhandled instructions encountered
 var main_interval_timer = 0; // interval ID of main timer
-var tracecount = 20; // number of instructions to trace in console
+var tracecount = 0; // number of instructions to trace in console
 var overall = 2500;
 var osc2_counter = 0;
 var frames_counted = 0;
@@ -2426,7 +2443,6 @@ function build_immediate(name, mask, operation)
 						code += amode_read(mode, reg, size, false)
 						if (operation != "")
 						{
-							//if (name == "ANDI") code += "if (m==0xE00000) tracecount=20;"; 
 							code += operation;
 							code += set_condition_flags_data(size, "r")
 						}
@@ -3812,7 +3828,6 @@ function initemu()
 
 	ui.setCalculatorModel(calculator_model);
 	link.setCalculatorModel(calculator_model);
-	ui.initscreen();
 	ui.initemu();
 
 	initialize_calculator();
@@ -4040,7 +4055,7 @@ function fire_cpu_exception(e)
 // Timer handling was extracted out of main_loop to help profiling.
 function timer_interrupts()
 {
-	osc2_counter += 32; // XXX Should really be 32, but the AMS UI is _really_ unusable (instead of significantly annoying) with that value...
+	osc2_counter += 32; // That's supposed to be the correct value, but the AMS UI is annoying...
 
 	if (osc2_counter >= 0x1000000) osc2_counter -= 0x1000000;
 
@@ -6103,7 +6118,8 @@ return {
 function TI68kEmulatorUIModule(stdlib) {
 "use strict";
 
-var calcscreen = new Uint8Array(240 * 128 * 3); // stores three frames of pixel data for averaging
+var frames_for_averaging = 3;
+var calcscreen = new Uint8Array(240 * 128 * frames_for_averaging); // stores multiple frames (defaulting to 3) of pixel data for averaging
 var frame = 0;
 var emu = false;
 var link = false;
@@ -6111,6 +6127,7 @@ var bitmap = false;
 var context = false;
 var calculator_model = 1;
 var set_skin = function() { };
+var draw_calcscreen = function(address, ram) { } ;
 var screen_scaling_ratio = 2; // 2:1 by default
 var screen_enabled = true;
 var contrast = 0x0;
@@ -6130,8 +6147,38 @@ var elementid_hidebutton = 'hidebutton';
 var elementid_pauseemulator = 'pauseemulator';
 var elementid_resumeemulator = 'resumeemulator';
 var elementid_romfile = 'romfile';
+var elementid_downloadfile = 'downloadfile';
 
-function draw_calcscreen(address, ram)
+function draw_calcscreen_89_89T(address, ram)
+{
+	var pixel = frame;
+	if (screen_enabled) {
+		for (var y = 0; y < 100; y++) {
+			for (var x = 0; x < 10; x++) {
+				var b = ram[address++];
+				for (var bit = 15; bit >= 0; bit--) {
+					var color = b & 0x8000 ? black_color : white_color;
+					b <<= 1;
+					calcscreen[pixel] = color;
+					pixel += frames_for_averaging;
+				}
+			}
+			address += 5;
+			pixel += 5 * frames_for_averaging * 16;
+		}
+	}
+	else {
+		for (var y = 0; y < 128 * 240; y++) {
+			calcscreen[pixel] = white_color;
+			pixel += frames_for_averaging;
+		}
+	}
+
+	frame++;
+	if (frame == frames_for_averaging) frame = 0;
+};
+
+function draw_calcscreen_92P_V200(address, ram)
 {
 	var pixel = frame;
 	if (screen_enabled) {
@@ -6142,20 +6189,20 @@ function draw_calcscreen(address, ram)
 					var color = b & 0x8000 ? black_color : white_color;
 					b <<= 1;
 					calcscreen[pixel] = color;
-					pixel += 3;
+					pixel += frames_for_averaging;
 				}
 			}
 		}
 	}
 	else {
 		for (var y = 0; y < 128 * 240; y++) {
-			calcscreen[pixel] = 0x50;
-			pixel += 3;
+			calcscreen[pixel] = white_color;
+			pixel += frames_for_averaging;
 		}
 	}
 
 	frame++;
-	if (frame == 3) frame = 0;
+	if (frame == frames_for_averaging) frame = 0;
 };
 
 function output_calcscreen_to_bitmap_scale1(calcscreen, buff)
@@ -6165,7 +6212,10 @@ function output_calcscreen_to_bitmap_scale1(calcscreen, buff)
 
 	for (var y = 0; y < 128; y++) {
 		for (var x = 0; x < 240; x++) {
-			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
+			var color = 0;
+			for (var i = 0; i < frames_for_averaging; i++) {
+				color += calcscreen[pixel++];
+			}
 			buff[p] = color;
 			buff[p + 1] = color;
 			buff[p + 2] = color;
@@ -6181,7 +6231,10 @@ function output_calcscreen_to_bitmap_scale2(calcscreen, buff)
 
 	for (var y = 0; y < 128; y++) {
 		for (var x = 0; x < 240; x++) {
-			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
+			var color = 0;
+			for (var i = 0; i < frames_for_averaging; i++) {
+				color += calcscreen[pixel++];
+			}
 			buff[p] = color;
 			buff[p + 1] = color;
 			buff[p + 2] = color;
@@ -6207,7 +6260,10 @@ function output_calcscreen_to_bitmap_scale3(calcscreen, buff)
 
 	for (var y = 0; y < 128; y++) {
 		for (var x = 0; x < 240; x++) {
-			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
+			var color = 0;
+			for (var i = 0; i < frames_for_averaging; i++) {
+				color += calcscreen[pixel++];
+			}
 			buff[p] = color;
 			buff[p + 1] = color;
 			buff[p + 2] = color;
@@ -6248,7 +6304,10 @@ function output_calcscreen_to_bitmap_scale4(calcscreen, buff)
 
 	for (var y = 0; y < 3840 * 128; y += 3840) {
 		for (var x = 0; x < 240; x++) {
-			var color = calcscreen[pixel++] + calcscreen[pixel++] + calcscreen[pixel++];
+			var color = 0;
+			for (var i = 0; i < frames_for_averaging; i++) {
+				color += calcscreen[pixel++];
+			}
 			buff[p] = color;
 			buff[p + 1] = color;
 			buff[p + 2] = color;
@@ -6374,58 +6433,101 @@ function handle_keys_89_89T(event)
 
 	switch (e.keyCode)
 	{
-		case 112: emu.setKey(47, value); break; // F1
-		case 113: emu.setKey(39, value); break; // F2
-		case 114: emu.setKey(31, value); break; // F3
-		case 115: emu.setKey(23, value); break; // F4
+		// 1) single keypress -> single setKey().
+		case 38: emu.setKey(0, value); break; // up
+		case 37: emu.setKey(1, value); break; // left
+		case 40: emu.setKey(2, value); break; // down
+		case 39: emu.setKey(3, value); break; // right
+		case 18: emu.setKey(4, value); break; // Alt, simulated 2nd
+		case 192: emu.setKey(4, value); break; // backquote, simulated 2nd
+		case 16: emu.setKey(5, value); break; // SHIFT
+		case 17: emu.setKey(6, value); break; // Ctrl, simulated Diamond
+		// No binding for Alpha
+
+		case 13: emu.setKey(8, value); break; // ENTER
+		case 43: emu.setKey(9, value); break; // + (Opera)
+		case 107: emu.setKey(9, value); break; // + (all browsers but Opera)
+		case 45: emu.setKey(10, value); break; // - (Opera)
+		case 109: emu.setKey(10, value); break; // - (all browsers but Opera)
+		case 42: emu.setKey(11, value); break; // * (Opera)
+		case 106: emu.setKey(11, value); break; // * (Opera)
+		case 47: emu.setKey(12, value); break; // / (all browsers but Opera)
+		case 111: emu.setKey(12, value); break; // / (all browsers but Opera)
+		// No binding for ^ (too inconsistent across browsers)
+		case 46: emu.setKey(14, value); break; // Del, simulated clear
 		case 116: emu.setKey(15, value); break; // F5
-		case 27: emu.setKey(48, value); break; // ESC
 
 		case 59: emu.setKey(16, value); break; // ;, simulated (-) (Firefox, Opera)
 		case 186: emu.setKey(16, value); break; // ;, simulated (-) (Chrome, IE, Safari)
-
-		case 43: emu.setKey(9, value); break; // + (Opera)
-		case 45: emu.setKey(10, value); break; // -
-		case 42: emu.setKey(11, value); break; // *
-		case 47: emu.setKey(12, value); break; // /
-
-		case 107: emu.setKey(9, value); break; // + (all browsers but Opera)
-		case 109: emu.setKey(10, value); break; // - 
-		case 106: emu.setKey(11, value); break; // *
-		case 111: emu.setKey(12, value); break; // /
-
+		case 51: emu.setKey(17, value); break; // 3
+		case 54: emu.setKey(18, value); break; // 6
+		case 57: emu.setKey(19, value); break; // 9
+		// No binding for , (too inconsistent across browsers)
+		case 84: emu.setKey(21, value); break; // T
 		case 8: emu.setKey(22, value); break; // backspace
-		case 46: emu.setKey(14, value); break; // Del, simulated clear
-		case 192: emu.setKey(4, value); break; // backquote, simulated 2nd
-		case 38: emu.setKey(0, value); break; // up
-		case 40: emu.setKey(2, value); break; // down
-		case 37: emu.setKey(1, value); break; // left
-		case 39: emu.setKey(3, value); break; // right
+		case 115: emu.setKey(23, value); break; // F4
+
 		case 190: emu.setKey(24, value); break; // . (decimal point)
-		case 13: emu.setKey(8, value); break; // ENTER
-		case 117: emu.setKey(47, value); break; // F6 is treated as F1
-		case 118: emu.setKey(39, value); break; // F7 is treated as F2
+		case 50: emu.setKey(25, value); break; // 2
+		case 53: emu.setKey(26, value); break; // 5
+		case 56: emu.setKey(27, value); break; // 8
+		// No binding for ) (too inconsistent across browsers)
+		case 90: emu.setKey(29, value); break; // Z
+		case 117: emu.setKey(30, value); break; // F6, simulated CATALOG
+		case 114: emu.setKey(31, value); break; // F3
 		case 119: emu.setKey(31, value); break; // F8 is treated as F3
-		case 120: emu.setKey(40, value); break; // F9, simulated APPS
-		case 16: emu.setKey(5, value); break; // SHIFT
-		case 17: emu.setKey(6, value); break; // Ctrl, simulated Diamond
-		case 18: emu.setKey(4, value); break; // Alt, simulated 2nd
+
 		case 48: emu.setKey(32, value); break; // 0
 		case 49: emu.setKey(33, value); break; // 1
-		case 50: emu.setKey(25, value); break; // 2
-		case 51: emu.setKey(17, value); break; // 3
 		case 52: emu.setKey(34, value); break; // 4
-		case 53: emu.setKey(26, value); break; // 5
-		case 54: emu.setKey(18, value); break; // 6
 		case 55: emu.setKey(35, value); break; // 7
-		case 56: emu.setKey(27, value); break; // 8
-		case 57: emu.setKey(19, value); break; // 9
-		case 84: emu.setKey(21, value); break; // T
-		case 88: emu.setKey(45, value); break; // X
+		// No binding for ( (too inconsistent across browsers)
 		case 89: emu.setKey(37, value); break; // Y
-		case 90: emu.setKey(29, value); break; // Z
+		// No binding for MODE
+		case 113: emu.setKey(39, value); break; // F2
+		case 118: emu.setKey(39, value); break; // F7 is treated as F2
 
-		case 145: emu.setONKeyPressed(); emu.setONKeyReleased(); break; // Scroll Lock, simulated ON.
+		case 120: emu.setKey(40, value); break; // F9, simulated APPS
+		// No binding for STO (TAB switches focus)
+		case 45: emu.setKey(42, value); break; // Insert, simulated EE
+		// No binding for |
+		// No binding for = (too inconsistent across browsers)
+		case 88: emu.setKey(45, value); break; // X
+		// No binding for HOME
+		case 112: emu.setKey(47, value); break; // F1
+
+		case 27: emu.setKey(48, value); break; // ESC
+
+		case 145: if (value == 1) emu.setONKeyPressed(); else emu.setONKeyReleased(); break; // Scroll Lock, simulated ON.
+
+
+		// 2) single keypress -> two setKey().
+		case 85: emu.setKey(7, value); emu.setKey(9, value); break; // U
+		case 79: emu.setKey(7, value); emu.setKey(10, value); break; // O
+		case 74: emu.setKey(7, value); emu.setKey(11, value); break; // J
+		case 69: emu.setKey(7, value); emu.setKey(12, value); break; // E
+
+		case 83: emu.setKey(7, value); emu.setKey(17, value); break; // S
+		case 78: emu.setKey(7, value); emu.setKey(18, value); break; // N
+		case 73: emu.setKey(7, value); emu.setKey(19, value); break; // I
+		case 68: emu.setKey(7, value); emu.setKey(20, value); break; // D
+
+		case 87: emu.setKey(7, value); emu.setKey(24, value); break; // W
+		case 82: emu.setKey(7, value); emu.setKey(25, value); break; // R
+		case 77: emu.setKey(7, value); emu.setKey(26, value); break; // M
+		case 72: emu.setKey(7, value); emu.setKey(27, value); break; // H
+		case 67: emu.setKey(7, value); emu.setKey(28, value); break; // C
+
+		case 86: emu.setKey(7, value); emu.setKey(32, value); break; // V
+		case 81: emu.setKey(7, value); emu.setKey(33, value); break; // Q
+		case 76: emu.setKey(7, value); emu.setKey(34, value); break; // L
+		case 71: emu.setKey(7, value); emu.setKey(35, value); break; // G
+		case 66: emu.setKey(7, value); emu.setKey(36, value); break; // B
+
+		case 80: emu.setKey(7, value); emu.setKey(41, value); break; // P
+		case 75: emu.setKey(7, value); emu.setKey(42, value); break; // K
+		case 70: emu.setKey(7, value); emu.setKey(43, value); break; // F
+		case 65: emu.setKey(7, value); emu.setKey(44, value); break; // A
 	}
 
 	return true; // suppress default action
@@ -6448,81 +6550,102 @@ function handle_keys_92P_V200(event)
 	}
 	switch (e.keyCode)
 	{
-		case 113: emu.setKey(36, value); break; // F2
-		case 112: emu.setKey(52, value); break; // F1
-		case 114: emu.setKey(20, value); break; // F3
-		case 115: emu.setKey(76, value); break; // F4
-		case 116: emu.setKey(60, value); break; // F5
-		case 117: emu.setKey(44, value); break; // F6
-		case 118: emu.setKey(28, value); break; // F7
-		case 119: emu.setKey(12, value); break; // F1
-		case 27: emu.setKey(70, value); break; // ESC
-
-		case 59: emu.setKey(81, value); break; // ;, simulated (-) (Firefox, Opera)
-		case 186: emu.setKey(81, value); break; // ;, simulated (-) (Chrome, IE, Safari)
-
-		case 43: emu.setKey(68, value); break; // + (Opera)
-		case 45: emu.setKey(72, value); break; // -
-		case 42: emu.setKey(63, value); break; // *
-		case 47: emu.setKey(40, value); break; // /
-
-		case 107: emu.setKey(68, value); break; // + (all browsers but Opera)
-		case 109: emu.setKey(72, value); break; // - 
-		case 106: emu.setKey(63, value); break; // *
-		case 111: emu.setKey(40, value); break; // /
-
-		case 32: emu.setKey(32, value); break; // spacebar
-		case 8: emu.setKey(64, value); break; // backspace
-		case 46: emu.setKey(61, value); break; // Del, simulated Clear
+		case 18: emu.setKey(0, value); break; // Alt, simulated 2nd
+		case 192: emu.setKey(0, value); break; // backquote, simulated 2nd
+		case 17: emu.setKey(1, value); break; // Ctrl, simulated Diamond
+		case 16: emu.setKey(2, value); break; // SHIFT
 		case 20: emu.setKey(3, value); break; // Caps Lock, simulated LOCK (hand)
 		case 220: emu.setKey(3, value); break; // backslash, simulated LOCK (hand)
-		case 192: emu.setKey(0, value); break; // backquote, simulated 2nd
-		case 38: emu.setKey(5, value); break; // up
-		case 40: emu.setKey(7, value); break; // down
 		case 37: emu.setKey(4, value); break; // left
+		case 38: emu.setKey(5, value); break; // up
 		case 39: emu.setKey(6, value); break; // right
-		case 190: emu.setKey(78, value); break; // . (decimal point)
-		case 13: emu.setKey(73, value); break; // ENTER
-		case 120: emu.setKey(62, value); break; // F9, simulated APPS
-		case 16: emu.setKey(2, value); break; // SHIFT
-		case 17: emu.setKey(1, value); break; // Ctrl, simulated Diamond
-		case 18: emu.setKey(0, value); break; // Alt, simulated 2nd
-		case 48: emu.setKey(77, value); break; // 0
+		case 40: emu.setKey(7, value); break; // down
+
+		// No key at index 8 on the emulated keyboard
+		case 90: emu.setKey(9, value); break; // Z
+		case 83: emu.setKey(10, value); break; // S
+		case 87: emu.setKey(11, value); break; // W
+		case 119: emu.setKey(12, value); break; // F8
 		case 49: emu.setKey(13, value); break; // 1
 		case 50: emu.setKey(14, value); break; // 2
 		case 51: emu.setKey(15, value); break; // 3
+
+		// No key at index 16 on the emulated keyboard
+		case 88: emu.setKey(17, value); break; // X
+		case 68: emu.setKey(18, value); break; // D
+		case 69: emu.setKey(19, value); break; // E
+		case 114: emu.setKey(20, value); break; // F3
 		case 52: emu.setKey(21, value); break; // 4
 		case 53: emu.setKey(22, value); break; // 5
 		case 54: emu.setKey(23, value); break; // 6
+
+		// No binding for STO (TAB switches focus)
+		case 67: emu.setKey(25, value); break; // C
+		case 70: emu.setKey(26, value); break; // F
+		case 82: emu.setKey(27, value); break; // R
+		case 118: emu.setKey(28, value); break; // F7
 		case 55: emu.setKey(29, value); break; // 7
 		case 56: emu.setKey(30, value); break; // 8
 		case 57: emu.setKey(31, value); break; // 9
-		case 65: emu.setKey(74, value); break; // A - Z
-		case 66: emu.setKey(41, value); break;
-		case 67: emu.setKey(25, value); break;
-		case 68: emu.setKey(18, value); break;
-		case 69: emu.setKey(19, value); break;
-		case 70: emu.setKey(26, value); break;
-		case 71: emu.setKey(34, value); break;
-		case 72: emu.setKey(42, value); break;
-		case 73: emu.setKey(59, value); break;
-		case 74: emu.setKey(50, value); break;
-		case 75: emu.setKey(58, value); break;
-		case 76: emu.setKey(66, value); break;
-		case 77: emu.setKey(57, value); break;
-		case 78: emu.setKey(49, value); break;
-		case 79: emu.setKey(67, value); break;
-		case 80: emu.setKey(55, value); break;
-		case 81: emu.setKey(75, value); break;
-		case 82: emu.setKey(27, value); break;
-		case 83: emu.setKey(10, value); break;
-		case 84: emu.setKey(35, value); break;
-		case 85: emu.setKey(51, value); break;
-		case 86: emu.setKey(33, value); break;
-		case 87: emu.setKey(11, value); break;
-		case 88: emu.setKey(17, value); break;
-		case 89: emu.setKey(43, value); break;
-		case 90: emu.setKey(9, value); break;
+
+		case 32: emu.setKey(32, value); break; // spacebar
+		case 86: emu.setKey(33, value); break; // V
+		case 71: emu.setKey(34, value); break; // G
+		case 84: emu.setKey(35, value); break; // T
+		case 113: emu.setKey(36, value); break; // F2
+		// No binding for ( (too inconsistent across browsers)
+		// No binding for ) (too inconsistent across browsers)
+		// No binding for , (too inconsistent across browsers)
+
+		case 47: emu.setKey(40, value); break; // / (Opera)
+		case 111: emu.setKey(40, value); break; // / (all browsers but Opera)
+		case 66: emu.setKey(41, value); break; // B
+		case 72: emu.setKey(42, value); break; // H
+		case 89: emu.setKey(43, value); break; // Y
+		case 117: emu.setKey(44, value); break; // F6
+		// No binding for SIN
+		// No binding for COS
+		// No binding for TAN
+
+		// No binding for ^ (too inconsistent across browsers)
+		case 78: emu.setKey(49, value); break; // N
+		case 74: emu.setKey(50, value); break; // J
+		case 85: emu.setKey(51, value); break; // U
+		case 112: emu.setKey(52, value); break; // F1
+		// No binding for LN
+		// No binding for ENTER2
+		case 80: emu.setKey(55, value); break; // P
+
+		// No binding for = (too inconsistent across browsers)
+		case 77: emu.setKey(57, value); break; // M
+		case 75: emu.setKey(58, value); break; // K
+		case 73: emu.setKey(59, value); break; // I
+		case 116: emu.setKey(60, value); break; // F5
+		case 46: emu.setKey(61, value); break; // Del, simulated Clear
+		case 120: emu.setKey(62, value); break; // F9, simulated APPS
+		case 42: emu.setKey(63, value); break; // * (Opera)
+		case 106: emu.setKey(63, value); break; // * (all browsers but Opera)
+
+		case 8: emu.setKey(64, value); break; // backspace
+		// No binding for Theta
+		case 76: emu.setKey(66, value); break; // L
+		case 79: emu.setKey(67, value); break; // O
+		case 43: emu.setKey(68, value); break; // + (Opera)
+		case 107: emu.setKey(68, value); break; // + (all browsers but Opera)
+		// No binding for MODE
+		case 27: emu.setKey(70, value); break; // ESC
+		// No key at index 71 on the emulated keyboard
+
+		case 45: emu.setKey(72, value); break; // - (Opera)
+		case 109: emu.setKey(72, value); break; // - (all browsers but Opera)
+		case 13: emu.setKey(73, value); break; // ENTER1
+		case 65: emu.setKey(74, value); break; // A
+		case 81: emu.setKey(75, value); break; // Q
+		case 115: emu.setKey(76, value); break; // F4
+		case 48: emu.setKey(77, value); break; // 0
+		case 190: emu.setKey(78, value); break; // . (decimal point)
+		case 59: emu.setKey(79, value); break; // ;, simulated (-) (Firefox, Opera)
+		case 186: emu.setKey(79, value); break; // ;, simulated (-) (Chrome, IE, Safari)
 
 		case 145: if (value == 1) emu.setONKeyPressed(); else emu.setONKeyReleased(); break; // Scroll Lock, simulated ON.
 	}
@@ -7126,19 +7249,19 @@ function setCalculatorModel(model)
 	calculator_model = model;
 	if (screen_scaling_ratio == 1) {
 		switch (model) {
-			case 1: set_skin = set_small_92p_skin; break;
-			case 3: set_skin = set_small_89_skin; break;
-			case 8: set_skin = set_small_v200_skin; break;
-			case 9: set_skin = set_small_89t_skin; break;
+			case 1: set_skin = set_small_92p_skin; draw_calcscreen = draw_calcscreen_92P_V200; break;
+			case 3: set_skin = set_small_89_skin; draw_calcscreen = draw_calcscreen_89_89T; break;
+			case 8: set_skin = set_small_v200_skin; draw_calcscreen = draw_calcscreen_92P_V200; break;
+			case 9: set_skin = set_small_89t_skin; draw_calcscreen = draw_calcscreen_89_89T; break;
 			default: break;
 		}
 	}
 	else {
 		switch (model) {
-			case 1: set_skin = set_large_92p_skin; break;
-			case 3: set_skin = set_small_89_skin; break; // TODO
-			case 8: set_skin = set_small_v200_skin; break; // TODO
-			case 9: set_skin = set_small_89t_skin; break; // TODO
+			case 1: set_skin = set_large_92p_skin; draw_calcscreen = draw_calcscreen_92P_V200; break;
+			case 3: set_skin = set_small_89_skin; draw_calcscreen = draw_calcscreen_89_89T; break; // TODO
+			case 8: set_skin = set_small_v200_skin; draw_calcscreen = draw_calcscreen_92P_V200; break; // TODO
+			case 9: set_skin = set_small_89t_skin; draw_calcscreen = draw_calcscreen_89_89T; break; // TODO
 			default: break;
 		}
 	}
@@ -7211,6 +7334,25 @@ function initscreen()
 }
 
 function initemu() {
+	// Check integration into the HTML DOM.
+	if (   !document.getElementById(elementid_calcmap)
+	    || !document.getElementById(elementid_calcimg)
+	    || !document.getElementById(elementid_screen)
+	    || !document.getElementById(elementid_pngimage)) {
+		stdlib.console.warn("A DOM element related to the calculator image wasn't found, expect problems");
+	}
+	if (   !document.getElementById(elementid_smallskin)
+	    || !document.getElementById(elementid_largeskin)
+	    || !document.getElementById(elementid_textandbuttons)
+	    || !document.getElementById(elementid_pngbutton)
+	    || !document.getElementById(elementid_hidebutton)
+	    || !document.getElementById(elementid_pauseemulator)
+	    || !document.getElementById(elementid_resumeemulator)
+	    || !document.getElementById(elementid_downloadfile)) {
+		stdlib.console.warn("A DOM element for a button wasn't found, expect problems");
+	}
+	// Not checking for area, romfile.
+
 	set_skin();
 	initscreen();
 }
@@ -7260,10 +7402,22 @@ function getFileData(blob)
 {
 	// http://stackoverflow.com/a/16213045
 	var url = stdlib.URL.createObjectURL(blob);
-	var a = document.querySelector("#downloadFile");
+	var a = document.querySelector("#" + elementid_downloadfile);
 	a.href = url;
 	a.download = emu.link_recv_foldername() + "." + emu.link_recv_varname() + emu.buildFileExtensionFromVartype();
 	a.style.display='inline';
+}
+
+function set_colors_according_to_contrast()
+{
+	if (emu.hardware_model == 1) {
+		// TODO: modify both black_color and white_color.
+		black_color = white_color - 5 * contrast;
+	}
+	else {
+		// TODO: modify both black_color and white_color.
+		black_color = (2 * white_color - 5 * contrast) >> 1;
+	}
 }
 
 function set_screen_enabled_and_contrast(calculator_model, hardware_model, port_60001C, port_60001D, port_70001D, port_70001F)
@@ -7281,8 +7435,8 @@ function set_screen_enabled_and_contrast(calculator_model, hardware_model, port_
 			port_60001D = 0x10 - port_60001D;
 		}
 		contrast = port_60001D;
-		// TODO: modify black_color and white_color.
-		black_color = 0x50 - 5 * contrast;
+
+		set_colors_according_to_contrast();
 	}
 	else {
 		var new_screen_enabled = ((port_70001D & 0x2) == 0x2) || ((port_60001C & 0x3C) != 0x3C); // Bit 1 of 70001D set, or not all bits set in LCD RS frequency.
@@ -7296,8 +7450,22 @@ function set_screen_enabled_and_contrast(calculator_model, hardware_model, port_
 			port_60001D = ((port_70001F & 1) ? 0x20 : 0x10) - port_60001D;
 		}
 		contrast = port_60001D;
-		// TODO: modify black_color and white_color.
-		black_color = (0xA0 - (5 * contrast)) >> 1;
+
+		set_colors_according_to_contrast();
+	}
+}
+
+function set_frames_for_averaging(frames) {
+	if (frames == 3 || frames == 6) {
+		frames_for_averaging = frames;
+		calcscreen = new Uint8Array(240 * 128 * frames_for_averaging);
+		frame = 0;
+		white_color = (0x50 / (frames_for_averaging / 3));
+		set_colors_according_to_contrast();
+		reset();
+	}
+	else {
+		stdlib.console.warn("Unsupported number of frames for averaging");
 	}
 }
 
@@ -7314,6 +7482,7 @@ function set_elementid_hidebutton(hidebutton) { elementid_hidebutton = hidebutto
 function set_elementid_pauseemulator(pauseemulator) { elementid_pauseemulator = pauseemulator; }
 function set_elementid_resumeemulator(resumeemulator) { elementid_resumeemulator = resumeemulator; }
 function set_elementid_romfile(romfile) { elementid_romfile = romfile; }
+function set_elementid_downloadfile(downloadfile) { elementid_downloadfile = downloadfile; }
 
 return {
 	// Functions called directly from events on elements in the HTML page
@@ -7352,7 +7521,9 @@ return {
 	set_elementid_hidebutton : set_elementid_hidebutton,
 	set_elementid_pauseemulator : set_elementid_pauseemulator,
 	set_elementid_resumeemulator : set_elementid_resumeemulator,
-	set_elementid_romfile : set_elementid_romfile
+	set_elementid_romfile : set_elementid_romfile,
+
+	set_frames_for_averaging : set_frames_for_averaging
 };
 
 }
