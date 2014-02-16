@@ -13,13 +13,9 @@ MUST:
 		  One of the simple reproducers is pressing F1 in the APPS Desktop on V200 AMS 3.10.
 		  It's not a consequence of port 600005 emulation being missing (the situation is not better after adding it).
 		  2013/07/27: a slightly less wrong implementation of the keyboard handling seems to help.
-		  2014/02/03: after implementing pending interrupts, the fact of no longer raising AUTO_INT_2 (with simplistic and wrong code) seems to help. 
+		  2014/02/03: after implementing pending interrupts, the fact of no longer raising AUTO_INT_2 (with simplistic and wrong code) seems to help.
+		  2014/02/15: perhaps the last part of the fix was performed by putting back the try / catch at a deeper scope in execute_instructions() ?
 		* check build_* functions against M68000PRM. Two errors wrt. address registers have already been found (and ~600 instructions which should have been illegal made so), chances are that there are more problems.
-		* fix rate of OSC2, which seems too low now that port 600005 is emulated... or maybe not.
-		  On V200 AMS 3.10:
-			* the clock increments too slowly in the APPS Desktop (2014/02/05: ~15 real minutes to reach 12:05), and the HOME cursor blinks too slowly as well;
-			* after the APD, in ~5 real minutes, the AUTO_INT_3 timer has incremented the RTC by ~5 emulated minutes.
-		  TODO: busy-wait loops based on while (!OSTimerExpired(APD_TIMER)), with and without instructions in the loop body.
 		* investigate why the emulator's memory consumption increases over time in such a way that the process ends up being killed in Chrome (even though profiling shows nothing of the appropriate order of magnitude ?!), and fix.
 		  2014/02/10: does that still occur 8 months later ?
 		* investigate emulator slowness on Firefox Nightly (it doesn't seem to occur on Chrome ?) after transferring a file.
@@ -29,11 +25,11 @@ MUST:
 		  2014/02/10: does that still occur 8 months later ?
 
 	IMPORTANT FEATURES:
-		* improve ROM import and reset, so that the initial PC and SSP are loaded from rom[0] to rom[3] (with last-resort fallback to hard-coded values ?), i.e. that when there's a boot code, it is run.
 		* make it possible to reset without erasing the contents of the RAM, like in TIEmu.
-		* show direct feedback to the user when no ROM is loaded.
+		* memory search functions.
 		* linking emulation: silent dirlist support.
  		* modularize the code further. The linking emulation code is now separated from the core code, but maybe the CPU, for instance, could be separated from the core ??
+		  That would be a prerequisite for rewriting part of the emulator using asm.js constructs.
 		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
 		* add / change key bindings in handle_keys_89_89T() and handle_keys_92P_V200(): for consistency with VTI and TIEmu, it would be great if F10 triggered the file input (romfile). Reported by Folco.
 		* add the ability to _select_ and send multiple files. Suggested by Folco. The TI-Planet integration already shows how to send multiple files.
@@ -45,12 +41,11 @@ MUST:
 		* some form of debugger (note: would ease implementation of some other features) - well, basically, implement the features from JM's modified VTI & TIEmu :P
 			* (mostly done) implement disassembly(address, count) - in the beginning, through simple string substitution, we'll see whether that's enough;
 			* traverse the VAT - see core/ti_sw/var.c in TIEmu. That, and direct memory reads, could be used for dirlist, but then we'd have to rebuild metadata such as file types ourselves;
-			* add ROM_CALL table in an external file in JSON format, and have ROM_CALL() handle string arguments (for returning the address of a ROM_CALL). Maybe 3 objects: one sorted by ROM_CALL number, one sorted by name, one sorted by address, so that we can use binary search in all situations;
+			* add ROM_CALL table in an external file in JSON format, and have ROM_CALL() handle string arguments (for returning the address of a ROM_CALL). Maybe 3 tables inside the object wrapping ROM_CALL table access: one sorted by ROM_CALL number, one sorted by name, one sorted by address. That way, we could use binary search in all situations;
 			* etc.
 		  Breakpoints are going to kill emulation speed :(
 		* partially implemented semi-infrequent processor instructions:
-			* TAS: implemented - not checked
-			* NBCD: implemented, it's alright for normal inputs but fails with garbage inputs like VTI does.
+			* TAS: implemented - not checked.
 		* lsl(), asl(), lsr(), asr(), rol(), ror(), roxl() and roxr() should be generated, optimized, and probably have the "size" argument constant-propagated.
 		* the add*(), cmp*() and sub*() functions should be generated.
 		* disassembly support for all remaining unimplemented instructions.
@@ -65,8 +60,6 @@ MUST:
 
 	LESS IMPORTANT BUGFIXES / FEATURES:
 		* disassembler: for address register indexed with displacement, warn if scale bits != 0 (CPU32+) or bd/od present (68020+).
-		* do what it takes to add 8 MB support to 89T emulation, if possible.
-		  The 89T attempts to detect the size of the Flash memory at one place - maybe we could get to know what a 8 MB 89T would have looked like ?
 		* useful hardware ports not handled:
 			* writes to 60001B: acknowledge AUTO_INT_2 for keyboard.
 		* unimplemented infrequent processor instructions:
@@ -208,7 +201,7 @@ Changelog from PatrickD's version / work log:
 	  * build_moves(): eliminate byte moves _from_ address registers (byte moves _to_ address registers were already forbidden);
 	  * build_bit_operation(): BCHG / BCLR / BSET / BTST to address registers are forbidden.
 	  (debrouxl 2013/07/23)
-	* add hopefully correct implementation of NBCD, and build NBCD instructions.
+	* add first implementation of NBCD, and build NBCD instructions.
 	  (debrouxl 2013/07/24)
 	* build the highly infrequent MOVEP instructions, implemented by 4-byte NOPs for now (but disassembly works, that's what I aimed at).
 	  (debrouxl 2013/07/24)
@@ -406,18 +399,51 @@ Changelog from PatrickD's version / work log:
 	  (debrouxl 2014/02/12)
 	* optimize screen drawing and scaling on 89/89T: no need to compute 240x128 pixels, we can just compute 160x100 pixels.
 	  (debrouxl 2014/02/13)
-	* optimize screen drawing and scaling on 89/89T: no need to compute 240x128 pixels, we can just compute 160x100 pixels.
+	* add some support for changing the number of frames used for averaging.
 	  (debrouxl 2014/02/13)
-
+	* move back the try / catch at a deeper scope in emu_main_loop(), making two steps forward and one step back in emulation accuracy.
+	  + the timer rate is more correct now, though slightly too fast. On V200 AMS 3.10, reaching 12:05 and the APD used to take ~15 real minutes to reach 12:05, and the HOME cursor blinked too slowly; now, reaching 12:05 takes something closer to 4 real minutes, and the HOME cursor blinks too quickly.
+	  + grayscale emulation is _much_ better now. Flickering used to be horrible, for a long time (and was the reason why I added support for changing the number of frames used for averaging, but that didn't yield the expected results); not anymore.
+	  - the "Average milliseconds for the last 1000 frames is ..." figures indicated in the page's title have been multiplied by 3 to 4.
+	  - ON button functionality is lost again when the calculator is ON. However, it can still wake the calculator up from APD, and break AMS computations. The interrupt is properly marked pending, and the handler is definitely triggered. Will have to debug that.
+	  In the short and mid terms, having better screen and better timer emulation is arguably more useful than having full functionality of the ON button.
+	  (debrouxl 2014/02/15)
+	* show direct feedback to the user when no ROM is loaded.
+	  (debrouxl 2014/02/16)
+	* improve ROM import and reset, so that the initial PC and SSP are loaded from ROM_base before trying to load them from ROM_base+0x12088. If the initial PC and SSP from boot code are sane enough AND the certificate memory marker is correct, boot from boot code; otherwise, boot from OS.
+	  TIEmu always boots from OS area.
+	  (debrouxl 2014/02/16)
+	* fix disassembly output for move: the branches of the ? : condition for turning move to movea were swapped
+	  (debrouxl 2014/02/16)
+	* add set_white_color() and set_black_color() in UI.
+	  (debrouxl 2014/02/16)
+	* fix Flash memory emulation bug inherited from TIEmu, see the list of achievements below for more detail.
+	  When running the boot code from a ROM dump by libti*, the calculator emulated by TIEmu crashes, while this emulator can now display the "Corrupt Certificate Memory" message (if the marker is alright but the rest is wrong).
+	  (debrouxl 2014/02/16)
+	* add 8 MB Flash support to 89T emulation.
+	  At some point, TIEmu had such support as well, when we wrongly believed that 89T HW4 had 8 MB of Flash memory.
+	  The Flash memory chip size detection code in the boot code and OS (the one whose emulation was fixed by the previous change) can easily be tricked into believing that there's a 8 MB chip. This way, we can get to know what a 8 MB 89T would have looked like... not that it matters in practice, in the (sad) absence of real-world calculators possessing such a feature, but still :)
+	  (debrouxl 2014/02/16)
+	* when importing a TIB / xxu, produce a fake HWPB in detect_calculator_model(), like v12tibconv.py does.
+	  (debrouxl 2014/02/16)
+	* align values computed by nbcd() on those produced by TIEmu (UAE), even if the implementation in this emulator is _very_ different.
+	  That lets execution of HW3Patch proceed a bit further, even if the pipeline-exercising SMC in the part encoded with trivial not operation still trips this emulator.
+	  (debrouxl 2014/02/16)
+	* add some twist, disabled by default, in the emulation of an instruction. Maybe related to the previous item, who knows ? ;) 
+	  (debrouxl 2014/02/16)
 
 Achievements:
-	* this emulator uncovered a 6-year-old bug, due to a flat out invalid optimization in a HW1-only code path, in the alternate grayscale routine for ExtGraph (gray.o) :)
+	* on 2013/07/30, this emulator uncovered a nearly 6-year-old bug in the alternate grayscale routine for ExtGraph (gray.o). An invalid optimization in a HW1-only code path was added to ExtGraph around 2007/08/13.
 	  The bug prevented demo12-demo17, demo19, demo22, demo24-demo26 from displaying the expected data on the emulator.
 	  Subsequently, these demos provided a nice bunch of reduced testcases for bugs in the emulator:
 		* pinpointing and fixing a problem in the emulation of lsl() and rol();
 		* showing that asl instead of lsl in DrawGrayBuffer_RPLC and DrawGrayBuffer_TRANW (used by demo13) doesn't yield the same graphical glitch, so asl() was probably free from the bug previously in lsl();
 		* however, using roxl instead of rol in the same routines yields far more graphical glitches than expected (and than on TIEmu), so roxl was buggy as well.
 		Fixing these instructions fixed both some non-deterministic floating-point computations (and therefore graphing) and ellipse drawing in AMS, see an entry from 2013/08/04.
+	* on 2014/02/16, this emulator uncovered a 8+-year-old bug in TIEmu's emulation of Flash memory, namely the Identifier Codes (0x90) command. The bug probably went unnoticed because nobody bothered to execute the 89T HW4 boot code in TIEmu.
+	  The 89T HW4 boot code uses the following sequence: write 0x90, read word from 800000, read word from 800002, write 0xFF.
+	  The 89T OS uses another sequence: write 0x90, read word from 800000, read word from 800002, write 0x50, write 0xFF.
+	  The code added by Kevin Kofler to flash.c on 2005/05/26, and modified no later than 2006/10/12, supported only the second, more commonly used variant.
 */
 
 function TI68kEmulatorCoreModule(stdlib) {
@@ -447,7 +473,7 @@ var pc = 0; // program counter, treat as 32 bit int
 var pending_ints = 0;
 
 // Emulator arrays (rom usually redefined elsewhere).
-var rom = new Uint16Array(0x200000);
+var rom = false; //new Uint16Array(0x200000);
 var ram = new Uint16Array(131072); // 256K of RAM, treat as array of words
 var t = new Array(65536); // Instruction handlers.
 var n = new Array(65536); // Instruction names.
@@ -500,7 +526,9 @@ var punix = false;
 var jmp_tbl = 0;
 var ROM_base = 0; // Deduced from calculator model
 var FlashMemorySize = 0;
+var large_flash_memory = false;
 var Protection_enabled = false; // The Protection with a capital P is not implemented, it slows down emulation.
+var enable_kludge_in_lea_d_pc_a0 = false;
 var hex_prefix = "$";
 
 // Flash memory state machine
@@ -950,6 +978,7 @@ function disassemble(address, count)
 function unhandled_instruction()
 {
 	stdlib.console.log("Unhandled instruction " + to_hex(i, 4) + " at address " + to_hex(pc - 2, 8));
+	//print_status();
 	unhandled_count++;
 }
 
@@ -1191,9 +1220,159 @@ function sbcd(dst,src)
 	return finalresult;
 }
 
-// This is wrong for garbage input.
+/*
+// On TIEmu, the following test code
+
+FILE *f = fopen("out", "wt");
+if (f != NULL) {
+uint16_t i;
+for (i = 0; i < 0x100; i++) {
+    uint16_t j = i;
+    asm volatile("move.w %1,%0; andi.b #0,%%ccr; nbcd %0" : "=d" (j) : "d" (i) : "cc");
+    fprintf(f, "%3d, ", j);
+    if (i % 16 == 15) fprintf(f, "\n");
+}
+fprintf(f, "\n");
+fprintf(f, "\n");
+for (i = 0; i < 0x100; i++) {
+    uint16_t j = i;
+    asm volatile("move.w %1,%0; andi.b #0,%%ccr; ori.b #0x10,%%ccr; nbcd %0" : "=d" (j) : "d" (i) : "cc");
+    fprintf(f, "%3d, ", j);
+    if (i % 16 == 15) fprintf(f, "\n");
+}
+fprintf(f, "\n");
+}
+fclose(f);
+
+f = fopen("out2", "wt");
+if (f != NULL) {
+uint16_t i;
+for (i = 0; i < 0x100; i++) {
+    uint16_t j = i;
+    asm volatile("move.w %1,%0; andi.b #0,%%ccr; nbcd %0; scs %0" : "=d" (j) : "d" (i) : "cc");
+    fprintf(f, "%3d, ", j);
+    if (i % 16 == 15) fprintf(f, "\n");
+}
+fprintf(f, "\n");
+fprintf(f, "\n");
+for (i = 0; i < 0x100; i++) {
+    uint16_t j = i;
+    asm volatile("move.w %1,%0; andi.b #0,%%ccr; ori.b #0x10,%%ccr; nbcd %0; scs %0" : "=d" (j) : "d" (i) : "cc");
+    fprintf(f, "%3d, ", j);
+    if (i % 16 == 15) fprintf(f, "\n");
+}
+fprintf(f, "\n");
+}
+fclose(f);
+
+produces
+
+// X clear: (154 - x) modulo 255, with adjustments when the low digit of the input is zero.
+  0, 153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 139,
+144, 137, 136, 135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123,
+128, 121, 120, 119, 118, 117, 116, 115, 114, 113, 112, 111, 110, 109, 108, 107,
+112, 105, 104, 103, 102, 101, 100,  99,  98,  97,  96,  95,  94,  93,  92,  91,
+ 96,  89,  88,  87,  86,  85,  84,  83,  82,  81,  80,  79,  78,  77,  76,  75,
+ 80,  73,  72,  71,  70,  69,  68,  67,  66,  65,  64,  63,  62,  61,  60,  59,
+ 64,  57,  56,  55,  54,  53,  52,  51,  50,  49,  48,  47,  46,  45,  44,  43,
+ 48,  41,  40,  39,  38,  37,  36,  35,  34,  33,  32,  31,  30,  29,  28,  27,
+ 32,  25,  24,  23,  22,  21,  20,  19,  18,  17,  16,  15,  14,  13,  12,  11,
+ 16,   9,   8,   7,   6,   5,   4,   3,   2,   1,   0, 255, 254, 253, 252, 251,
+  0, 249, 248, 247, 246, 245, 244, 243, 242, 241, 240, 239, 238, 237, 236, 235,
+240, 233, 232, 231, 230, 229, 228, 227, 226, 225, 224, 223, 222, 221, 220, 219,
+224, 217, 216, 215, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205, 204, 203,
+208, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187,
+192, 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173, 172, 171,
+176, 169, 168, 167, 166, 165, 164, 163, 162, 161, 160, 159, 158, 157, 156, 155,
+// X set: (153 - x) modulo 255
+153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 139, 138,
+137, 136, 135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123, 122,
+121, 120, 119, 118, 117, 116, 115, 114, 113, 112, 111, 110, 109, 108, 107, 106,
+105, 104, 103, 102, 101, 100,  99,  98,  97,  96,  95,  94,  93,  92,  91,  90,
+ 89,  88,  87,  86,  85,  84,  83,  82,  81,  80,  79,  78,  77,  76,  75,  74,
+ 73,  72,  71,  70,  69,  68,  67,  66,  65,  64,  63,  62,  61,  60,  59,  58,
+ 57,  56,  55,  54,  53,  52,  51,  50,  49,  48,  47,  46,  45,  44,  43,  42,
+ 41,  40,  39,  38,  37,  36,  35,  34,  33,  32,  31,  30,  29,  28,  27,  26,
+ 25,  24,  23,  22,  21,  20,  19,  18,  17,  16,  15,  14,  13,  12,  11,  10,
+  9,   8,   7,   6,   5,   4,   3,   2,   1,   0, 255, 254, 253, 252, 251, 250,
+249, 248, 247, 246, 245, 244, 243, 242, 241, 240, 239, 238, 237, 236, 235, 234,
+233, 232, 231, 230, 229, 228, 227, 226, 225, 224, 223, 222, 221, 220, 219, 218,
+217, 216, 215, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205, 204, 203, 202,
+201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187, 186,
+185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173, 172, 171, 170,
+169, 168, 167, 166, 165, 164, 163, 162, 161, 160, 159, 158, 157, 156, 155, 154,
+
+and
+// Set C (and X) for all values but 0
+  0, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+// Set C (and X) for all values
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+
+The implementation of nbcd in TIEmu (UAE) is as follows:
+	uae_u16 lowdigit = - (src & 0xF) - (GET_XFLG ? 1 : 0);
+	uae_u16 highdigit = - (src & 0xF0);
+	uae_u16 newv, tmp_newv;
+	int bcd = 0;
+	newv = tmp_newv = highdigit + lowdigit;	if (lowdigit & 0xF0) { newv -= 6; bcd = 6; };
+	if (((- (src & 0xFF) - (GET_XFLG ? 1 : 0)) & 0x100) > 0xFF) { newv -= 0x60; }
+	SET_CFLG (((- (src & 0xFF) - bcd - (GET_XFLG ? 1 : 0)) & 0x300) > 0xFF);
+COPY_CARRY;
+	SET_ZFLG (GET_ZFLG & (((uae_s8)(newv)) == 0));
+	SET_NFLG (((uae_s8)(newv)) < 0);
+	SET_VFLG ((tmp_newv & 0x80) != 0 && (newv & 0x80) == 0);
+*/
 function nbcd(src)
 {
+	src &= 0xFF;
+	var result;
+	if (sr & 0x10) {
+		result = 153 - src;
+		if (result < 0) result += 256;
+	}
+	else {
+		result = 154 - src;
+		if (result < 0) result += 256;
+		if (!(src & 0xF)) {
+			result += 16;
+			result &= 0xF0;
+			if (result == 160 || result == 256) result = 0;
+		}
+	}
+	sr &= 0xFFE4; // clear all condition codes but Z
+	if (result & 0x80) sr |= 8; // Set N.
+	if (result != 0) { sr &= 0xFFFB; sr |= 0x11; } // clear zero flag, set X and C
+	return result;
+/*
 	src &= 0xFF;
 	var subtrahend = (src >>> 4) * 10 + (src & 0xF);
 	var result = 0 - subtrahend;
@@ -1208,6 +1387,7 @@ function nbcd(src)
 	var highdigit = (result - lowdigit) / 10;
 	var finalresult = highdigit * 16 + lowdigit;
 	return finalresult;
+*/
 }
 
 function addx(x,y,size)
@@ -2143,7 +2323,7 @@ function build_moves(name, size, pattern)
 					if (valid_source(srcmode, srcreg) && valid_dest(dstmode, dstreg))
 					{
 						var opcode = pattern + (dstreg << 9) + (dstmode << 6) + (srcmode << 3) + srcreg
-						var fullname = ((dstmode == 1) ? name : name.replace("MOVE", "MOVEA")) + " " + amode_name(srcmode, srcreg, size) + "," + amode_name(dstmode, dstreg, size)
+						var fullname = ((dstmode == 1) ? name.replace("MOVE", "MOVEA") : name) + " " + amode_name(srcmode, srcreg, size) + "," + amode_name(dstmode, dstreg, size)
 						var code = amode_read(srcmode, srcreg, size, true)
 						code += amode_write(dstmode, dstreg, size, "s")
 						// set condition codes, except when writing to a registers
@@ -2566,6 +2746,9 @@ function build_lea()
 					var iname = "LEA " + amode_name(srcmode, srcreg, 1) + ",A" + reg
 					var code = effective_address_calc(srcmode, srcreg)
 					code += "a" + reg + "=z;"
+					if (opcode == 0x41FA && enable_kludge_in_lea_d_pc_a0) {
+						code += "if((o == 7) && (pc < 0x40000) && (rw(pc) == 0x4210) && (rw(pc+2) == 0x6000) && (rw(pc+4) == 0x000A) && (rw(pc+6) == 0x0000) && (rw(pc+8) == 0x4E4C) && (rw(pc+10) == 0x534F) && (rw(pc+12) == 0x4AFC)) { pc += 14; }";
+					}
 					insert_inst(opcode, code, iname)
 				}
 }
@@ -2914,7 +3097,7 @@ insert_inst2(0x4E73, "if(sr&0x2000==0)fire_cpu_exception(8);var s=rw(a7);a7+=2;p
 insert_inst2(0x4E75, "pc=rl(a7);a7+=4;", "RTS", 16)
 insert_inst2(0x4E76, "if(sr&2)fire_cpu_exception(7)", "TRAPV", 4) // TRAPV
 insert_inst2(0x4E77, "var s=rw(a7);a7+=2;pc=rl(a7);a7+=4;sr=(sr&0xFFE0)|(s&0x001F)", "RTR", 20)
-insert_inst2(0x4AFC, "fire_cpu_exception(4)", "ILLEGAL", 34) // Illegal instruction
+insert_inst2(0x4AFC, "print_status(); disassemble(pc-32, 20); fire_cpu_exception(4)", "ILLEGAL", 34) // Illegal instruction
 build_movesrccr()
 build_jmpjsr()
 build_pea()
@@ -3347,7 +3530,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "		if (flash_write_phase == 0x90) {" + // Read identifier codes mode
 "			switch (address & 0xffff) {" +
 "				case 0:  return " + ((suffix == 8 || suffix == 9) ? "0x00b0" : "0x0089") + ";" + // manufacturer code
-"				case 2:  return 0x00b5;" + // device code
+"				case 2:  return " + (large_flash_memory ? "0x00b0" : "0x00b5") + ";" + // device code
 "				default: return 0xffff;" +
 "			}" +
 "		}" +
@@ -3380,7 +3563,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "				case 0:  return 0x00;" +
 "				case 1:  return " + ((suffix == 8 || suffix == 9) ? "0xb0" : "0x89") + ";" + // manufacturer code
 "				case 2:  return 0x00;" +
-"				case 3:  return 0xb5;" + // device code
+"				case 3:  return " + (large_flash_memory ? "0xb0" : "0xb5") + ";" + // device code
 "				default: return 0xff;" +
 "			}" +
 "		}" +
@@ -3403,7 +3586,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 build_memory_read_functions("1", 0x400000, 0x200000); // 92+
 build_memory_read_functions("3", 0x200000, 0x200000); // 89
 build_memory_read_functions("8", 0x200000, 0x400000); // V200
-build_memory_read_functions("9", 0x800000, 0x400000); // 89T
+build_memory_read_functions("9", 0x800000, (large_flash_memory ? 0x800000 : 0x400000)); // 89T
 
 function rl(address)
 {
@@ -3503,7 +3686,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "			}" +
 "		}" +
 "		else if (value == 0xFFFF) {" + // read array/reset
-"			if (flash_write_phase == 0x50) {" +
+"			if (flash_write_phase == 0x50 || flash_write_phase == 0x90) {" +
 "				flash_write_ready = 0;" +
 "				flash_ret_or = 0;" +
 //"stdlib.console.log(\"Switch to normal\");" +
@@ -3524,7 +3707,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 build_memory_write_functions("1", 0x400000, 0x200000); // 92+
 build_memory_write_functions("3", 0x200000, 0x200000); // 89
 build_memory_write_functions("8", 0x200000, 0x400000); // V200
-build_memory_write_functions("9", 0x800000, 0x400000); // 89T
+build_memory_write_functions("9", 0x800000, (large_flash_memory ? 0x800000 : 0x400000)); // 89T
 
 function wl(address, value)
 {
@@ -3823,6 +4006,7 @@ function initemu()
 
 	if (!detect_calculator_model()) {
 		stdlib.console.log("Couldn't detect calculator model");
+		ui.display_no_rom_loaded();
 		return;
 	}
 
@@ -3851,6 +4035,7 @@ function setKey(keynumber, status)
 
 function setONKeyPressed()
 {
+	//stdlib.console.log("ON pressed");
 	port_60001A = 0x00;
 	raise_interrupt(6); // AUTO_INT_6
 }
@@ -3858,6 +4043,7 @@ function setONKeyPressed()
 function setONKeyReleased()
 {
 	port_60001A = 0x02;
+	//stdlib.console.log("ON released");
 }
 
 // Detecting the calculator model in a generic way is harder than it could seem.
@@ -3865,6 +4051,9 @@ function setONKeyReleased()
 // In TIEmu, see src/core/images.c::ti68k_get_rom_infos() and src/core/hwpm.c::ti68k_get_hw_param_block().
 function detect_calculator_model()
 {
+	if (typeof(rom) !== "object") {
+		return false;
+	}
 	jmp_tbl = rom[(0x12088 + 0xC8) >>> 1] * 65536 + rom[((0x12088 + 0xC8) >>> 1) + 1]; // Jump table, if any
 	pedrom = (rom[(0x12088 + 0x32) >>> 1] == 0x524F); // PedroM has kernel type "RO", AMS and Punix have no kernel type.
 	punix = (jmp_tbl == 0); // Punix doesn't have an AMS-style jump table.
@@ -3907,7 +4096,7 @@ function detect_calculator_model()
 		case 1: ROM_base = 0x400000; FlashMemorySize = 0x200000; break; // 92+
 		case 3: ROM_base = 0x200000; FlashMemorySize = 0x200000; break; // 89
 		case 8: ROM_base = 0x200000; FlashMemorySize = 0x400000; break; // V200
-		case 9: ROM_base = 0x800000; FlashMemorySize = 0x400000; break; // 89T
+		case 9: ROM_base = 0x800000; FlashMemorySize = (large_flash_memory ? 0x800000 : 0x400000); break; // 89T
 		default: return false;
 	}
 
@@ -3944,6 +4133,24 @@ function detect_calculator_model()
 	else {
 		// There's no HWPB in this image
 		hardware_model = (calculator_model == 9) ? 3 : ((calculator_model == 8) ? 2 : 1); // Assume HW3 for 89T, HW2 for V200 (always correct), HW1 for 89 & 92+.
+
+		// Create fake HWPB
+		stdlib.console.log("Creating fake HWPB");
+		rom[0x104 / 2] = ROM_base >>> 16; // Address of the HWPB
+		rom[0x106 / 2] = 0x0108;
+		rom[0x108 / 2] = 0x0018; // Size of the HWPB
+		rom[0x10A / 2] = 0x0000; // Hardware ID
+		rom[0x10C / 2] = calculator_model;
+		rom[0x10E / 2] = 0x0000; // Hardware revision
+		rom[0x110 / 2] = 0x0001;
+		rom[0x112 / 2] = 0x0000; // Boot major
+		rom[0x114 / 2] = 0x0001;
+		rom[0x116 / 2] = 0x0000; // Boot revision
+		rom[0x118 / 2] = 0x0001;
+		rom[0x11A / 2] = 0x0000; // Boot build
+		rom[0x11C / 2] = 0x0001;
+		rom[0x11E / 2] = 0x0000; // Gate array
+		rom[0x120 / 2] = hardware_model;
 	}
 
 	stdlib.console.log("Detected a supported OS, calculator model is " + calculator_model + ", hardware model is " + hardware_model);
@@ -3966,8 +4173,6 @@ function reset_calculator()
 
 	ui.reset();
 
-	// start here to skip the boot code (which is missing in TIB based images)
-
 	for (var i = 0; i < 128; i++) ram[i] = rom[i + (0x12088 / 2)];
 
 	// Redefine memory read / write functions
@@ -3987,10 +4192,40 @@ function reset_calculator()
 		stdlib.console.log("Invalid calculator type");
 	}
 
-	pc = ROM_base+0x12188;
-	prev_pc = ROM_base+0x12188;
+	// Detect starting address.
+	var initial_ssp = rom[0] * 65536 + rom[1];
+	var initial_pc = rom[2] * 65536 + rom[3];
+	if (   initial_ssp >= 0 && initial_ssp < 0x40000
+	    && initial_pc >= ROM_base && initial_pc < ROM_base + FlashMemorySize
+	    && rom[0x10000 >>> 1] == 0xFFF8) {
+		stdlib.console.log("Detected reasonably valid initial SSP=" + to_hex(initial_ssp, 8) + ", PC=" + to_hex(initial_pc, 8) + " in boot code, and marker in certificate memory: will boot from boot code");
+		pc = initial_pc;
+		prev_pc = pc;
+		a7 = initial_ssp;
+		a8 = initial_ssp;
+
+		// Set marker in certificate memory, otherwise the boot code will display "Corrupt Certificate memory" and enter infinite loop.
+		/*if (rom[0x10000 >>> 1] == 0xFFFF) {
+			stdlib.console.log("Setting marker in certificate memory");
+			rom[0x10000 >>> 1] = 0xFFF8;
+		}*/
+	}
+	else {
+		initial_ssp = rom[0x12088 >>> 1] * 65536 + rom[0x1208A >>> 1];
+		initial_pc = rom[0x1208C >>> 1] * 65536 + rom[0x1208E >>> 1];
+		if (initial_ssp >= 0 && initial_ssp < 0x40000 && initial_pc >= ROM_base && initial_pc < ROM_base + FlashMemorySize) {
+			stdlib.console.log("Detected reasonably valid initial SSP=" + to_hex(initial_ssp, 8) + " and PC=" + to_hex(initial_pc, 8) + " in OS, will boot from there");
+			pc = initial_pc;
+			prev_pc = pc;
+			a7 = initial_ssp;
+			a8 = initial_ssp;
+		}
+		else {
+			stdlib.console.log("Detected no valid initial SSP and PC !");
+		}
+	}
+
 	sr = 0x2700;
-	//port_60001D = (hardware_model == 1) ? 0x9D : 0x8D;
 
 	link.reset_arrays();
 }
@@ -4099,7 +4334,7 @@ function timer_interrupts()
 
 function execute_instructions(number)
 {
-	for (var inner = 0; inner < number && !stopped; inner++) {
+	for (var inner = 0; inner < number; inner++) {
 		prev_pc = pc;
 		var opcode = rw(pc);
 		if (tracecount > 0) {
@@ -4109,8 +4344,32 @@ function execute_instructions(number)
 				print_status();
 			}
 		}
+		//if (pc == 0x48d6) tracecount = 20;
 		pc += 2;
-		t[opcode]();
+		try {
+			t[opcode]();
+		}
+		catch (e) {
+			if (e == "STOP")
+			{
+				stopped = true;
+				//stdlib.console.log("stopped at " + to_hex(pc,9) + " SR = " + to_hex(sr,5));
+				break;
+			}
+			else if (isNaN(e) || e < 0 || e > 255 || e != Math.floor(e))
+			{
+				// this is a real javascript exception
+				stdlib.console.log("real javascript exception " + e);
+				if (e.stack.length < 2000) {
+					stdlib.console.log(e.stack);
+				}
+				else {
+					stdlib.console.log(e.stack.substr(e.stack.length - 2000, 2000));
+				}
+				stdlib.clearInterval(main_interval_timer);
+				return;
+			}
+		}
 
 		// Raise highest level pending interrupt.
 		if (pending_ints) {
@@ -4144,7 +4403,7 @@ function emu_main_loop()
 	var started = false;
 
 	// The cost of exception handling is noticeable. For most of the emulator's operation, it can, in fact, be removed.
-	try {
+	//try {
 		// The LCD refreshes every 8192 OSC2 cycles (by default)
 		for (var outer = 0; outer < screen_height * 2 /*&& unhandled_count < 10*/; outer++)
 		{
@@ -4153,7 +4412,24 @@ function emu_main_loop()
 			// which is fairly reasonable depending on your instruction mix.
 			if (!stopped)
 			{
-				execute_instructions(64);
+				//try {
+					execute_instructions(64);
+				/*}
+				catch (e) {
+					if (e == "STOP")
+					{
+						stopped = true;
+						//stdlib.console.log("stopped at " + to_hex(pc,9) + " SR = " + to_hex(sr,5));
+					}
+					else if (isNaN(e) || e < 0 || e > 255 || e != Math.floor(e))
+					{
+						// this is a real javascript exception
+						stdlib.console.log("real javascript exception " + e);
+						stdlib.console.log(e.stack);
+						stdlib.clearInterval(main_interval_timer);
+						return;
+					}
+				}*/
 			}
 
 			timer_interrupts();
@@ -4161,7 +4437,7 @@ function emu_main_loop()
 			// link interrupts
 			link.link_handling();
 		}
-	}
+	/*}
 	catch (e) {
 		if (e == "STOP")
 		{
@@ -4176,7 +4452,7 @@ function emu_main_loop()
 			stdlib.clearInterval(main_interval_timer);
 			return;
 		}
-	}
+	}*/
 
 	if (hardware_model == 1) {
 		ui.draw_screen(((lcd_address_high << 8) + lcd_address_low) << (3 - 1), ram);
@@ -4200,124 +4476,139 @@ function emu_main_loop()
 
 	if (newromready)
 	{
-		var inputrom = newromready.result;
-		newromready = false;
-		var buf = new Uint8Array(inputrom);
-		if (inputrom.byteLength == 0x200000 || inputrom.byteLength == 0x400000)
-		{
-			stdlib.console.log("Processing plain ROM image");
-			rom = new Uint16Array(inputrom.byteLength / 2);
-			for (var x = 0; x < inputrom.byteLength; x += 2)
-			{
-				rom[x / 2] = buf[x] * 256 + buf[x + 1];
-			}
-			initemu();
-		}
-		else
-		{
-			stdlib.console.log("Processing TIB/9XU image");
-			var start = 0;
-			if (buf[0] == 0x2A && buf[1] == 0x2A && buf[2] == 0x54 && buf[3] == 0x49 && buf[4] == 0x46 && buf[5] == 0x4C && buf[6] == 0x2A && buf[7] == 0x2A)
-			{
-				for (var test = 0; test < inputrom.byteLength - 8; test++)
-				{
-					// "basecode"
-					if (buf[test] == 0x62 && buf[test+1] == 0x61 && buf[test+2] == 0x73 && buf[test+3] == 0x65 && buf[test+4] == 0x63 && buf[test+5] == 0x6f && buf[test+6] == 0x64 && buf[test+7]== 0x65)
-					{
-						start = test + 0x3d;
-						break;
-					}
-				}
-			}
-			stdlib.console.log("Offset = " + start);
-
-			rom = new Uint16Array(0x400000 / 2); // Allocate an array of maximum size.
-			var offset = 0;
-			for (offset = 0; offset < 0x12000 / 2; offset++) {
-				rom[offset] = 5120;  // 0x1400
-			}
-
-			for (var x = start; x < inputrom.byteLength; x += 2)
-			{
-				rom[offset] = buf[x] * 256 + buf[x + 1];
-				offset++;
-			}
-			while (offset < rom.length) {
-				rom[offset] = 0xFFFF;
-				offset++;
-			}
-			initemu();
-			rom = rom.subarray(0, FlashMemorySize / 2); // Reduce array size if possible.
-			//overall = 150; tracecount = 50;
-		}
+		handle_newromready();
 	}
 
 	if (newfileready)
 	{
-		var buf;
-		if (typeof(newfileready) == "object") { // The contents were loaded from a JS function further down
-			if (newfileready instanceof Array) { // The contents were stored directly into an array
-				buf = newfileready;
-			}
-			else {
-				buf = new Uint8Array(newfileready.result);
-			}
-		}
-		newfileready = false;
-
-		var varname = new Array();
-		for (var x = 0x0A; x < 0x12; x++)
-		{
-			if (buf[x] == 0) break;
-			varname.push(buf[x]);
-		}
-		varname.push(0x5c); // backslash
-		for (var x = 0x40; x < 0x48; x++)
-		{
-			if (buf[x] == 0) break;
-			varname.push(buf[x]);
-		}
-
-		var vartype = buf[0x48];
-		// Modify vartype according to the locked / archived byte (libticalcs: calc_89.c: send_var).
-		if (buf[0x49] == 1) { // Locked
-			vartype = 0x26;
-		}
-		else if (buf[0x49] == 2 || buf[0x49] == 3) { // Archived
-			vartype = 0x27;
-		}
-
-		var data_len = buf[0x57] + buf[0x56] * 256;
-
-		link.sendfile(varname, vartype, buf, data_len, 0x58, true); // Data starts at 0x58
+		handle_newfileready();
 	}
 
 	if (newflashfileready)
 	{
-		var buf;
-		if (typeof(newflashfileready) == "object") { // The contents were loaded from a JS function further down
-			if (newflashfileready instanceof Array) { // The contents were stored directly into an array
-				buf = newflashfileready;
-			}
-			else {
-				buf = new Uint8Array(newflashfileready.result);
-			}
-		}
-		newflashfileready = false;
-
-		var varname = new Array();
-		for (var x = 0x11; x < 0x19; x++)
-		{
-			if (buf[x] == 0) break;
-			varname.push(buf[x]);
-		}
-
-		var vartype = buf[0x31];
-
-		var data_len = buf[0x4A] + buf[0x4B] * 256 + buf[0x4C] * 65536 + buf[0x4D] * 16777216;
-
-		link.sendfile(varname, vartype, buf, data_len, 0x4E, false); // data starts at 0x4E
+		handle_newflashfileready();
 	}
+}
+
+function handle_newromready()
+{
+	var inputrom = newromready.result;
+	newromready = false;
+	var buf = new Uint8Array(inputrom);
+	if (inputrom.byteLength == 0x200000 || inputrom.byteLength == 0x400000)
+	{
+		stdlib.console.log("Processing plain ROM image");
+		rom = new Uint16Array(inputrom.byteLength / 2);
+		for (var x = 0; x < inputrom.byteLength; x += 2)
+		{
+			rom[x / 2] = buf[x] * 256 + buf[x + 1];
+		}
+		initemu();
+	}
+	else
+	{
+		stdlib.console.log("Processing TIB/9XU image");
+		var start = 0;
+		if (buf[0] == 0x2A && buf[1] == 0x2A && buf[2] == 0x54 && buf[3] == 0x49 && buf[4] == 0x46 && buf[5] == 0x4C && buf[6] == 0x2A && buf[7] == 0x2A)
+		{
+			for (var test = 0; test < inputrom.byteLength - 8; test++)
+			{
+				// "basecode"
+				if (buf[test] == 0x62 && buf[test+1] == 0x61 && buf[test+2] == 0x73 && buf[test+3] == 0x65 && buf[test+4] == 0x63 && buf[test+5] == 0x6f && buf[test+6] == 0x64 && buf[test+7]== 0x65)
+				{
+					start = test + 0x3d;
+					break;
+				}
+			}
+		}
+		stdlib.console.log("Offset = " + start);
+
+		rom = new Uint16Array(0x800000 / 2); // Allocate an array of maximum size (0x800000 due to experimental large memory support for 89T);
+		var offset = 0;
+		for (offset = 0; offset < 0x12000 / 2; offset++) {
+			rom[offset] = 5120;  // 0x1400
+		}
+
+		for (var x = start; x < inputrom.byteLength; x += 2)
+		{
+			rom[offset] = buf[x] * 256 + buf[x + 1];
+			offset++;
+		}
+		while (offset < rom.length) {
+			rom[offset] = 0xFFFF;
+			offset++;
+		}
+		initemu();
+		rom = rom.subarray(0, FlashMemorySize / 2); // Reduce array size if possible.
+		//overall = 150; tracecount = 50;
+	}
+}
+
+function handle_newfileready()
+{
+	var buf;
+	if (typeof(newfileready) == "object") { // The contents were loaded from a JS function further down
+		if (newfileready instanceof Array) { // The contents were stored directly into an array
+			buf = newfileready;
+		}
+		else {
+			buf = new Uint8Array(newfileready.result);
+		}
+	}
+	newfileready = false;
+
+	var varname = new Array();
+	for (var x = 0x0A; x < 0x12; x++)
+	{
+		if (buf[x] == 0) break;
+		varname.push(buf[x]);
+	}
+	varname.push(0x5c); // backslash
+	for (var x = 0x40; x < 0x48; x++)
+	{
+		if (buf[x] == 0) break;
+		varname.push(buf[x]);
+	}
+
+	var vartype = buf[0x48];
+	// Modify vartype according to the locked / archived byte (libticalcs: calc_89.c: send_var).
+	if (buf[0x49] == 1) { // Locked
+		vartype = 0x26;
+	}
+	else if (buf[0x49] == 2 || buf[0x49] == 3) { // Archived
+		vartype = 0x27;
+	}
+
+	var data_len = buf[0x57] + buf[0x56] * 256;
+
+	link.sendfile(varname, vartype, buf, data_len, 0x58, true); // Data starts at 0x58
+}
+
+function handle_newflashfileready()
+{
+	var buf;
+	if (typeof(newflashfileready) == "object") { // The contents were loaded from a JS function further down
+		if (newflashfileready instanceof Array) { // The contents were stored directly into an array
+			buf = newflashfileready;
+		}
+		else {
+			buf = new Uint8Array(newflashfileready.result);
+		}
+	}
+	newflashfileready = false;
+
+	var varname = new Array();
+	for (var x = 0x11; x < 0x19; x++)
+	{
+		if (buf[x] == 0) break;
+		varname.push(buf[x]);
+	}
+
+	var vartype = buf[0x31];
+
+	var data_len = buf[0x4A] + buf[0x4B] * 256 + buf[0x4C] * 65536 + buf[0x4D] * 16777216;
+
+	link.sendfile(varname, vartype, buf, data_len, 0x4E, false); // data starts at 0x4E
 }
 
 function loadrom(infile)
@@ -4328,14 +4619,14 @@ function loadrom(infile)
 	{
 		stdlib.console.log("Loading as plain ROM");
 		var reader = new FileReader();
-		reader.onload = function() { newromready = reader; unhandled_count = 0; };
+		reader.onload = function() { newromready = reader; unhandled_count = 0; handle_newromready(); };
 		reader.readAsArrayBuffer(infile);
 	}
 	if (infile.size >= 1024 && infile.size < 0x400000 && (extension == ".tib" || extension == ".9xu" || extension == ".89u" || extension == ".v2u"))
 	{
 		stdlib.console.log("Starting to load as TIB / OS upgrade");
 		var reader = new FileReader();
-		reader.onload = function() { newromready = reader; unhandled_count = 0; };
+		reader.onload = function() { newromready = reader; unhandled_count = 0; handle_newromready(); };
 		reader.readAsArrayBuffer(infile);
 	}
 	// tilp: MIME types definition.
@@ -4365,7 +4656,7 @@ function loadrom(infile)
 	       )) {
 		stdlib.console.log("Starting to load as variable");
 		var reader = new FileReader();
-		reader.onload = function() { newfileready = reader; unhandled_count = 0; };
+		reader.onload = function() { newfileready = reader; unhandled_count = 0; handle_newfileready(); };
 		reader.readAsArrayBuffer(infile);
 	}
 	if (   infile.size >= 80
@@ -4374,7 +4665,7 @@ function loadrom(infile)
 	       )) {
 		stdlib.console.log("Starting to load as Flash variable - WIP");
 		var reader = new FileReader();
-		reader.onload = function() { newflashfileready = reader; unhandled_count = 0; };
+		reader.onload = function() { newflashfileready = reader; unhandled_count = 0; handle_newflashfileready(); };
 		reader.readAsArrayBuffer(infile);
 	}
 }
@@ -4648,6 +4939,42 @@ function check_sbcd() {
 	return true;
 }
 
+var nbcd_array = [
+   0, 153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 139,
+ 144, 137, 136, 135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123,
+ 128, 121, 120, 119, 118, 117, 116, 115, 114, 113, 112, 111, 110, 109, 108, 107,
+ 112, 105, 104, 103, 102, 101, 100,  99,  98,  97,  96,  95,  94,  93,  92,  91,
+  96,  89,  88,  87,  86,  85,  84,  83,  82,  81,  80,  79,  78,  77,  76,  75,
+  80,  73,  72,  71,  70,  69,  68,  67,  66,  65,  64,  63,  62,  61,  60,  59,
+  64,  57,  56,  55,  54,  53,  52,  51,  50,  49,  48,  47,  46,  45,  44,  43,
+  48,  41,  40,  39,  38,  37,  36,  35,  34,  33,  32,  31,  30,  29,  28,  27,
+  32,  25,  24,  23,  22,  21,  20,  19,  18,  17,  16,  15,  14,  13,  12,  11,
+  16,   9,   8,   7,   6,   5,   4,   3,   2,   1,   0, 255, 254, 253, 252, 251,
+   0, 249, 248, 247, 246, 245, 244, 243, 242, 241, 240, 239, 238, 237, 236, 235,
+ 240, 233, 232, 231, 230, 229, 228, 227, 226, 225, 224, 223, 222, 221, 220, 219,
+ 224, 217, 216, 215, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205, 204, 203,
+ 208, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187,
+ 192, 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173, 172, 171,
+ 176, 169, 168, 167, 166, 165, 164, 163, 162, 161, 160, 159, 158, 157, 156, 155,
+
+ 153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 139, 138,
+ 137, 136, 135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123, 122,
+ 121, 120, 119, 118, 117, 116, 115, 114, 113, 112, 111, 110, 109, 108, 107, 106,
+ 105, 104, 103, 102, 101, 100,  99,  98,  97,  96,  95,  94,  93,  92,  91,  90,
+  89,  88,  87,  86,  85,  84,  83,  82,  81,  80,  79,  78,  77,  76,  75,  74,
+  73,  72,  71,  70,  69,  68,  67,  66,  65,  64,  63,  62,  61,  60,  59,  58,
+  57,  56,  55,  54,  53,  52,  51,  50,  49,  48,  47,  46,  45,  44,  43,  42,
+  41,  40,  39,  38,  37,  36,  35,  34,  33,  32,  31,  30,  29,  28,  27,  26,
+  25,  24,  23,  22,  21,  20,  19,  18,  17,  16,  15,  14,  13,  12,  11,  10,
+   9,   8,   7,   6,   5,   4,   3,   2,   1,   0, 255, 254, 253, 252, 251, 250,
+ 249, 248, 247, 246, 245, 244, 243, 242, 241, 240, 239, 238, 237, 236, 235, 234,
+ 233, 232, 231, 230, 229, 228, 227, 226, 225, 224, 223, 222, 221, 220, 219, 218,
+ 217, 216, 215, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205, 204, 203, 202,
+ 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187, 186,
+ 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173, 172, 171, 170,
+ 169, 168, 167, 166, 165, 164, 163, 162, 161, 160, 159, 158, 157, 156, 155, 154,
+];
+
 function check_nbcd() {
 	var result;
 
@@ -4687,13 +5014,12 @@ function check_nbcd() {
 		return false;
 	}
 
-	// TODO: garbage in, garbage out on nbcd.
-	/*sr = 0;
+	sr = 0;
 	result = nbcd(0x0F);
 	if (result != 0x8B || (sr & 0x15) != 0x11) { // X, C but not Z
 		stdlib.console.log("nbcd 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
-	}*/
+	}
 
 	sr = 0;
 	result = nbcd(0x10);
@@ -4703,9 +5029,16 @@ function check_nbcd() {
 	}
 
 	sr = 0;
+	result = nbcd(0x1F); // This one is used by HW3Patch as an anti-VTI check, but it does not trip this emulator ;)
+	if (result != 0x7B || (sr & 0x15) != 0x11) { // X, N, C but not Z
+		stdlib.console.log("nbcd 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
 	result = nbcd(0x11);
 	if (result != 0x89 || (sr & 0x15) != 0x11) { // X, N, C but not Z
-		stdlib.console.log("nbcd 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		stdlib.console.log("nbcd 8 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -6128,6 +6461,7 @@ var context = false;
 var calculator_model = 1;
 var set_skin = function() { };
 var draw_calcscreen = function(address, ram) { } ;
+var display_no_rom_loaded = function() { stdlib.alert("No ROM / OS loaded !"); }
 var screen_scaling_ratio = 2; // 2:1 by default
 var screen_enabled = true;
 var contrast = 0x0;
@@ -7469,6 +7803,9 @@ function set_frames_for_averaging(frames) {
 	}
 }
 
+function set_white_color(color) { white_color = color; }
+function set_black_color(color) { black_color = color; }
+
 function set_elementid_calcmap(calcmap) { elementid_calcmap = calcmap; }
 function set_elementid_area(area) { elementid_area = area; }
 function set_elementid_calcimg(calcimg) { elementid_calcimg = calcimg; }
@@ -7483,6 +7820,7 @@ function set_elementid_pauseemulator(pauseemulator) { elementid_pauseemulator = 
 function set_elementid_resumeemulator(resumeemulator) { elementid_resumeemulator = resumeemulator; }
 function set_elementid_romfile(romfile) { elementid_romfile = romfile; }
 function set_elementid_downloadfile(downloadfile) { elementid_downloadfile = downloadfile; }
+function set_display_no_rom_loaded(func) { display_no_rom_loaded = func; }
 
 return {
 	// Functions called directly from events on elements in the HTML page
@@ -7503,6 +7841,7 @@ return {
 	set_screen_enabled_and_contrast : set_screen_enabled_and_contrast,
 	set_title : set_title,
 	getFileData : getFileData,
+	display_no_rom_loaded : display_no_rom_loaded, 
 
 	// Setter functions called from a script in the HTML page.
 	setEmu : setEmu,
@@ -7522,8 +7861,11 @@ return {
 	set_elementid_pauseemulator : set_elementid_pauseemulator,
 	set_elementid_resumeemulator : set_elementid_resumeemulator,
 	set_elementid_romfile : set_elementid_romfile,
+	set_display_no_rom_loaded : set_display_no_rom_loaded,
 
-	set_frames_for_averaging : set_frames_for_averaging
+	set_frames_for_averaging : set_frames_for_averaging,
+	set_white_color : set_white_color,
+	set_black_color : set_black_color
 };
 
 }
