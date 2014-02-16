@@ -16,7 +16,9 @@ var link = TI68kEmulatorLinkModule(window);
 if (emu.apiversion() != 1) {
     throw "API version has changed, the script may have to be updated";
 }
-emu.setRom(rom);
+if (typeof(rom) === "object") {
+    emu.setRom(rom);
+}
 emu.setReset(reset);
 ui.setEmu(emu);
 ui.setLink(link);
@@ -27,6 +29,7 @@ link.setUI(ui);
 
 // Here, you could call a bunch of set_elementid_* functions on ui, e.g. set_elementid_calcimg(), to link your document's element IDs with the script.
 // But that's optional if you use the same element IDs as the ones in this reference HTML page.
+// You can also call set_display_no_rom_loaded() on UI if you don't like alert() as a way to tell the user that no ROM / OS upgrade is loaded.
 </script>
 </head>
 
