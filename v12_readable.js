@@ -431,6 +431,16 @@ Changelog from PatrickD's version / work log:
 	  (debrouxl 2014/02/16)
 	* add some twist, disabled by default, in the emulation of an instruction. Maybe related to the previous item, who knows ? ;) 
 	  (debrouxl 2014/02/16)
+	* add keypad 0 to 9 key bindings in handle_keys_89_89T() and handle_keys_92P_V200().
+	  (debrouxl 2014/02/17)
+	* fix waking up from sleep in raise_interrupt(): wakemask counts interruptions from bit 0 instead of bit 1. Fixes emulation of Ice Hockey 68k, among others.
+	  (debrouxl 2014/02/17)
+	* add cycle counting in execute_instructions().
+	  (debrouxl 2014/02/17)
+	* add erase_ram_upon_reset variable and setter, and in reset_calculator(), erase RAM only if erase_ram_upon_reset is true.
+	  (debrouxl 2014/02/17)
+	* comment out execute_one_instruction() for now, it's unused and unexported.
+	  (debrouxl 2014/02/17)
 
 Achievements:
 	* on 2013/07/30, this emulator uncovered a nearly 6-year-old bug in the alternate grayscale routine for ExtGraph (gray.o). An invalid optimization in a HW1-only code path was added to ExtGraph around 2007/08/13.
@@ -483,6 +493,7 @@ var cycles = new Uint8Array(65536); // Instruction names.
 var unhandled_count = 0; // number of unhandled instructions encountered
 var main_interval_timer = 0; // interval ID of main timer
 var tracecount = 0; // number of instructions to trace in console
+var cycle_count = 0;
 var overall = 2500;
 var osc2_counter = 0;
 var frames_counted = 0;
@@ -492,6 +503,7 @@ var newfileready = false;
 var newflashfileready = false;
 var ui = false;
 var link = false;
+var erase_ram_upon_reset = true;
 
 // Hardware ports and variables deduced from them.
 var port_600000 = 0x04;
@@ -987,6 +999,7 @@ function make_unhandled(i)
 {
 	t[i] = unhandled_instruction;
 	n[i] = 'UNKNOWN';
+	cycles[i] = 0;
 };
 
 // brief display of the system status
@@ -3114,7 +3127,7 @@ for (var reg = 0; reg < 8; reg++)
 	var linkcode = "a7-=4; wl(a7,a" + reg + "); var o=rw(pc); pc+=2; a" + reg + "=a7; a7+=(o<0x8000?o:o-0x10000);"
 	insert_inst2(0x4e50 + reg, linkcode, "LINK A" + reg + ",#xxx", 16)
 	var unlkcode ="a7 = a" + reg + "; var s=rl(a7); a7+=4; a" + reg + " = s;"
-	insert_inst2(0x4e58 + reg, unlkcode, "UNLK A " + reg, 12)
+	insert_inst2(0x4e58 + reg, unlkcode, "UNLK A" + reg, 12)
 }
 eval(instruction_list);
 
@@ -4168,8 +4181,11 @@ function initialize_calculator()
 
 function reset_calculator()
 {
-	for (var b = 0; b < 131072; b++)
-		ram[b] = 0;
+	if (erase_ram_upon_reset) {
+		for (var b = 0; b < 131072; b++) {
+			ram[b] = 0;
+		}
+	}
 
 	ui.reset();
 
@@ -4227,6 +4243,8 @@ function reset_calculator()
 
 	sr = 0x2700;
 
+	cycle_count = 0;
+
 	link.reset_arrays();
 }
 
@@ -4244,7 +4262,7 @@ function raise_interrupt(i)
 		else
 		{
 			// these only resume if the right bit is set
-			if (wakemask & (1 << i))
+			if (wakemask & (1 << (i - 1)))
 			{
 				//stdlib.console.log("Resuming from stop due to AUTO_INT_" + i + ", wakemask=" + to_hex(wakemask, 2));
 				stopped = false;
@@ -4326,7 +4344,6 @@ function timer_interrupts()
 		    && ((hardware_model == 1 && (interrupt_control & 2)) || (hardware_model > 1)))
 		{
 			//stdlib.console.log("Triggering AUTO_INT_3");
-			stopped = false;
 			raise_interrupt(3); // AUTO_INT_3
 		}
 	}
@@ -4347,6 +4364,7 @@ function execute_instructions(number)
 		//if (pc == 0x48d6) tracecount = 20;
 		pc += 2;
 		try {
+			cycle_count += cycles[opcode];
 			t[opcode]();
 		}
 		catch (e) {
@@ -4354,7 +4372,7 @@ function execute_instructions(number)
 			{
 				stopped = true;
 				//stdlib.console.log("stopped at " + to_hex(pc,9) + " SR = " + to_hex(sr,5));
-				break;
+				return;
 			}
 			else if (isNaN(e) || e < 0 || e > 255 || e != Math.floor(e))
 			{
@@ -4387,13 +4405,14 @@ function execute_instructions(number)
 	}
 }
 
-function execute_one_instruction()
+/*function execute_one_instruction()
 {
 	prev_pc = pc;
 	var opcode = rw(pc);
 	pc += 2;
+	cycle_count += cycles[opcode];
 	t[opcode]();
-}
+}*/
 
 function emu_main_loop()
 {
@@ -4402,7 +4421,7 @@ function emu_main_loop()
 	var starttime = (new Date).getTime();
 	var started = false;
 
-	// The cost of exception handling is noticeable. For most of the emulator's operation, it can, in fact, be removed.
+	// The cost of exception handling is noticeable...
 	//try {
 		// The LCD refreshes every 8192 OSC2 cycles (by default)
 		for (var outer = 0; outer < screen_height * 2 /*&& unhandled_count < 10*/; outer++)
@@ -4938,42 +4957,6 @@ function check_sbcd() {
 
 	return true;
 }
-
-var nbcd_array = [
-   0, 153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 139,
- 144, 137, 136, 135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123,
- 128, 121, 120, 119, 118, 117, 116, 115, 114, 113, 112, 111, 110, 109, 108, 107,
- 112, 105, 104, 103, 102, 101, 100,  99,  98,  97,  96,  95,  94,  93,  92,  91,
-  96,  89,  88,  87,  86,  85,  84,  83,  82,  81,  80,  79,  78,  77,  76,  75,
-  80,  73,  72,  71,  70,  69,  68,  67,  66,  65,  64,  63,  62,  61,  60,  59,
-  64,  57,  56,  55,  54,  53,  52,  51,  50,  49,  48,  47,  46,  45,  44,  43,
-  48,  41,  40,  39,  38,  37,  36,  35,  34,  33,  32,  31,  30,  29,  28,  27,
-  32,  25,  24,  23,  22,  21,  20,  19,  18,  17,  16,  15,  14,  13,  12,  11,
-  16,   9,   8,   7,   6,   5,   4,   3,   2,   1,   0, 255, 254, 253, 252, 251,
-   0, 249, 248, 247, 246, 245, 244, 243, 242, 241, 240, 239, 238, 237, 236, 235,
- 240, 233, 232, 231, 230, 229, 228, 227, 226, 225, 224, 223, 222, 221, 220, 219,
- 224, 217, 216, 215, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205, 204, 203,
- 208, 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187,
- 192, 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173, 172, 171,
- 176, 169, 168, 167, 166, 165, 164, 163, 162, 161, 160, 159, 158, 157, 156, 155,
-
- 153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140, 139, 138,
- 137, 136, 135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123, 122,
- 121, 120, 119, 118, 117, 116, 115, 114, 113, 112, 111, 110, 109, 108, 107, 106,
- 105, 104, 103, 102, 101, 100,  99,  98,  97,  96,  95,  94,  93,  92,  91,  90,
-  89,  88,  87,  86,  85,  84,  83,  82,  81,  80,  79,  78,  77,  76,  75,  74,
-  73,  72,  71,  70,  69,  68,  67,  66,  65,  64,  63,  62,  61,  60,  59,  58,
-  57,  56,  55,  54,  53,  52,  51,  50,  49,  48,  47,  46,  45,  44,  43,  42,
-  41,  40,  39,  38,  37,  36,  35,  34,  33,  32,  31,  30,  29,  28,  27,  26,
-  25,  24,  23,  22,  21,  20,  19,  18,  17,  16,  15,  14,  13,  12,  11,  10,
-   9,   8,   7,   6,   5,   4,   3,   2,   1,   0, 255, 254, 253, 252, 251, 250,
- 249, 248, 247, 246, 245, 244, 243, 242, 241, 240, 239, 238, 237, 236, 235, 234,
- 233, 232, 231, 230, 229, 228, 227, 226, 225, 224, 223, 222, 221, 220, 219, 218,
- 217, 216, 215, 214, 213, 212, 211, 210, 209, 208, 207, 206, 205, 204, 203, 202,
- 201, 200, 199, 198, 197, 196, 195, 194, 193, 192, 191, 190, 189, 188, 187, 186,
- 185, 184, 183, 182, 181, 180, 179, 178, 177, 176, 175, 174, 173, 172, 171, 170,
- 169, 168, 167, 166, 165, 164, 163, 162, 161, 160, 159, 158, 157, 156, 155, 154,
-];
 
 function check_nbcd() {
 	var result;
@@ -5544,6 +5527,8 @@ function setNewfileready(newnewfileready) { newfileready = newnewfileready; }
 function get_newflashfileready() { return newflashfileready; }
 function setNewflashfileready(newnewflashfileready) { newflashfileready = newnewflashfileready; }
 
+function set_erase_ram_upon_reset(value) { erase_ram_upon_reset = value; }
+
 function get_stopped() { return stopped; }
 function get_hardware_model() { return hardware_model; }
 function get_calculator_model() { return calculator_model; }
@@ -5596,6 +5581,7 @@ return {
 	setONKeyReleased : setONKeyReleased,
 	pause_emulator : pause_emulator,
 	resume_emulator : resume_emulator,
+	set_erase_ram_upon_reset : set_erase_ram_upon_reset,
 
 	// Trigger function called by linking code.
 	raise_interrupt : raise_interrupt,
@@ -6794,8 +6780,11 @@ function handle_keys_89_89T(event)
 		case 59: emu.setKey(16, value); break; // ;, simulated (-) (Firefox, Opera)
 		case 186: emu.setKey(16, value); break; // ;, simulated (-) (Chrome, IE, Safari)
 		case 51: emu.setKey(17, value); break; // 3
+		case 99: emu.setKey(17, value); break; // 3 (keypad)
 		case 54: emu.setKey(18, value); break; // 6
+		case 102: emu.setKey(18, value); break; // 6 (keypad)
 		case 57: emu.setKey(19, value); break; // 9
+		case 105: emu.setKey(19, value); break; // 9 (keypad)
 		// No binding for , (too inconsistent across browsers)
 		case 84: emu.setKey(21, value); break; // T
 		case 8: emu.setKey(22, value); break; // backspace
@@ -6803,8 +6792,11 @@ function handle_keys_89_89T(event)
 
 		case 190: emu.setKey(24, value); break; // . (decimal point)
 		case 50: emu.setKey(25, value); break; // 2
+		case 98: emu.setKey(25, value); break; // 2 (keypad)
 		case 53: emu.setKey(26, value); break; // 5
+		case 101: emu.setKey(26, value); break; // 5 (keypad)
 		case 56: emu.setKey(27, value); break; // 8
+		case 104: emu.setKey(27, value); break; // 8 (keypad)
 		// No binding for ) (too inconsistent across browsers)
 		case 90: emu.setKey(29, value); break; // Z
 		case 117: emu.setKey(30, value); break; // F6, simulated CATALOG
@@ -6812,9 +6804,13 @@ function handle_keys_89_89T(event)
 		case 119: emu.setKey(31, value); break; // F8 is treated as F3
 
 		case 48: emu.setKey(32, value); break; // 0
+		case 96: emu.setKey(32, value); break; // 0 (keypad)
 		case 49: emu.setKey(33, value); break; // 1
+		case 97: emu.setKey(33, value); break; // 1 (keypad)
 		case 52: emu.setKey(34, value); break; // 4
+		case 100: emu.setKey(34, value); break; // 4 (keypad)
 		case 55: emu.setKey(35, value); break; // 7
+		case 101: emu.setKey(35, value); break; // 7 (keypad)
 		// No binding for ( (too inconsistent across browsers)
 		case 89: emu.setKey(37, value); break; // Y
 		// No binding for MODE
@@ -6901,8 +6897,11 @@ function handle_keys_92P_V200(event)
 		case 87: emu.setKey(11, value); break; // W
 		case 119: emu.setKey(12, value); break; // F8
 		case 49: emu.setKey(13, value); break; // 1
+		case 97: emu.setKey(13, value); break; // 1 (keypad)
 		case 50: emu.setKey(14, value); break; // 2
+		case 98: emu.setKey(14, value); break; // 2 (keypad)
 		case 51: emu.setKey(15, value); break; // 3
+		case 99: emu.setKey(15, value); break; // 3 (keypad)
 
 		// No key at index 16 on the emulated keyboard
 		case 88: emu.setKey(17, value); break; // X
@@ -6910,8 +6909,11 @@ function handle_keys_92P_V200(event)
 		case 69: emu.setKey(19, value); break; // E
 		case 114: emu.setKey(20, value); break; // F3
 		case 52: emu.setKey(21, value); break; // 4
+		case 100: emu.setKey(21, value); break; // 4 (keypad)
 		case 53: emu.setKey(22, value); break; // 5
+		case 101: emu.setKey(22, value); break; // 5 (keypad)
 		case 54: emu.setKey(23, value); break; // 6
+		case 102: emu.setKey(23, value); break; // 6 (keypad)
 
 		// No binding for STO (TAB switches focus)
 		case 67: emu.setKey(25, value); break; // C
@@ -6919,8 +6921,11 @@ function handle_keys_92P_V200(event)
 		case 82: emu.setKey(27, value); break; // R
 		case 118: emu.setKey(28, value); break; // F7
 		case 55: emu.setKey(29, value); break; // 7
+		case 103: emu.setKey(29, value); break; // 7 (keypad)
 		case 56: emu.setKey(30, value); break; // 8
+		case 104: emu.setKey(30, value); break; // 8 (keypad)
 		case 57: emu.setKey(31, value); break; // 9
+		case 105: emu.setKey(31, value); break; // 9 (keypad)
 
 		case 32: emu.setKey(32, value); break; // spacebar
 		case 86: emu.setKey(33, value); break; // V
@@ -6977,6 +6982,7 @@ function handle_keys_92P_V200(event)
 		case 81: emu.setKey(75, value); break; // Q
 		case 115: emu.setKey(76, value); break; // F4
 		case 48: emu.setKey(77, value); break; // 0
+		case 96: emu.setKey(77, value); break; // 0 (keypad)
 		case 190: emu.setKey(78, value); break; // . (decimal point)
 		case 59: emu.setKey(79, value); break; // ;, simulated (-) (Firefox, Opera)
 		case 186: emu.setKey(79, value); break; // ;, simulated (-) (Chrome, IE, Safari)
