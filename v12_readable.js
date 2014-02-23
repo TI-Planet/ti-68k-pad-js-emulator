@@ -25,11 +25,12 @@ MUST:
 		  2014/02/10: does that still occur 8 months later ?
 
 	IMPORTANT FEATURES:
-		* make it possible to reset without erasing the contents of the RAM, like in TIEmu.
 		* memory search functions.
-		* linking emulation: silent dirlist support.
+		* linking emulation: support for 89g/9xg/v2g group files.
+		* linking emulation: support for silent dirlist.
  		* modularize the code further. The linking emulation code is now separated from the core code, but maybe the CPU, for instance, could be separated from the core ??
 		  That would be a prerequisite for rewriting part of the emulator using asm.js constructs.
+		* UI for increasing and decreasing speed.
 		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
 		* add / change key bindings in handle_keys_89_89T() and handle_keys_92P_V200(): for consistency with VTI and TIEmu, it would be great if F10 triggered the file input (romfile). Reported by Folco.
 		* add the ability to _select_ and send multiple files. Suggested by Folco. The TI-Planet integration already shows how to send multiple files.
@@ -40,6 +41,7 @@ MUST:
 			* loading the JSON, regenerating reset() and instructions and launching initemu().
 		* some form of debugger (note: would ease implementation of some other features) - well, basically, implement the features from JM's modified VTI & TIEmu :P
 			* (mostly done) implement disassembly(address, count) - in the beginning, through simple string substitution, we'll see whether that's enough;
+			* Ptr2Hd implementation.
 			* traverse the VAT - see core/ti_sw/var.c in TIEmu. That, and direct memory reads, could be used for dirlist, but then we'd have to rebuild metadata such as file types ourselves;
 			* add ROM_CALL table in an external file in JSON format, and have ROM_CALL() handle string arguments (for returning the address of a ROM_CALL). Maybe 3 tables inside the object wrapping ROM_CALL table access: one sorted by ROM_CALL number, one sorted by name, one sorted by address. That way, we could use binary search in all situations;
 			* etc.
@@ -51,8 +53,9 @@ MUST:
 		* disassembly support for all remaining unimplemented instructions.
 		* linking emulation: support for non-silent linking.
 		* linking emulation: UI for retrieving files from the emulator through silent linking.
+		* linking emulation: support for 89b/9xb/v2b files.
 		* make it possible to generate screenshots with 3:1 and 4:1 scaling. The code for upscaling with those factors already exists inside the UI part, but it's not exposed yet.
-		* generation of animated GIF images, see e.g. https://github.com/antimatter15/jsgif and https://github.com/deanm/omggif .
+		* generation of animated GIF images, see e.g. https://github.com/antimatter15/jsgif and https://github.com/deanm/omggif . jsTIfied does it.
 		* use asm.js for time-critical chunks of the emulator, as Kerm & jacobly have worked on doing for jsTIfied. Requires modularizing the code, see https://github.com/dherman/asm.js .
 		  Non-typed arrays are forbidden ?
 		* expand test suite.
@@ -441,6 +444,10 @@ Changelog from PatrickD's version / work log:
 	  (debrouxl 2014/02/17)
 	* comment out execute_one_instruction() for now, it's unused and unexported.
 	  (debrouxl 2014/02/17)
+	* add several check_*() functions, most of them empty for now.
+	  (debrouxl 2014/02/18)
+	* add increase_emulator_speed() and decrease_emulator_speed() for changing the rate of the main interval timer.
+	  (debrouxl 2014/02/23)
 
 Achievements:
 	* on 2013/07/30, this emulator uncovered a nearly 6-year-old bug in the alternate grayscale routine for ExtGraph (gray.o). An invalid optimization in a HW1-only code path was added to ExtGraph around 2007/08/13.
@@ -491,7 +498,8 @@ var cycles = new Uint8Array(65536); // Instruction names.
 
 // Emulator variables, part 1.
 var unhandled_count = 0; // number of unhandled instructions encountered
-var main_interval_timer = 0; // interval ID of main timer
+var main_interval_timer_id = 0; // interval ID of main timer
+var main_interval_timer_interval = 11; // interval value in ms of main timer, defaulting to 11 (~90 Hz screen refresh).
 var tracecount = 0; // number of instructions to trace in console
 var cycle_count = 0;
 var overall = 2500;
@@ -692,7 +700,6 @@ function HeapSize(id)
 	id &= 0xFFFF;
 	return HeapSizeAddress(rl(HeapTable() + 4 * id));
 }
-// TODO: Ptr2Hd ?
 
 function PrintHeap()
 {
@@ -1189,6 +1196,27 @@ function addl(x, y)
 	if (x < 2147483648 && y < 2147483648 && maskedresult >= 2147483648) sr += 2; // overflow flag
 	if (x >= 2147483648 && y >= 2147483648 && maskedresult < 2147483648) sr += 2; // overflow flag
 	return maskedresult;
+}
+
+function sub(x, y, size)
+{
+	if (size == 0) return subb(x, y);
+	if (size == 1) return subw(x, y);
+	if (size == 2) return subl(x, y);
+}
+
+function cmp(x, y, size)
+{
+	if (size == 0) return cmpb(x, y);
+	if (size == 1) return cmpw(x, y);
+	if (size == 2) return cmpl(x, y);
+}
+
+function add(x, y, size)
+{
+	if (size == 0) return addb(x, y);
+	if (size == 1) return addw(x, y);
+	if (size == 2) return addl(x, y);
 }
 
 function abcd(x,y)
@@ -4028,7 +4056,7 @@ function initemu()
 	ui.initemu();
 
 	initialize_calculator();
-	main_interval_timer = stdlib.setInterval(emu_main_loop, 11);
+	main_interval_timer_id = stdlib.setInterval(emu_main_loop, main_interval_timer_interval);
 
 	for (var key = 0; key < 80; key++) keystatus[key] = 0;
 
@@ -4384,7 +4412,7 @@ function execute_instructions(number)
 				else {
 					stdlib.console.log(e.stack.substr(e.stack.length - 2000, 2000));
 				}
-				stdlib.clearInterval(main_interval_timer);
+				stdlib.clearInterval(main_interval_timer_id);
 				return;
 			}
 		}
@@ -4445,7 +4473,7 @@ function emu_main_loop()
 						// this is a real javascript exception
 						stdlib.console.log("real javascript exception " + e);
 						stdlib.console.log(e.stack);
-						stdlib.clearInterval(main_interval_timer);
+						stdlib.clearInterval(main_interval_timer_id);
 						return;
 					}
 				}*/
@@ -4468,7 +4496,7 @@ function emu_main_loop()
 			// this is a real javascript exception
 			stdlib.console.log("real javascript exception " + e);
 			stdlib.console.log(e.stack);
-			stdlib.clearInterval(main_interval_timer);
+			stdlib.clearInterval(main_interval_timer_id);
 			return;
 		}
 	}*/
@@ -4689,6 +4717,84 @@ function loadrom(infile)
 	}
 }
 
+function check_ext() {
+	var result;
+
+	result = ebw(0x10);
+	if (result != 0x10) {
+		stdlib.console.log("ext 0 " + to_hex(result, 16));
+		return false;
+	}
+
+	result = ebw(0x80);
+	if (result != 0xFF80) {
+		stdlib.console.log("ext 1 " + to_hex(result, 16));
+		return false;
+	}
+
+	result = ewl(0x0100);
+	if (result != 0x0100) {
+		stdlib.console.log("ext 2 " + to_hex(result, 16));
+		return false;
+	}
+
+	result = ewl(0x8000);
+	if (result != 0xFFFF8000) {
+		stdlib.console.log("ext 3 " + to_hex(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function check_subb() {
+	var result;
+
+	// TODO
+
+	return true;
+}
+
+function check_cmpb() {
+	var result;
+
+	// TODO
+
+	return true;
+}
+
+function check_addb() {
+	var result;
+
+	// TODO
+
+	return true;
+}
+
+function check_subw() {
+	var result;
+
+	// TODO
+
+	return true;
+}
+
+function check_cmpw() {
+	var result;
+
+	// TODO
+
+	return true;
+}
+
+function check_addw() {
+	var result;
+
+	// TODO
+
+	return true;
+}
+
 function check_subl() {
 	var result;
 
@@ -4737,54 +4843,6 @@ function check_subl() {
 	result = subl(0xFF000018, 0xFF000000);
 	if (result != 0xFFFFFFE8 || sr != 0x19) {
 		stdlib.console.log("subl 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	return true;
-}
-
-function check_addl() {
-	var result;
-
-	result = addl(0x12345678, 0x12345678);
-	if (result != 0x2468ACF0 || sr != 0) {
-		stdlib.console.log("addl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	result = addl(0x1234567, 0x12345678);
-	if (result != 0x13579BDF || sr != 0) {
-		stdlib.console.log("addl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	result = addl(0x23456789, 0x12345678);
-	if (result != 0x3579BE01 || sr != 0) {
-		stdlib.console.log("addl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	result = addl(0x12345678, 0xFF000000);
-	if (result != 0x11345678 || sr != 0x11) {
-		stdlib.console.log("addl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	result = addl(0x7FFFFFFF, 0x7FFFFFFF);
-	if (result != 0xFFFFFFFE || sr != 0xA) {
-		stdlib.console.log("addl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	result = addl(0x7FFFFFFF, 0xFF000000);
-	if (result != 0x7EFFFFFF || sr != 0x11) {
-		stdlib.console.log("addl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
-		return false;
-	}
-
-	result = addl(0xFF000018, 0xFF000000);
-	if (result != 0xFE000018 || sr != 0x19) {
-		stdlib.console.log("addl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -4845,6 +4903,54 @@ function check_cmpl() {
 	result = cmpl(0xFF000000, 0x320);
 	if (sr != 0x1) {
 		stdlib.console.log("cmpl 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	return true;
+}
+
+function check_addl() {
+	var result;
+
+	result = addl(0x12345678, 0x12345678);
+	if (result != 0x2468ACF0 || sr != 0) {
+		stdlib.console.log("addl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0x1234567, 0x12345678);
+	if (result != 0x13579BDF || sr != 0) {
+		stdlib.console.log("addl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0x23456789, 0x12345678);
+	if (result != 0x3579BE01 || sr != 0) {
+		stdlib.console.log("addl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0x12345678, 0xFF000000);
+	if (result != 0x11345678 || sr != 0x11) {
+		stdlib.console.log("addl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0x7FFFFFFF, 0x7FFFFFFF);
+	if (result != 0xFFFFFFFE || sr != 0xA) {
+		stdlib.console.log("addl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0x7FFFFFFF, 0xFF000000);
+	if (result != 0x7EFFFFFF || sr != 0x11) {
+		stdlib.console.log("addl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = addl(0xFF000018, 0xFF000000);
+	if (result != 0xFE000018 || sr != 0x19) {
+		stdlib.console.log("addl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5367,10 +5473,23 @@ function check_rol()
 	var result;
 
 	sr = 0;
-
 	result = rol(0x80000000, 1, 2);
 	if (result != 0x00000001 || sr != 0x1) {
 		stdlib.console.log("rol 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
+	result = rol(0x8000, 1, 1);
+	if (result != 0x0001 || sr != 0x1) {
+		stdlib.console.log("rol 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
+	result = rol(0x80, 1, 0);
+	if (result != 0x01 || sr != 0x1) {
+		stdlib.console.log("rol 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5390,7 +5509,44 @@ function check_roxl()
 {
 	var result;
 
-	// TODO
+	sr = 0;
+	result = roxl(0x80000000, 1, 2);
+	if (result != 0x00000000 || sr != 0x15) {
+		stdlib.console.log("roxl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = roxl(0x80000000, 1, 2);
+	if (result != 0x00000001 || sr != 0x11) {
+		stdlib.console.log("roxl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
+	result = roxl(0x8000, 1, 1);
+	if (result != 0x0000 || sr != 0x15) {
+		stdlib.console.log("roxl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = roxl(0x8000, 1, 1);
+	if (result != 0x0001 || sr != 0x11) {
+		stdlib.console.log("roxl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	sr = 0;
+	result = roxl(0x80, 1, 0);
+	if (result != 0x00 || sr != 0x15) {
+		stdlib.console.log("roxl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
+
+	result = roxl(0x80, 1, 0);
+	if (result != 0x01 || sr != 0x11) {
+		stdlib.console.log("roxl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+		return false;
+	}
 
 	return true;
 }
@@ -5398,9 +5554,16 @@ function check_roxl()
 
 function checkemu()
 {
-	return check_subl()
-	    && check_addl()
+	return check_ext()
+	    && check_subb()
+	    && check_cmpb()
+	    && check_addb()
+	    && check_subw()
+	    && check_cmpw()
+	    && check_addw()
+	    && check_subl()
 	    && check_cmpl()
+	    && check_addl()
 	    && check_abcd()
 	    && check_sbcd()
 	    && check_nbcd()
@@ -5539,13 +5702,31 @@ function get_FlashMemorySize() { return FlashMemorySize; }
 function pause_emulator()
 {
 	// Prevent emu_main_loop frop running next time.
-	stdlib.clearInterval(main_interval_timer);
+	stdlib.clearInterval(main_interval_timer_id);
+}
+
+function increase_emulator_speed()
+{
+	if (main_interval_timer_interval > 1) {
+		main_interval_timer_interval--;
+		stdlib.console.log("Setting main timer interval to " + main_interval_timer_interval + " ms.");
+		stdlib.clearInterval(main_interval_timer_id);
+		main_interval_timer_id = stdlib.setInterval(emu_main_loop, main_interval_timer_interval);
+	}
+}
+
+function decrease_emulator_speed()
+{
+	main_interval_timer_interval++;
+	stdlib.console.log("Setting main timer interval to " + main_interval_timer_interval + " ms.");
+	stdlib.clearInterval(main_interval_timer_id);
+	main_interval_timer_id = stdlib.setInterval(emu_main_loop, main_interval_timer_interval);
 }
 
 function resume_emulator()
 {
 	// Is that enough ?
-	main_interval_timer = stdlib.setInterval(emu_main_loop, 11);
+	main_interval_timer_id = stdlib.setInterval(emu_main_loop, main_interval_timer_interval);
 }
 
 function toggle_framesync()
@@ -5582,6 +5763,8 @@ return {
 	pause_emulator : pause_emulator,
 	resume_emulator : resume_emulator,
 	set_erase_ram_upon_reset : set_erase_ram_upon_reset,
+	increase_emulator_speed : increase_emulator_speed,
+	decrease_emulator_speed : decrease_emulator_speed,
 
 	// Trigger function called by linking code.
 	raise_interrupt : raise_interrupt,
@@ -5683,7 +5866,7 @@ var link_recv_foldername = "";
 var link_recv_filedata = new Array();
 
 var link_pending_keys = new Array();
-var link_interval_timer = 0;
+var link_interval_timer_id = 0;
 
 function setUI(newui)
 {
@@ -5887,7 +6070,7 @@ function sendkey(keycode)
 
 function send_next_key() {
     if (link_pending_keys.length == 0) {
-        stdlib.clearInterval(link_interval_timer);
+        stdlib.clearInterval(link_interval_timer_id);
     }
     sendkey(link_pending_keys.shift());
 }
@@ -5912,7 +6095,7 @@ function sendkeys(keyarray)
 		}
 	}
 	link_pending_keys = newarray;
-	link_interval_timer = stdlib.setInterval(send_next_key, 200);
+	link_interval_timer_id = stdlib.setInterval(send_next_key, 200);
 }
 
 // This code was moved out to an external function, so that it can be called multiple times, in order to retrigger reception of one chunk.
