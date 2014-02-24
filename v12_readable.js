@@ -28,12 +28,11 @@ MUST:
 		* memory search functions.
 		* linking emulation: support for 89g/9xg/v2g group files.
 		* linking emulation: support for silent dirlist.
+		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
+		* add the ability to _select_ and send multiple files. Suggested by Folco. The TI-Planet integration already shows how to send multiple files.
  		* modularize the code further. The linking emulation code is now separated from the core code, but maybe the CPU, for instance, could be separated from the core ??
 		  That would be a prerequisite for rewriting part of the emulator using asm.js constructs.
-		* UI for increasing and decreasing speed.
-		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
 		* add / change key bindings in handle_keys_89_89T() and handle_keys_92P_V200(): for consistency with VTI and TIEmu, it would be great if F10 triggered the file input (romfile). Reported by Folco.
-		* add the ability to _select_ and send multiple files. Suggested by Folco. The TI-Planet integration already shows how to send multiple files.
 		* add save state (and restore state, obviously) support...
 		  Ideas:
 			* a new JS exception, like STOP for 600005 emulation;
@@ -448,6 +447,10 @@ Changelog from PatrickD's version / work log:
 	  (debrouxl 2014/02/18)
 	* add increase_emulator_speed() and decrease_emulator_speed() for changing the rate of the main interval timer.
 	  (debrouxl 2014/02/23)
+	* add buttons for increasing and decreasing emulator speed.
+	  (debrouxl 2014/02/24)
+	* implement instruction costs for Bcc and BSR.
+	  (debrouxl 2014/02/24)
 
 Achievements:
 	* on 2013/07/30, this emulator uncovered a nearly 6-year-old bug in the alternate grayscale routine for ExtGraph (gray.o). An invalid optimization in a HW1-only code path was added to ExtGraph around 2007/08/13.
@@ -1266,43 +1269,43 @@ function sbcd(dst,src)
 
 FILE *f = fopen("out", "wt");
 if (f != NULL) {
-uint16_t i;
-for (i = 0; i < 0x100; i++) {
-    uint16_t j = i;
-    asm volatile("move.w %1,%0; andi.b #0,%%ccr; nbcd %0" : "=d" (j) : "d" (i) : "cc");
-    fprintf(f, "%3d, ", j);
-    if (i % 16 == 15) fprintf(f, "\n");
-}
-fprintf(f, "\n");
-fprintf(f, "\n");
-for (i = 0; i < 0x100; i++) {
-    uint16_t j = i;
-    asm volatile("move.w %1,%0; andi.b #0,%%ccr; ori.b #0x10,%%ccr; nbcd %0" : "=d" (j) : "d" (i) : "cc");
-    fprintf(f, "%3d, ", j);
-    if (i % 16 == 15) fprintf(f, "\n");
-}
-fprintf(f, "\n");
+    uint16_t i;
+    for (i = 0; i < 0x100; i++) {
+        uint16_t j = i;
+        asm volatile("move.w %1,%0; andi.b #0,%%ccr; nbcd %0" : "=d" (j) : "d" (i) : "cc");
+        fprintf(f, "%3d, ", j);
+        if (i % 16 == 15) fprintf(f, "\n");
+    }
+    fprintf(f, "\n");
+    fprintf(f, "\n");
+    for (i = 0; i < 0x100; i++) {
+        uint16_t j = i;
+        asm volatile("move.w %1,%0; andi.b #0,%%ccr; ori.b #0x10,%%ccr; nbcd %0" : "=d" (j) : "d" (i) : "cc");
+        fprintf(f, "%3d, ", j);
+        if (i % 16 == 15) fprintf(f, "\n");
+    }
+    fprintf(f, "\n");
 }
 fclose(f);
 
 f = fopen("out2", "wt");
 if (f != NULL) {
-uint16_t i;
-for (i = 0; i < 0x100; i++) {
-    uint16_t j = i;
-    asm volatile("move.w %1,%0; andi.b #0,%%ccr; nbcd %0; scs %0" : "=d" (j) : "d" (i) : "cc");
-    fprintf(f, "%3d, ", j);
-    if (i % 16 == 15) fprintf(f, "\n");
-}
-fprintf(f, "\n");
-fprintf(f, "\n");
-for (i = 0; i < 0x100; i++) {
-    uint16_t j = i;
-    asm volatile("move.w %1,%0; andi.b #0,%%ccr; ori.b #0x10,%%ccr; nbcd %0; scs %0" : "=d" (j) : "d" (i) : "cc");
-    fprintf(f, "%3d, ", j);
-    if (i % 16 == 15) fprintf(f, "\n");
-}
-fprintf(f, "\n");
+    uint16_t i;
+    for (i = 0; i < 0x100; i++) {
+        uint16_t j = i;
+        asm volatile("move.w %1,%0; andi.b #0,%%ccr; nbcd %0; scs %0" : "=d" (j) : "d" (i) : "cc");
+        fprintf(f, "%3d, ", j);
+        if (i % 16 == 15) fprintf(f, "\n");
+    }
+    fprintf(f, "\n");
+    fprintf(f, "\n");
+    for (i = 0; i < 0x100; i++) {
+        uint16_t j = i;
+        asm volatile("move.w %1,%0; andi.b #0,%%ccr; ori.b #0x10,%%ccr; nbcd %0; scs %0" : "=d" (j) : "d" (i) : "cc");
+        fprintf(f, "%3d, ", j);
+        if (i % 16 == 15) fprintf(f, "\n");
+    }
+    fprintf(f, "\n");
 }
 fclose(f);
 
@@ -2278,46 +2281,62 @@ function build_conditionals(condition, name, bits)
 	// Bcc
 	for (var o = 0; o < 256; o++)
 	{
-		var opcode = bcc_opcode + o
-		var iname = "B" + name
-		if (iname == "BT")
-			iname = "BRA"
-		if (iname == "BF")
-			iname = "BSR"
-		if (o == 0)
-			iname = iname + ".W disp"
-		else
-			iname = iname + ".S disp"
+		var opcode = bcc_opcode + o;
+		var iname = "B" + name;
+		var cost = 10;
+		if (iname == "BT") {
+			iname = "BRA";
+		}
+		if (iname == "BF") {
+			iname = "BSR";
+			cost = 18;
+		}
+		if (o == 0) {
+			iname = iname + ".W disp";
+		}
+		else {
+			iname = iname + ".S disp";
+		}
 		var code = "";
 		if (o == 0)
 		{
+			// Branch using word displacement.
 			code = "var o=rw(pc);"
 			if (name == "F")
 			{
 				code += amode_write(4, 7, 2, "(pc+2)")
-				code += "if(true)"
+				code += "if(true) {"
 			}
 			else
 			{
-				code += condition
+				code += condition + "{";
 			}
-			code += "{"
-			code +=  "pc+=ewl(o);"
-			code +=  "if(pc>4294967295)pc-=4294967296;"
-			code +=  "}else pc+= 2;"
+			code += "pc+=ewl(o);";
+			code += "if(pc>4294967295)pc-=4294967296;";
+			code += "}";
+			code += "else {";
+			code += "pc += 2; cycle_count += 2;"; // Word branches are slower if not taken.
+			code += "}";
 		}
 		else
 		{
+			// Branch using byte displacement.
 			if (name == "F")
 				code = amode_write(4, 7, 2, "pc")
 			else
-				code += condition
+				code += condition + "{";
 			if (o < 128)
 				code +=  "pc+=" + o + ";"
 			else
 				code +=  "pc-=" + (256 - o) + ";"
+			if (name != "F") {
+				code += "}";
+				code += "else {";
+				code += "cycle_count -= 2;"; // Short branches are faster if not taken.
+				code += "}";
+			}
 		}
-		insert_inst(opcode, code, iname)
+		insert_inst2(opcode, code, iname, cost)
 	}
 
 	// DBcc
@@ -6649,6 +6668,8 @@ var elementid_pngbutton = 'pngbutton';
 var elementid_hidebutton = 'hidebutton';
 var elementid_pauseemulator = 'pauseemulator';
 var elementid_resumeemulator = 'resumeemulator';
+var elementid_speedup = 'speedup';
+var elementid_slowdown = 'slowdown';
 var elementid_romfile = 'romfile';
 var elementid_downloadfile = 'downloadfile';
 
@@ -7871,6 +7892,8 @@ function initemu() {
 	    || !document.getElementById(elementid_hidebutton)
 	    || !document.getElementById(elementid_pauseemulator)
 	    || !document.getElementById(elementid_resumeemulator)
+	    || !document.getElementById(elementid_speedup)
+	    || !document.getElementById(elementid_slowdown)
 	    || !document.getElementById(elementid_downloadfile)) {
 		stdlib.console.warn("A DOM element for a button wasn't found, expect problems");
 	}
@@ -8007,6 +8030,8 @@ function set_elementid_pngbutton(pngbutton) { elementid_pngbutton = pngbutton; }
 function set_elementid_hidebutton(hidebutton) { elementid_hidebutton = hidebutton; }
 function set_elementid_pauseemulator(pauseemulator) { elementid_pauseemulator = pauseemulator; }
 function set_elementid_resumeemulator(resumeemulator) { elementid_resumeemulator = resumeemulator; }
+function set_elementid_speedup(speedup) { elementid_speedup = speedup; }
+function set_elementid_slowdown(slowdown) { elementid_slowdown = slowdown; }
 function set_elementid_romfile(romfile) { elementid_romfile = romfile; }
 function set_elementid_downloadfile(downloadfile) { elementid_downloadfile = downloadfile; }
 function set_display_no_rom_loaded(func) { display_no_rom_loaded = func; }
@@ -8049,6 +8074,8 @@ return {
 	set_elementid_hidebutton : set_elementid_hidebutton,
 	set_elementid_pauseemulator : set_elementid_pauseemulator,
 	set_elementid_resumeemulator : set_elementid_resumeemulator,
+	set_elementid_speedup : set_elementid_speedup,
+	set_elementid_slowdown : set_elementid_slowdown,
 	set_elementid_romfile : set_elementid_romfile,
 	set_display_no_rom_loaded : set_display_no_rom_loaded,
 
