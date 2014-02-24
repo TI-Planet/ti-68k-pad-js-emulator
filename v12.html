@@ -51,6 +51,9 @@ compatible with this emulator, compability with other programs is limited in thi
 <input type="button" value="Pause emulator" id="pauseemulator" onclick="javascript:ui.pause_emulator()"/>
 <input type="button" value="Resume emulator" id="resumeemulator" style="display:none" onclick="javascript:ui.resume_emulator()"/><br/>
 
+<input type="button" value="Try to speed emulator up" id="speedup" onclick="javascript:emu.increase_emulator_speed()"/>
+<input type="button" value="Slow emulator down" id="slowdown" onclick="javascript:emu.decrease_emulator_speed()"/><br/>
+
 <input type="button" value="Reset calculator" id="reset_calculator" onclick="javascript:emu.initialize_calculator()"/><br>
 
 <input type="button" value="PNG screenshot" id="pngbutton" onclick="javascript:ui.getPNG()"/>
