@@ -27,7 +27,10 @@ MUST:
 	IMPORTANT FEATURES:
 		* memory search functions.
 		* linking emulation: support for 89g/9xg/v2g group files.
+			* libtifiles, files9x.c::ti9x_file_read_regular(): loop on the number of entries (word at offset 0x3A). Requires changes (and why not some added sanity checking...) in emu.handle_newfileready() + link.sendfile().
+			* libticalcs, calc_89.c::send_var(): loop on the number of entries.
 		* linking emulation: support for silent dirlist.
+			* libticalcs, calc_89.c::get_dirlist(): initial step for enumerating the root folder, then loop on each folder (the code is very similar, warrants a helper function) and parse the result.
 		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
 		* add the ability to _select_ and send multiple files. Suggested by Folco. The TI-Planet integration already shows how to send multiple files.
  		* modularize the code further. The linking emulation code is now separated from the core code, but maybe the CPU, for instance, could be separated from the core ??
@@ -52,7 +55,9 @@ MUST:
 		* disassembly support for all remaining unimplemented instructions.
 		* linking emulation: support for non-silent linking.
 		* linking emulation: UI for retrieving files from the emulator through silent linking.
-		* linking emulation: support for 89b/9xb/v2b files.
+		* linking emulation: support for 89b/9xb/v2b backup files.
+			* libtifiles, files9x.c::ti9x_file_read_backup(): there's some metadata before the content, the content part is read as a whole;
+			* libticalcs, calc_89.c::send_backup(): a rather thin wrapper over send_var().
 		* make it possible to generate screenshots with 3:1 and 4:1 scaling. The code for upscaling with those factors already exists inside the UI part, but it's not exposed yet.
 		* generation of animated GIF images, see e.g. https://github.com/antimatter15/jsgif and https://github.com/deanm/omggif . jsTIfied does it.
 		* use asm.js for time-critical chunks of the emulator, as Kerm & jacobly have worked on doing for jsTIfied. Requires modularizing the code, see https://github.com/dherman/asm.js .
@@ -68,6 +73,7 @@ MUST:
 			* CHK (implementation is definitely wrong)
 			* STOP (currently wrongly implemented as a 4-byte NOP; rarely used, but there are several occurrences of STOP in AMS, usually dead ends because they're followed by a branch which gets back to the stop)
 		  Useful resources: M68000PRM.pdf, http://goldencrystal.free.fr/M68kOpcodes.pdf:
+		* bus / address error frame: implement instruction / not and function code;
 		* ExtGraph demo32: grayscale flickers. The grayscale handling algorithm is certainly a bit simplistic. Not that we want to do something as complex as TIEmu's code, though...
 
 SHOULD at some point:
@@ -451,6 +457,10 @@ Changelog from PatrickD's version / work log:
 	  (debrouxl 2014/02/24)
 	* implement instruction costs for Bcc and BSR.
 	  (debrouxl 2014/02/24)
+	* executing CHK instructions shouldn't call nonexistent raise_cpu_exception() function.
+	  (debrouxl 2014/02/24)
+	* in fire_cpu_exception(), make the special bus/address error frame (more) compliant with standard 68000 frame format, adding several emulator variables in the process.
+	  (debrouxl 2014/02/24)
 
 Achievements:
 	* on 2013/07/30, this emulator uncovered a nearly 6-year-old bug in the alternate grayscale routine for ExtGraph (gray.o). An invalid optimization in a HW1-only code path was added to ExtGraph around 2007/08/13.
@@ -491,6 +501,10 @@ var sr = 0; // status register, treat as 16 bit int
 var prev_pc = 0; // previous program counter, treat as 32 bit int
 var pc = 0; // program counter, treat as 32 bit int
 var pending_ints = 0;
+var address_error_access_type = 0;
+var address_error_address = 0;
+var current_instruction = 0;
+var reading_instruction = 0;
 
 // Emulator arrays (rom usually redefined elsewhere).
 var rom = false; //new Uint16Array(0x200000);
@@ -3052,7 +3066,7 @@ function build_chk()
 					var opcode = 0x4180 + (reg << 9) + (srcmode << 3) + srcreg;
 					var iname = "CHK.W " + amode_name(srcmode, srcreg, 1) + ",D" + reg
 					var code = amode_read(srcmode, srcreg, 1, true)
-					code += "if (d" + reg + "<0) { sr |= 8; raise_cpu_exception(6); } if(d" + reg + "> s) { sr &= 0xFFF7; raise_cpu_exception(6); }"
+					code += "if (d" + reg + "<0) { sr |= 8; fire_cpu_exception(6); } if(d" + reg + "> s) { sr &= 0xFFF7; fire_cpu_exception(6); }"
 					insert_inst(opcode, code, iname)
 				}
 }
@@ -3083,7 +3097,6 @@ function build_initial_instructions_handlers()
 		cycles[i] = 34;
 	}
 }
-
 
 build_initial_instructions_handlers();
 
@@ -3533,7 +3546,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 	var memory_read_function =
 "rw_" + suffix + "_normal = function rw_" + suffix + "_normal(address)" +
 "{" +
-"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 1; fire_cpu_exception(3); }" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		return ram[(address & 0x3FFFE) >>> 1];" +
@@ -3581,7 +3594,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 	memory_read_function =
 "rw_" + suffix + "_flashspecial = function rw_" + suffix + "_flashspecial(address)" +
 "{" +
-"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 1; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		return ram[(address & 0x3FFFE) >>> 1];" +
@@ -3661,7 +3674,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 	var memory_write_function =
 "ww_" + suffix + "_normal = function ww_" + suffix + "_normal(address, value)" +
 "{" +
-"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		ram[(address & 0x3FFFF) >>> 1] = value;" +
@@ -3705,7 +3718,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 	memory_write_function =
 "ww_" + suffix + "_flashspecial = function ww_" + suffix + "_flashspecial(address, value)" +
 "{" +
-"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		ram[(address & 0x3FFFF) >>> 1] = value;" +
@@ -3790,7 +3803,7 @@ function build_movem_handlers() {
 // store_multiple
 	var movem_handler =
 "store_multiple = function store_multiple(address, mask, size) {" +
-"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
@@ -3847,7 +3860,7 @@ function build_movem_handlers() {
 	movem_handler =
 "store_multiple_predec = function store_multiple_predec(address, mask, size)" +
 "{" +
-"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 7; reg >= 0; reg--) {
@@ -3905,7 +3918,7 @@ function build_movem_handlers() {
 	movem_handler =
 "load_multiple = function load_multiple(address, mask, size)" +
 "{" +
-"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 1; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
@@ -3968,7 +3981,7 @@ function build_movem_handlers() {
 	movem_handler =
 "load_multiple_postinc = function load_multiple_postinc(address, mask, size)" +
 "{" +
-"	if ((address & 1) != 0) fire_cpu_exception(3);" + // Address Error
+"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 1; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
@@ -4336,12 +4349,34 @@ function fire_cpu_exception(e)
 	var oldsr = sr;
 	update_sr(sr | 0x2000);
 
-	if (e == 2 || e == 3) a7 -= 8; // for address error and bus error, reserve more stack space
 	a7 -= 4; // push pc on supervisor stack
 	wl(a7, pc);
 	a7 -= 2; // push sr on supervisor stack
 	ww(a7, oldsr);
 	pc = rl(e * 4); // load new PC from vector table
+	// For address error and bus error, the stack frame is more complicated.
+	if (e == 2 || e == 3) {
+		a7 -= 2;
+		ww(a7, current_instruction); // Instruction register.
+		a7 -= 4;
+		wl(a7, address_error_address); // Access address
+		a7 -= 2;
+		var access_type = address_error_access_type << 4 + reading_instruction << 3;
+		// 0 0 1 User data
+		// 0 1 0 User program
+		// 1 0 1 Supervisor data
+		// 1 1 0 Supervisor program
+		if (oldsr & 0x2000) {
+			access_type |= 4;
+		}
+		if (reading_instruction) {
+			access_type |= 2;
+		}
+		else {
+			access_type |= 1;
+		}
+		ww(a7, access_type);
+	}
 
 	// set interrupt level for auto interrupt
 	if (e >= 25 && e <= 31) {
@@ -4400,7 +4435,9 @@ function execute_instructions(number)
 {
 	for (var inner = 0; inner < number; inner++) {
 		prev_pc = pc;
-		var opcode = rw(pc);
+		reading_instruction = 0;
+		current_instruction = rw(pc);
+		reading_instruction = 1;
 		if (tracecount > 0) {
 			tracecount--;
 			if (overall > 0) {
@@ -4411,8 +4448,8 @@ function execute_instructions(number)
 		//if (pc == 0x48d6) tracecount = 20;
 		pc += 2;
 		try {
-			cycle_count += cycles[opcode];
-			t[opcode]();
+			cycle_count += cycles[current_instruction];
+			t[current_instruction]();
 		}
 		catch (e) {
 			if (e == "STOP")
@@ -4455,10 +4492,10 @@ function execute_instructions(number)
 /*function execute_one_instruction()
 {
 	prev_pc = pc;
-	var opcode = rw(pc);
+	current_instruction = rw(pc);
 	pc += 2;
-	cycle_count += cycles[opcode];
-	t[opcode]();
+	cycle_count += cycles[current_instruction];
+	t[current_instruction]();
 }*/
 
 function emu_main_loop()
