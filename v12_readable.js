@@ -461,6 +461,10 @@ Changelog from PatrickD's version / work log:
 	  (debrouxl 2014/02/24)
 	* in fire_cpu_exception(), make the special bus/address error frame (more) compliant with standard 68000 frame format, adding several emulator variables in the process.
 	  (debrouxl 2014/02/24)
+	* in disassemble(), add an early exit if address is odd.
+	  (debrouxl 2014/02/25)
+	* add effective_address_calculation_time() function, extracted from the 68000 User manual; start using it in build_addsubq(), build_moves(), build_clr_tst_tas().
+	  (debrouxl 2014/02/25)
 
 Achievements:
 	* on 2013/07/30, this emulator uncovered a nearly 6-year-old bug in the alternate grayscale routine for ExtGraph (gray.o). An invalid optimization in a HW1-only code path was added to ExtGraph around 2007/08/13.
@@ -830,6 +834,11 @@ function disassemble_regs_predec_mask(regs8, prefix)
 // For the format of the second word in such instructions, see M68000PRM, page 2-2.
 function disassemble(address, count)
 {
+	if (address & 1) {
+		stdlib.console.log("Cowardly refusing to disassemble from an odd address");
+		return;
+	}
+
 	while (count > 0) {
 		var opcode = rw(address);
 		var rawinstr = n[opcode];
@@ -1968,28 +1977,6 @@ function read_pc(size, dest, sideeffects)
 	}
 }
 
-// generate code for MOVEQ instructions
-function build_moveq()
-{
-	for (var data = 0; data <= 255; data++)
-	{
-		for (var reg = 0; reg < 8; reg++)
-		{
-			var opcode = 0x7000 + (reg << 9) + data;
-			var code = "sr&=65520;"; // clear all flags (except X)
-			code += "d" + reg + " = ";
-			if (data < 128) {
-				code += data + "; ";
-				if (data == 0)
-					code += "sr|=4;"; // set zero flag
-			}
-			else 
-				code += (data + 0xFFFFFF00) + "; sr|=8; ";
-			insert_inst2(opcode, code, "MOVEQ #" + hex_prefix + (data >= 128 ? to_hex(data - 256, 2) : to_hex(data, 2)) + ",D" + reg, 4);
-		}
-	}
-}
-
 // generate code to retrieve from memory by an addressing mode (into variable s)
 function amode_read(mode, reg, size, sideeffects)
 {
@@ -2227,17 +2214,80 @@ function amode_write(mode, reg, size, data)
 	return "fire_cpu_exception(4);" // Illegal Instruction
 }
 
-// build executors for ADDQ and SUBQ
+// Extracted from 68000UM, table 8.1.
+function effective_address_calculation_time(mode, reg, size)
+{
+	if (mode == MODE_DREG || mode == MODE_AREG) {
+		return 0;
+	}
+	if (mode == MODE_AREG_INDIRECT) {
+		return (size != 2) ? 4 : 8;
+	}
+	if (mode == MODE_AREG_POSTINC) {
+		return (size != 2) ? 4 : 8;
+	}
+	if (mode == MODE_AREG_PREDEC) {
+		return (size != 2) ? 6 : 10;
+	}
+	if (mode == MODE_AREG_OFFSET) {
+		return (size != 2) ? 8 : 12;
+	}
+	if (mode == MODE_AREG_INDEX) {
+		return (size != 2) ? 10 : 14;
+	}
+	if (mode == MODE_MISC) {
+		if (reg == MISCMODE_SHORT) {
+			return (size != 2) ? 8 : 12;
+		}
+		if (reg == MISCMODE_LONG) {
+			return (size != 2) ? 12 : 16;
+		}
+		if (reg == MISCMODE_PC_OFFSET) {
+			return (size != 2) ? 8 : 12;
+		}
+		if (reg == MISCMODE_PC_INDEX) {
+			return (size != 2) ? 10 : 14;
+		}
+		if (reg == MISCMODE_IMM) {
+			return (size != 2) ? 4 : 8;
+		}
+	}
 
+	return 0;
+}
+
+// generate code for MOVEQ instructions
+function build_moveq()
+{
+	for (var data = 0; data <= 255; data++)
+	{
+		for (var reg = 0; reg < 8; reg++)
+		{
+			var opcode = 0x7000 + (reg << 9) + data;
+			var code = "sr&=65520;"; // clear all flags (except X)
+			code += "d" + reg + " = ";
+			if (data < 128) {
+				code += data + "; ";
+				if (data == 0)
+					code += "sr|=4;"; // set zero flag
+			}
+			else 
+				code += (data + 0xFFFFFF00) + "; sr|=8; ";
+			insert_inst2(opcode, code, "MOVEQ #" + hex_prefix + (data >= 128 ? to_hex(data - 256, 2) : to_hex(data, 2)) + ",D" + reg, 4);
+		}
+	}
+}
+
+// build executors for ADDQ and SUBQ
 function build_addsubq()
 {
 	for (var offset = -8; offset < 9; offset++)
 		for (var mode = 0; mode < 8; mode++)
 			for (var reg = 0; reg < 8; reg++)
 				for (var size = 0; size < 3; size++)
-					if (valid_dest(mode, reg) && (mode != MODE_AREG || size != 0))
+					// do not allow add/subtract of byte from address register, or add/subtract of 0
+					if (valid_dest(mode, reg) && (mode != MODE_AREG || size != 0) && (offset != 0))
 					{
-						if (offset == 0) continue; // do not allow add/subtract of 0
 						var name = "";
 						var opcode = 0;
 						if (offset > 0)
@@ -2255,6 +2305,8 @@ function build_addsubq()
 							name = "SUBQ" + size_name(size) + " #" + (-offset) + "," + amode_name(mode, reg, 0)
 						}
 						var actualsize = (mode == MODE_AREG) ? 2 : size; // for address registers, always treat as long
+						var cost = (size == 2) ? (((mode == MODE_DREG) || (mode == MODE_AREG)) ? 4 : 8)
+						                       : (((mode == MODE_DREG) || (mode == MODE_AREG)) ? 8 : 12);
 						var code = amode_read(mode, reg, actualsize, false);
 						if (mode == MODE_AREG) 
 						{
@@ -2282,7 +2334,7 @@ function build_addsubq()
 							code += "sr=(sr&0xFFEF)|((sr&1)<<4);"
 						}
 						code += amode_write(mode, reg, actualsize, "r")
-						insert_inst(opcode, code, name);
+						insert_inst2(opcode, code, name, cost + effective_address_calculation_time(mode, reg, size));
 					}
 }
 
@@ -2403,7 +2455,7 @@ function build_moves(name, size, pattern)
 						// set condition codes, except when writing to a registers
 						if (dstmode != 1)
 							code += set_condition_flags_data(size, "s")
-						insert_inst(opcode, code, fullname)
+						insert_inst2(opcode, code, fullname, 4 + effective_address_calculation_time(srcmode, srcreg, size) + effective_address_calculation_time(dstmode, dstreg, size))
 					}
 			}
 }
@@ -2794,7 +2846,7 @@ function build_clr_tst_tas()
 					iname = "TST" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					code = amode_read(srcmode, srcreg, size, true)
 					code += set_condition_flags_data(size, "s")
-					insert_inst(opcode, code, iname)
+					insert_inst2(opcode, code, iname, 4 + effective_address_calculation_time(srcmode, srcreg, size))
 
 					// TAS exists only under byte form.
 					if (size == 0)
@@ -2804,7 +2856,7 @@ function build_clr_tst_tas()
 						code = amode_read(srcmode, srcreg, 0, true)
 						code += set_condition_flags_data(0, "s")
 						code += amode_write(srcmode, srcreg, 0, "s | 0x80")
-						insert_inst(opcode, code, iname)
+						insert_inst2(opcode, code, iname, (srcmode == MODE_DREG) ? 4 : (14 + effective_address_calculation_time(srcmode, srcreg, size)))
 					}
 				}
 }
