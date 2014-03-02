@@ -61,7 +61,9 @@ compatible with this emulator, compability with other programs is limited in thi
 <input type="button" value="Close PNG screenshot" id="hidebutton" style="display:none" onclick="javascript:ui.pngButtons()"/><img id="pngimage" src=""/><br/>
 <!-- http://stackoverflow.com/a/16213045  -->
 
-<input type="button" value="Make data created by recvfile() available" id="downloadFileButton" onclick="javascript:link.getFileData()"/></form><br/>
+<input type="button" value="Start non-silent single file receive" id="receivensButton" onclick="javascript:link.recvfile_ns()"/>
+&nbsp;&nbsp;
+<input type="button" value="Make data created by recvfile() / recvfile_ns() available" id="downloadFileButton" onclick="javascript:link.getFileData()"/></form><br/>
 <a href="" id="downloadfile" style="display:none">Download data created by recvfile()</a>
 
 Skin type: <form>
