@@ -1,9 +1,25 @@
-// JavaScript TI-68k (89, 92+, V200, 89T) graphing calculator emulator
-//
-// Copyright (C) 2011-2013 Patrick "PatrickD" Davidson (v1-v11) - http://www.ocf.berkeley.edu/~pad/emu/
-// Copyright (C) 2012-2014 Lionel Debroux (v11-v12) - http://tiplanet.org
-// Copyright (C) 2012-2013 Xavier "critor" Andréani
-// Copyright (C) 2012-2013 Adrien "Adriweb" Bertrand
+/**
+ * JavaScript TI-68k (89, 92+, V200, 89T) graphing calculator emulator
+ *
+ * Copyright (C) 2011-2013 Patrick "PatrickD" Davidson (v1-v11) - http://www.ocf.berkeley.edu/~pad/emu/
+ * Copyright (C) 2012-2014 Lionel Debroux (v11-v12) - http://tiplanet.org
+ * Copyright (C) 2012-2013 Xavier "critor" Andréani
+ * Copyright (C) 2012-2013 Adrien "Adriweb" Bertrand
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software Foundation,
+ * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ */
 
 /*
 TODO LIST:
@@ -26,6 +42,7 @@ MUST:
 
 	IMPORTANT FEATURES:
 		* memory search functions.
+		* add UI for receiving a file through silent linking, presumably based on window.prompt(). Needs a user-friendly solution for doing the same thing as buildFileExtensionFromVartype()..
 		* linking emulation: support for 89g/9xg/v2g group files.
 			* libtifiles, files9x.c::ti9x_file_read_regular(): loop on the number of entries (word at offset 0x3A). Requires changes (and why not some added sanity checking...) in emu.handle_newfileready() + link.sendfile().
 			* libticalcs, calc_89.c::send_var(): loop on the number of entries.
@@ -52,8 +69,9 @@ MUST:
 			* TAS: implemented - not checked.
 		* lsl(), asl(), lsr(), asr(), rol(), ror(), roxl() and roxr() should be generated, optimized, and probably have the "size" argument constant-propagated.
 		* the add*(), cmp*() and sub*() functions should be generated.
-		* disassembly support for all remaining unimplemented instructions.
-		* linking emulation: support for non-silent linking.
+		* disassembly support for all remaining unimplemented instructions (if any).
+		* cycle count support for all implemented instructions.
+			* NOTE: dynamic shift counts not yet implemented.
 		* linking emulation: UI for retrieving files from the emulator through silent linking.
 		* linking emulation: support for 89b/9xb/v2b backup files.
 			* libtifiles, files9x.c::ti9x_file_read_backup(): there's some metadata before the content, the content part is read as a whole;
@@ -457,14 +475,29 @@ Changelog from PatrickD's version / work log:
 	  (debrouxl 2014/02/24)
 	* implement instruction costs for Bcc and BSR.
 	  (debrouxl 2014/02/24)
-	* executing CHK instructions shouldn't call nonexistent raise_cpu_exception() function.
+	* executing CHK instructions shouldn't call nonexistent raise_cpu_exception() function...
 	  (debrouxl 2014/02/24)
 	* in fire_cpu_exception(), make the special bus/address error frame (more) compliant with standard 68000 frame format, adding several emulator variables in the process.
 	  (debrouxl 2014/02/24)
 	* in disassemble(), add an early exit if address is odd.
 	  (debrouxl 2014/02/25)
-	* add effective_address_calculation_time() function, extracted from the 68000 User manual; start using it in build_addsubq(), build_moves(), build_clr_tst_tas().
+	* add effective_address_calculation_time() function, extracted from the 68000 User manual; start using it in build_addsubq(), build_moves(), build_clr_tst_tas(), build_bcd().
 	  (debrouxl 2014/02/25)
+	* after discussion with UnknownLoner, who confirmed try/catch is bad for performance, remove it and stop using throw for handling low-power / off (port 600005) mode.
+	  (debrouxl 2014/02/26)
+	* fuse build_not_neg() and build_clr_tst_tas() into build_not_neg_clr_tst_tas(), as the instruction costs for those are similar.
+	  (debrouxl 2014/03/01)
+	* implement most remaining instruction costs: less than 3000 known instructions remain cost-less, down from more than 30000 before today.
+	  (debrouxl 2014/03/01)
+	* split several one-liner inlined linking primitives to separate functions.
+	  (debrouxl 2014/03/02)
+	* split two larger code blocks from link.link_handling() to link.process_recv_XDP() and link.process_recv_CNTEOT(), so that they can be called from multiple places as needed.
+	  (debrouxl 2014/03/02)
+	* add support for receiving a single file from the calculator in a non-silent way.
+	  (debrouxl 2014/03/02)
+	* in ui.getFileData(), call functions from link rather than from emu, because that's where they have been for a while...
+	  (debrouxl 2014/03/02)
+
 
 Achievements:
 	* on 2013/07/30, this emulator uncovered a nearly 6-year-old bug in the alternate grayscale routine for ExtGraph (gray.o). An invalid optimization in a HW1-only code path was added to ExtGraph around 2007/08/13.
@@ -2409,17 +2442,19 @@ function build_conditionals(condition, name, bits)
 	for (var reg = 0; reg < 8; reg++)
 	{
 		var opcode = dbcc_opcode + reg
-		var code = condition + "pc+=2; else {"
+		var cost = 10;
+		var code = condition + "{ pc += 2; cycle_count += 2; } else {"
 		code += "var p=d" + reg + ";"
-		code +=  "var u=(p>>>16)*65536;"
-		code +=  "var l=p%65536;"
-		code +=  "var m=(l - 1)&65535;"
-		code +=  "d" + reg + "=u+m;"
-		code +=  "if(m==65535)"
-		code +=  "pc+=2;"
-		code +=  "else "
-		code +=  "pc=(pc+ewl(rw(pc)))%4294967296;}"
-		insert_inst(opcode, code, "DB" + name + " D" + reg + ",disp")
+		code += "var u=(p>>>16)*65536;"
+		code += "var l=p%65536;"
+		code += "var m=(l - 1)&65535;"
+		code += "d" + reg + "=u+m;"
+		code += "if(m==65535) {"
+		code += "pc+=2; cycle_count += 4;"
+		code += "} else {"
+		code += "pc=(pc+ewl(rw(pc)))%4294967296;}"
+		code += "}"
+		insert_inst2(opcode, code, "DB" + name + " D" + reg + ",disp", cost)
 	}
 
 	// Scc
@@ -2428,12 +2463,14 @@ function build_conditionals(condition, name, bits)
 			if (valid_dest(mode, reg) && mode != 1)
 			{
 				var opcode = scc_opcode + reg + (mode << 3)
+				var cost = (mode == MODE_DREG) ? 4 : 8;
 				var code = condition + "{"
-				code += amode_write(mode, reg, 0, "255")
+				code += amode_write(mode, reg, 0, "255");
+				if (mode == MODE_DREG) code += "cycle_count += 2;"
 				code += "} else {"
 				code += amode_write(mode, reg, 0, "0")
 				code += "}"
-				insert_inst(opcode, code, "S" + name + " " + amode_name(mode, reg, 0))
+				insert_inst2(opcode, code, "S" + name + " " + amode_name(mode, reg, 0), cost + effective_address_calculation_time(mode, reg, 0))
 			}
 }
 
@@ -2525,9 +2562,16 @@ function build_calc(name, bits)
 					{
 						var iname = name + size_name(size) + " " + amode_name(mode, reg, size) + ",D" + dreg
 						var code = amode_read(mode, reg, size, true)
+						var cost = 4;
+						if (size == 2) {
+							cost += 2;
+							if (mode == MODE_DREG || (mode == MODE_MISC && reg == MISCMODE_IMM)) {
+								cost += 2;
+							}
+						}
 						code += build_operation(name, size, "s", "d" + dreg + "")
 						code += amode_write(MODE_DREG, dreg, size, "r")
-						insert_inst(opcode, code, iname)
+						insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(mode, reg, size))
 					}
 					//  generate version with EA as destination
 					if (valid_dest(mode, reg) && (mode != MODE_DREG || name == "EOR") && mode != MODE_AREG) //EA as dest does not work for registers
@@ -2535,15 +2579,16 @@ function build_calc(name, bits)
 						opcode = opcode + 0x100
 						var iname = name + size_name(size) + " D" + dreg + "," + amode_name(mode, reg, size)
 						var code = amode_read(mode, reg, size, false)
+						var cost = (size == 2) ? 12 : 8;
 						code += build_operation(name, size, "d" + dreg, "s")
 						code += amode_write(mode, reg, size, "r")
-						insert_inst(opcode, code, iname)
+						insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(mode, reg, size))
 					}
 				}
 }
 
 // build multiply and divide
-function build_muldiv(name, bits, calcfunc)
+function build_muldiv(name, bits, calcfunc, cost)
 {
 	for (var dreg = 0; dreg < 8; dreg++)
 		for (var mode = 0; mode < 8; mode++)
@@ -2555,12 +2600,12 @@ function build_muldiv(name, bits, calcfunc)
 					var code = amode_read(mode, reg, 1, true)
 					code += "d" + dreg + " = " + calcfunc + "(s,d" + dreg +");";
 //					code += "if(d" + dreg + "<0)d" + dreg + "+=4294967296; if(d" + dreg + ">4294967295)d" + dreg + "-=4294967296;"
-					insert_inst(opcode, code, iname)
+					insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(mode, reg, 1))
 				}
 }
 
 // build a bit operation
-function build_bit_operation(name, bits)
+function build_bit_operation(name, bits, registercost, memorycost)
 {
 	for (var srcmode = 0; srcmode < 8; srcmode++)
 		for (var srcreg = 0; srcreg < 8; srcreg++)
@@ -2569,7 +2614,7 @@ function build_bit_operation(name, bits)
 				(srcreg == MISCMODE_PC_OFFSET || srcreg == MISCMODE_PC_INDEX))))
 				for (var dreg = 0; dreg <= 8; dreg++) // if this value is 8, use bit number static version
 				{
-					var opcode, iname, code = "";
+					var opcode, iname, code = "", cost;
 					if (dreg == 8)
 					{
 						opcode = bits + (srcmode << 3) + srcreg;
@@ -2637,13 +2682,14 @@ function build_cmp()
 						var opcode = 0xB000 + (firstreg << 9) + (size << 6) + (srcmode << 3) + srcreg;
 						var iname = "CMP" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",D" + firstreg
 						var code = amode_read(srcmode, srcreg, size, true)
+						var cost = (size == 2) ? 6 : 4;
 						code += "var m=d" + firstreg + ";"
 						if (size == 1) code += "m=m&0xFFFF;"
 						if (size == 0) code += "m=m&0xFF;"
 						if (size == 0) code += "cmpb(s,m);"
 						if (size == 1) code += "cmpw(s,m);"
 						if (size == 2) code += "cmpl(s,m);"
-						insert_inst(opcode, code, iname)
+						insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
 					}
 }
 
@@ -2655,30 +2701,36 @@ function build_adest()
 				for (var size = 1; size < 3; size++)
 					if (valid_source(srcmode, srcreg))
 					{
-						var opcode = 0x90C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
-						var iname = "SUBA" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",A" + areg
+						var opcode = 0xB0C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
+						var iname = "CMPA" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",A" + areg
 						var code = amode_read(srcmode, srcreg, size, true)
+						var cost = 6 + effective_address_calculation_time(srcmode, srcreg, size);
+						if (size == 1) code += "s=ewl(s);"
+						code += "cmpl(s,a" + areg + ");"
+						insert_inst2(opcode, code, iname, cost)
+
+						cost += 2;
+						if (size == 2 && srcmode != MODE_DREG && (srcmode != MODE_MISC || srcreg != MISCMODE_IMM)) {
+							cost -= 2;
+						}
+
+						opcode = 0x90C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
+						iname = "SUBA" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",A" + areg
+						code = amode_read(srcmode, srcreg, size, true)
 						if (size == 1) code += "s=ewl(s);"
 						code += "var r=a" + areg + " - s;"
 						code += "if(r<0)r+=4294967296;"
 						code += amode_write(1, areg, 2, "r")
-						insert_inst(opcode, code, iname)
-
-						opcode = 0xB0C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
-						iname = "CMPA" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",A" + areg
-						code = amode_read(srcmode, srcreg, size, true)
-						if (size == 1) code += "s=ewl(s);"
-						code += "cmpl(s,a" + areg + ");"
-						insert_inst(opcode, code, iname)
+						insert_inst2(opcode, code, iname, cost)
 
 						opcode = 0xD0C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
 						iname = "ADDA" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",A" + areg
 						code = amode_read(srcmode, srcreg, size, true)
-						if (size == 1) code += "s=ewl(s);"
+						if (size == 1) code += "s=ewl(s);"; cost += 2;
 						code += "var r=a" + areg + "+s;"
 						code += "if(r>4294967295)r-=4294967296;"
 						code += amode_write(1, areg, 2, "r")
-						insert_inst(opcode, code, iname)
+						insert_inst2(opcode, code, iname, cost)
 					}
 
 }
@@ -2694,22 +2746,26 @@ function build_shifts(name, mask, altmask, namelower)
 					var actualshift = shift == 0 ? 8 : shift;
 					var iname = "";
 					var opcode = mask + 0x20 + (size << 6) + reg + (shift << 9);
+					var shiftamount;
+					var cost = (size == 2) ? 8 : 6;
 					if (mm == 0)
 					{
 						opcode = opcode - 0x20;
 						iname = name + size_name(size) + " #" + actualshift + ",D" + reg
+						shiftamount = actualshift
 					}
 					else
 					{
 						iname = name + size_name(size) + " D" + shift + ",D" + reg
+						shiftamount = "d" + shift + "&31";
 					}
-					var shiftamount = mm == 0 ? actualshift : "d" + shift + "&31";
 					var src = "";
 					if (size == 0) src = "d" + reg + "&255"
-					if (size == 1) src = "d" + reg + "&65535"
-					if (size == 2) src = "d" + reg
+					else if (size == 1) src = "d" + reg + "&65535"
+					else if (size == 2) src = "d" + reg
+					// TODO implement variable cost according to shiftamount.
 					var code = amode_write(MODE_DREG, reg, size, namelower + "(" + src + "," + shiftamount + "," + size + ")")
-					insert_inst(opcode, code, iname)
+					insert_inst2(opcode, code, iname, cost)
 				}
 	// EA target version
 	for (var reg = 0; reg < 8; reg++)
@@ -2720,7 +2776,7 @@ function build_shifts(name, mask, altmask, namelower)
 				var iname = name + ".W " + amode_name(mode, reg, 1)
 				var code = amode_read(mode, reg, 1, false)
 				code += amode_write(mode, reg, 1, namelower + "(s,1,1)")
-				insert_inst(opcode, code, iname)
+				insert_inst2(opcode, code, iname, 8 + effective_address_calculation_time(mode, reg, 1))
 			}
 }
 
@@ -2737,6 +2793,13 @@ function build_immediate(name, mask, operation)
 					if (mode == MODE_MISC && reg == 4 && size == 1) mode_name = "SR"
 					var iname = name + size_name(size) + size_imm(size) + mode_name
 					var code = read_pc(size, "m", true)
+					var cost = (mode == MODE_DREG) ? 8 : 12;
+					if (size == 2) { 
+						cost += 6;
+						if (name != "ANDI" || mode != MODE_DREG) {
+							cost += 2;
+						}
+					}
 					if (mode == MODE_MISC && reg == 4)
 					{
 						if (size == 1) code += "if(sr&0x2000==0)fire_cpu_exception(8);";
@@ -2757,7 +2820,7 @@ function build_immediate(name, mask, operation)
 							code += "var r=" + name.substring(0,3).toLowerCase() + size_name(size).substring(1,2).toLowerCase() + "(m,s);"
 						}
 						code += amode_write(mode, reg, size, "r")
-						insert_inst(opcode, code, iname)
+						insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(mode, reg, size))
 					}
 				}
 }
@@ -2786,7 +2849,7 @@ function build_ext(name, bits)
 				}
 }
 
-function build_not_neg()
+function build_not_neg_clr_tst_tas()
 {
 	for (var size = 0; size < 3; size++)
 		for (var srcmode = 0; srcmode < 8; srcmode++)
@@ -2796,12 +2859,17 @@ function build_not_neg()
 					var opcode = 0x4600 + (size << 6) + (srcmode << 3) + srcreg;
 					var iname = "NOT" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					var code = amode_read(srcmode, srcreg, size, false)
+					var cost = (size == 2) ? 6 : 4;
+					if (srcmode != MODE_DREG) {
+						cost *= 2;
+					}
+
 					if (size == 0) code += "s=255-s;"
 					if (size == 1) code += "s=65535-s;"
 					if (size == 2) code += "s=4294967295-s;"
 					code += set_condition_flags_data(size, "s")
 					code += amode_write(srcmode, srcreg, size, "s")
-					insert_inst(opcode, code, iname)
+					insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
 
 					// *** should fix overflow here sometime
 					opcode = 0x4400 + (size << 6) + (srcmode << 3) + srcreg;
@@ -2813,7 +2881,7 @@ function build_not_neg()
 					if (size == 2) code += "var r=s==0?0:4294967296-s;if(r&2147483647)sr|=8;"
 					code += "if(r==0)sr|=4;else sr|=17;" // set zero flag for zero, extend and carry otherwise
 					code += amode_write(srcmode, srcreg, size, "r")
-					insert_inst(opcode, code, iname)
+					insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
 
 					opcode = 0x4000 + (size << 6) + (srcmode << 3) + srcreg;
 					iname = "NEGX" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
@@ -2825,38 +2893,32 @@ function build_not_neg()
 					if (size == 2) code += "var r=4294967296-s;if(r>4294967295)r=0;"
 					code += set_condition_flags_data(size, "r")
 					code += amode_write(srcmode, srcreg, size, "r")
-					insert_inst(opcode, code, iname)
-				}
-}
+					insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
 
-function build_clr_tst_tas()
-{
-	for (var size = 0; size < 3; size++)
-		for (var srcmode = 0; srcmode < 8; srcmode++)
-			for (var srcreg = 0; srcreg < 8; srcreg++)
-				if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
-				{
-					var opcode = 0x4200 + (size << 6) + (srcmode << 3) + srcreg;
-					var iname =  "CLR" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
-					var code = amode_write(srcmode, srcreg, size, "0")
-					code += "sr|=4;"
-					insert_inst(opcode, code, iname)
-
-					opcode = 0x4a00 + (size << 6) + (srcmode << 3) + srcreg;
-					iname = "TST" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
-					code = amode_read(srcmode, srcreg, size, true)
-					code += set_condition_flags_data(size, "s")
-					insert_inst2(opcode, code, iname, 4 + effective_address_calculation_time(srcmode, srcreg, size))
-
-					// TAS exists only under byte form.
-					if (size == 0)
+					if (srcmode != MODE_AREG)
 					{
-						opcode = 0x4ac0 + (srcmode << 3) + srcreg;
-						iname = "TAS.B" + " " + amode_name(srcmode, srcreg, 0)
-						code = amode_read(srcmode, srcreg, 0, true)
-						code += set_condition_flags_data(0, "s")
-						code += amode_write(srcmode, srcreg, 0, "s | 0x80")
-						insert_inst2(opcode, code, iname, (srcmode == MODE_DREG) ? 4 : (14 + effective_address_calculation_time(srcmode, srcreg, size)))
+						opcode = 0x4200 + (size << 6) + (srcmode << 3) + srcreg;
+						iname =  "CLR" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
+						code = amode_write(srcmode, srcreg, size, "0")
+						code += "sr|=4;"
+						insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
+
+						opcode = 0x4a00 + (size << 6) + (srcmode << 3) + srcreg;
+						iname = "TST" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
+						code = amode_read(srcmode, srcreg, size, true)
+						code += set_condition_flags_data(size, "s")
+						insert_inst2(opcode, code, iname, 4 + effective_address_calculation_time(srcmode, srcreg, size))
+
+						// TAS exists only under byte form.
+						if (size == 0)
+						{
+							opcode = 0x4ac0 + (srcmode << 3) + srcreg;
+							iname = "TAS.B" + " " + amode_name(srcmode, srcreg, 0)
+							code = amode_read(srcmode, srcreg, 0, true)
+							code += set_condition_flags_data(0, "s")
+							code += amode_write(srcmode, srcreg, 0, "s | 0x80")
+							insert_inst2(opcode, code, iname, (srcmode == MODE_DREG) ? 4 : (14 + effective_address_calculation_time(srcmode, srcreg, size)))
+						}
 					}
 				}
 }
@@ -2889,11 +2951,18 @@ function build_cmpi()
 					var opcode = 0xC00 + (size << 6) + (srcmode << 3) + srcreg;
 					var iname = "CMPI" + size_name(size) + size_imm(size) + amode_name(srcmode, srcreg, size)
 					var code = read_pc(size, "subtrahend",true)
+					var cost = 8;
+					if (size == 2) {
+						cost += 4;
+						if (srcmode == MODE_DREG) {
+							cost += 2;
+						}
+					}
 					code += amode_read(srcmode, srcreg, size, true)
 					if (size==0) code += "cmpb(subtrahend, s);"
 					if (size==1) code += "cmpw(subtrahend, s);"
 					if (size==2) code += "cmpl(subtrahend, s);"
-					insert_inst(opcode, code, iname)
+					insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
 				}
 }
 
@@ -3022,7 +3091,7 @@ function build_bcd()
 				code = amode_read(srcmode, srcreg, 0, false)
 				code += "var r=nbcd(s);"
 				code += amode_write(srcmode, srcreg, 0, "r")
-				insert_inst(opcode, code, iname)
+				insert_inst2(opcode, code, iname, (srcmode == MODE_DREG) ? 6 : (8 + effective_address_calculation_time(srcmode, srcreg, 0)))
 			}
 
 }
@@ -3036,18 +3105,20 @@ function build_movesrccr()
 			{
 				var opcode = 0x46C0 + (srcmode << 3) + srcreg;
 				var iname = "MOVE " + amode_name(srcmode, srcreg, 1) + ",SR"
-				insert_inst(opcode, "if(sr&0x2000==0)fire_cpu_exception(8);" + amode_read(srcmode, srcreg, 1, true) + "update_sr(s);", iname)
+				var cost = 12 + effective_address_calculation_time(srcmode, srcreg, 0);
+				insert_inst2(opcode, "if(sr&0x2000==0)fire_cpu_exception(8);" + amode_read(srcmode, srcreg, 1, true) + "update_sr(s);", iname, cost)
 
 				opcode = 0x44C0 + (srcmode << 3) + srcreg;
 				iname = "MOVE " + amode_name(srcmode, srcreg, 0) + ",CCR"
-				insert_inst(opcode, amode_read(srcmode, srcreg, 0, true) + "sr = (sr&0xFF00) + s;", iname)
+				insert_inst2(opcode, amode_read(srcmode, srcreg, 0, true) + "sr = (sr&0xFF00) + s;", iname, cost)
 			}
 			if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
 			{
 				var opcode = 0x40C0 + (srcmode << 3) + srcreg;
 				var iname = "MOVE SR," + amode_name(srcmode, srcreg, 1)
+				var cost = (srcmode == MODE_DREG) ? 6 : 8;
 				// MOVE from SR is not privileged on the 68000.
-				insert_inst(opcode, amode_write(srcmode, srcreg, 1, "sr"), iname)
+				insert_inst2(opcode, amode_write(srcmode, srcreg, 1, "sr"), iname, cost + effective_address_calculation_time(srcmode, srcreg, 1))
 			}
 		}
 }
@@ -3180,14 +3251,14 @@ build_calc("ADD", 0xD000)
 build_calc("AND", 0xC000)
 build_calc("SUB", 0x9000)
 build_calc("OR", 0x8000)
-build_muldiv("DIVS", 0x81C0, "divs")
-build_muldiv("DIVU", 0x80C0, "divu")
-build_muldiv("MULS", 0xC1C0, "muls")
-build_muldiv("MULU", 0xC0C0, "mulu")
-build_bit_operation("BCLR", 0x880)
-build_bit_operation("BTST", 0x800)
-build_bit_operation("BCHG", 0x840)
-build_bit_operation("BSET", 0x8c0)
+build_muldiv("DIVS", 0x81C0, "divs", 158)
+build_muldiv("DIVU", 0x80C0, "divu", 140)
+build_muldiv("MULS", 0xC1C0, "muls", 70)
+build_muldiv("MULU", 0xC0C0, "mulu", 70)
+build_bit_operation("BCHG", 0x840, 8, 8)
+build_bit_operation("BCLR", 0x880, 10, 8)
+build_bit_operation("BSET", 0x8C0, 8, 8)
+build_bit_operation("BTST", 0x800, 6, 4)
 build_shifts("ASL", 0xE100, 0xE1C0, "asl")
 build_shifts("ASR", 0xE000, 0xE0C0, "asr")
 build_shifts("LSL", 0xE108, 0xE3C0, "lsl")
@@ -3205,8 +3276,7 @@ build_immediate("ADDI", 0x600, "")
 build_immediate("SUBI", 0x400, "")
 build_ext("ADDX", 0xD100)
 build_ext("SUBX", 0x9100)
-build_not_neg()
-build_clr_tst_tas()
+build_not_neg_clr_tst_tas()
 build_lea()
 build_cmpi()
 build_movem()
@@ -3397,7 +3467,8 @@ function write_hreg(reg, value)
 		case 0x600005: // 0x600005
 		{
 			wakemask = value;
-			throw "STOP";
+			//throw "STOP";
+			stopped = true;
 			break;
 		}
 
@@ -3595,6 +3666,37 @@ function write_hreg(reg, value)
 
 function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize)
 {
+// Tried again 20140301: while Firefox copes with the 4096-case switch with minor, if measurable (10-20%) slowdown, Chrome still doesn't.
+/*
+	var memory_read_function =
+"rw_" + suffix + "_normal = function rw_" + suffix + "_normal(address)" +
+"{" +
+"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 1; fire_cpu_exception(3); }" + // Address Error
+"	switch (((address & 0x00FFF000) >>> 12) & 0xFFF) {";
+	for (var i = 0; i < 8; i++) {
+		for (var j = 0; j < 0x40; j++) { // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
+			memory_read_function += "case " + ((i * 0x40) + j) + ":";
+		}
+		if (i == 0) {
+			memory_read_function += "return ram[address >>> 1];";
+		}
+		else {
+			memory_read_function += "address -= " + (i * 0x40000) + "; return ram[address >>> 1];";
+		}
+	}
+	for (var j = flashmemoryaddress >>> 12; j < (flashmemoryaddress + flashmemorysize) >>> 12; j++) {
+		memory_read_function += "case " + j + ":";
+	}
+	memory_read_function += "address -= " + flashmemoryaddress + "; return rom[address >>> 1];";
+	memory_read_function += "case 0x600: return read_hreg(address) * 256 + read_hreg(address + 1);";
+	memory_read_function += "case 0x700: return read_hreg(address) * 256 + read_hreg(address + 1);";
+	memory_read_function += "case 0x710: return read_hreg(address) * 256 + read_hreg(address + 1);";
+	memory_read_function += "default: return 0x1400;" +
+	"}" +
+"}";
+	eval(memory_read_function);
+*/
+
 	var memory_read_function =
 "rw_" + suffix + "_normal = function rw_" + suffix + "_normal(address)" +
 "{" +
@@ -4499,10 +4601,13 @@ function execute_instructions(number)
 		}
 		//if (pc == 0x48d6) tracecount = 20;
 		pc += 2;
-		try {
+		//try {
 			cycle_count += cycles[current_instruction];
 			t[current_instruction]();
+		if (stopped == true) {
+			return;
 		}
+		/*}
 		catch (e) {
 			if (e == "STOP")
 			{
@@ -4523,7 +4628,7 @@ function execute_instructions(number)
 				stdlib.clearInterval(main_interval_timer_id);
 				return;
 			}
-		}
+		}*/
 
 		// Raise highest level pending interrupt.
 		if (pending_ints) {
@@ -4818,7 +4923,7 @@ function loadrom(infile)
 	    && (   ".9xk.89k.v2k".indexOf(extension) != -1 // FlashApp
 	        //|| ".9xq.89q.v2q".indexOf(extension) != -1 // Certificate - useless nowadays since we can resign FlashApps
 	       )) {
-		stdlib.console.log("Starting to load as Flash variable - WIP");
+		stdlib.console.log("Starting to load as Flash variable");
 		var reader = new FileReader();
 		reader.onload = function() { newflashfileready = reader; unhandled_count = 0; handle_newflashfileready(); };
 		reader.readAsArrayBuffer(infile);
@@ -6062,6 +6167,63 @@ function dump_outgoing_queue(header)
 	stdlib.console.log(dump);
 }
 
+function ti89_send_ACK()
+{
+	//                PC_TI92p  CMD_ACK
+	link_incoming_queue.push(8, 0x56, 0, 0);
+}
+
+function ti89_recv_ACK()
+{
+	link_incoming_queue.push('WAIT_ACK');
+}
+
+function ti89_recv_CTS()
+{
+	link_incoming_queue.push('WAIT_CTS');
+}
+
+function ti89_send_CNT()
+{
+	//                PC_TI92p  CMD_CNT
+	link_incoming_queue.push(8, 0x78, 0, 0);
+}
+
+function ti89_send_EOT()
+{
+	//                PC_TI92p  CMD_EOT
+	link_incoming_queue.push(8, 0x92, 0, 0);
+}
+
+function ti89_send_KEY(keycode)
+{
+	//                PC_TI92p  CMD_KEY
+	link_incoming_queue.push(8, 0x87); // key header
+	link_incoming_queue.push(keycode & 0xFF); // key code, little endian
+	link_incoming_queue.push((keycode >>> 8) & 0xFF);
+}
+
+function ti89_send_CTS()
+{
+	//                PC_TI92p  CMD_CTS
+	link_incoming_queue.push(8, 0x09, 0, 0); // CTS packet
+}
+
+function ti89_recv_XDP()
+{
+	link_incoming_queue.push('WAIT_XDP');
+}
+
+function ti89_recv_CNT()
+{
+	link_incoming_queue.push('WAIT_CNT');
+}
+
+function ti89_recv_VAR()
+{
+	link_incoming_queue.push('WAIT_VAR');
+}
+
 function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_and_length)
 {
 	// Initial RTS.
@@ -6099,13 +6261,9 @@ function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_a
 	do {
 		var chunk_len = Math.min(65536, data_len);
 
-		// Equivalent of libticalcs: ti89_recv_ACK.
-		link_incoming_queue.push('WAIT_ACK');
-		// Equivalent of libticalcs: ti89_recv_CTS.
-		link_incoming_queue.push('WAIT_CTS');
-		// libticalcs: ti89_send_ACK.
-		//                PC_TI92p  CMD_ACK
-		link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's CTS)
+		ti89_recv_ACK();
+		ti89_recv_CTS();
+		ti89_send_ACK(); // for calc's CTS
 
 		var data_section_len = chunk_len;
 		if (write_both_checksum_and_length) {
@@ -6131,27 +6289,21 @@ function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_a
 		}
 		link_incoming_queue.push(data_checksum % 256, (data_checksum >>> 8) % 256); // data checksum, little endian to calc
 
-		// Equivalent of libticalcs: ti89_recv_ACK.
-		link_incoming_queue.push('WAIT_ACK');
+		ti89_recv_ACK();
 
 		if (chunk_len == 65536) {
-			// libticalcs: ti89_send_CNT.
-			//                PC_TI92p  CMD_CNT
-			link_incoming_queue.push(8, 0x78, 0, 0);
+			ti89_send_CNT();
 			offset += 65536;
 			data_len -= 65536;
 		}
 		else {
-			// libticalcs: ti89_send_EOT.
-			//                PC_TI92p  CMD_EOT
-			link_incoming_queue.push(8, 0x92, 0, 0);
+			ti89_send_EOT();
 		}
 
 	} while (chunk_len != data_len);
 
 	// Wait for final ACK.
-	// Equivalent of libticalcs: ti89_recv_ACK.
-	link_incoming_queue.push('WAIT_ACK');
+	ti89_recv_ACK();
 
 	stdlib.console.log("finished processing for sending variable");
 
@@ -6161,15 +6313,10 @@ function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_a
 function sendkey(keycode)
 {
 	// Initial KEY.
-	// libticalcs: dbus_send (target + cmd), called by ti89_send_KEY.
-	//                PC_TI92p  CMD_KEY
-	link_incoming_queue.push(8, 0x87); // key header
-	link_incoming_queue.push(keycode & 0xFF); // key code, little endian
-	link_incoming_queue.push((keycode >>> 8) & 0xFF);
+	ti89_send_KEY(keycode);
 
 	// Wait for final ACK.
-	// Equivalent of libticalcs: ti89_recv_ACK.
-	link_incoming_queue.push('WAIT_ACK');
+	ti89_recv_ACK();
 
 	stdlib.console.log("finished processing for sending key");
 
@@ -6209,29 +6356,18 @@ function sendkeys(keyarray)
 // This code was moved out to an external function, so that it can be called multiple times, in order to retrigger reception of one chunk.
 function recvfile_requestchunk()
 {
-	// libticalcs: ti89_send_ACK.
-	//                PC_TI92p  CMD_ACK
-	link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's VAR)
+	ti89_send_ACK(); // for calc's VAR
 
-	// libticalcs: ti89_send_CTS.
-	//                PC_TI92p  CMD_CTS
-	link_incoming_queue.push(8, 0x09, 0, 0); // CTS packet
+	ti89_send_CTS();
+	ti89_recv_ACK();
 
-	// Equivalent of libticalcs: ti89_recv_ACK.
-	link_incoming_queue.push('WAIT_ACK');
+	ti89_recv_XDP();
+	ti89_send_ACK(); // for calc's XDP
 
-	// Equivalent of libticalcs: ti89_recv_ACK.
-	link_incoming_queue.push('WAIT_XDP');
-
-	// libticalcs: ti89_send_ACK.
-	//                PC_TI92p  CMD_ACK
-	link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's XDP)
-
-	// Equivalent of libticalcs: ti89_recv_CNT. If EOT is received instead of CNT, we have reached the end of the transfer.
-	link_incoming_queue.push('WAIT_CNT');
+	// If EOT is received instead of CNT, we have reached the end of the transfer.
+	ti89_recv_CNT();
 }
 
-// BROKEN !
 // For vartype, see http://debrouxl.github.io/gcc4ti/link.html#LIO_CTX and libtifiles:types89.c.
 function recvfile(varname, vartype)
 {
@@ -6275,10 +6411,15 @@ function recvfile(varname, vartype)
 	// libticalcs: dbus_send (sum).
 	link_incoming_queue.push(header_checksum % 256, header_checksum >>> 8); // header checksum, little endian to calc
 
-	// Equivalent of libticalcs: ti89_recv_ACK.
-	link_incoming_queue.push('WAIT_ACK');
-	// Equivalent of libticalcs: ti89_recv_VAR.
-	link_incoming_queue.push('WAIT_VAR');
+	ti89_recv_ACK();
+
+	// Just delegate the rest to the non-silent receive function.
+	recvfile_ns();
+}
+
+function recvfile_ns()
+{
+	ti89_recv_VAR();
 
 	// At first, this code was written as do { [the contents of recvfile_requestchunk()] } while (link_recv_loop_again); [push final ACK]
 	// However, recvfile_requestchunk() finished long before the emulated calculator had a chance to send data, and as a consequence,
@@ -6423,6 +6564,82 @@ function link_build_output_file()
 	link_recv_filedata = new Uint8Array(output_file);
 }
 
+function process_recv_XDP(x)
+{
+	// TODO: error handling
+	var length = link_outgoing_queue[x+2] + link_outgoing_queue[x+3] * 256;
+	dump_outgoing_queue("WAIT_XDP Before: ");
+
+	// Process contents of VAR packet, now that it was received entirely (libticalcs: ti89_recv_VAR).
+	var computed_checksum = link_outgoing_queue[0] + link_outgoing_queue[1] + link_outgoing_queue[2] + link_outgoing_queue[3]; // varsize
+	link_recv_varsize = link_outgoing_queue[0] + link_outgoing_queue[1] * 256 + link_outgoing_queue[2] * 65536 + link_outgoing_queue[3] * 16777216;
+	link_recv_vartype = link_outgoing_queue[4];
+	computed_checksum += link_outgoing_queue[4] + link_outgoing_queue[5]; // vartype + strl
+	var strl = link_outgoing_queue[5];
+	for (var i = 0; i < strl; i++) {
+		link_recv_varname += String.fromCharCode(link_outgoing_queue[6+i]);
+		computed_checksum += link_outgoing_queue[6+i];
+	}
+	stdlib.console.log("link_recv_varsize = " + link_recv_varsize);
+	stdlib.console.log("link_recv_vartype = " + link_recv_vartype);
+	stdlib.console.log("strl = " + strl);
+	stdlib.console.log("link_recv_varname = " + link_recv_varname);
+
+	link_recv_filedata = new Uint8Array(link_recv_varsize);
+	var packet_checksum = link_outgoing_queue[x-2] + link_outgoing_queue[x-1] * 256;
+	if ((computed_checksum & 0xFFFF) != packet_checksum) {
+		stdlib.console.log("WAIT_XDP: Wrong checksum: computed=" + emu.to_hex(computed_checksum, 4) + " packet=" + emu.to_hex(packet_checksum, 4) + "!");
+	}
+
+	// Skip what we processed.
+	link_outgoing_queue.splice(0, x+4);
+	link_incoming_queue.shift();
+	stdlib.console.log("Eaten an item in WAIT_XDP", x);
+
+	dump_outgoing_queue("After: ");
+}
+
+function process_recv_CNTEOT(x)
+{
+	// TODO: error handling
+	dump_outgoing_queue("WAIT_CNT Before: ");
+	var packet_type = link_outgoing_queue[x+1];
+
+	// Process contents of XDP packet, now that it was received entirely (libticalcs: ti89_recv_XDP + clients): build output file.
+	// Skip 4 first bytes.
+	var computed_checksum = 0;
+	for (var i = 4; i < link_recv_varsize + 4; i++) {
+		link_recv_filedata[i-4] = link_outgoing_queue[i];
+		computed_checksum += link_outgoing_queue[i];
+	}
+
+	var packet_checksum = link_outgoing_queue[x-2] + link_outgoing_queue[x-1] * 256;
+	if ((computed_checksum & 0xFFFF) != packet_checksum) {
+		stdlib.console.log("WAIT_CNT: Wrong checksum: computed=" + emu.to_hex(computed_checksum, 4) + " packet=" + emu.to_hex(packet_checksum, 4) + "!");
+	}
+
+	stdlib.console.log("link_recv_filedata has length " + link_recv_filedata.length);
+
+	link_outgoing_queue.splice(0, x+4);
+	link_incoming_queue.shift();
+	stdlib.console.log("Eaten an item in WAIT_CNT", x);
+
+	if (packet_type == 0x92) {
+		// EOT, we'll be able to create the target file.
+
+		// Push final ACK, so that transfer terminates on the calculator side.
+		ti89_send_ACK(); // for calc's XDP;
+
+		// Create the target file.
+		link_build_output_file();
+	}
+	else {
+		recvfile_requestchunk(); // CNT, queue transfers for next chunk.
+	}
+
+	dump_outgoing_queue("After: ");
+}
+
 // Extracted out of main_loop to help profiling.
 function link_handling()
 {
@@ -6515,10 +6732,20 @@ function link_handling()
 					// Skip 4-byte header.
 					link_outgoing_queue.splice(0, x+4); // 2 checksum bytes
 					link_incoming_queue.shift();
-					stdlib.console.log("Eaten an item in WAIT_VAR", x);
+					stdlib.console.log("Eaten an item (VAR) in WAIT_VAR", x);
 
 					dump_outgoing_queue("After: ");
 				}
+				//                                  TI92p_PC / V200_PC                  CMD_EOT
+				else if ((link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x+1] == 0x92)
+				//                                  TI89_PC / TI89t_PC                  CMD_EOT
+				      || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x92))
+				{
+					// For implementation of non-silent receive.
+					// TODO: error handling
+					process_recv_CNTEOT(x);
+				}
+
 			}
 			//stdlib.console.log("End WAIT_VAR, outgoing queue length:", link_outgoing_queue.length);
 		}
@@ -6534,36 +6761,7 @@ function link_handling()
 				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x15))
 				{
 					// TODO: error handling
-					var length = link_outgoing_queue[x+2] + link_outgoing_queue[x+3] * 256;
-					dump_outgoing_queue("WAIT_XDP Before: ");
-
-					// Process contents of VAR packet, now that it was received entirely (libticalcs: ti89_recv_VAR).
-					var computed_checksum = link_outgoing_queue[0] + link_outgoing_queue[1] + link_outgoing_queue[2] + link_outgoing_queue[3]; // varsize
-					link_recv_varsize = link_outgoing_queue[0] + link_outgoing_queue[1] * 256 + link_outgoing_queue[2] * 65536 + link_outgoing_queue[3] * 16777216;
-					link_recv_vartype = link_outgoing_queue[4];
-					computed_checksum += link_outgoing_queue[4] + link_outgoing_queue[5]; // vartype + strl
-					var strl = link_outgoing_queue[5];
-					for (var i = 0; i < strl; i++) {
-						link_recv_varname += String.fromCharCode(link_outgoing_queue[6+i]);
-						computed_checksum += link_outgoing_queue[6+i];
-					}
-					stdlib.console.log("link_recv_varsize = " + link_recv_varsize);
-					stdlib.console.log("link_recv_vartype = " + link_recv_vartype);
-					stdlib.console.log("strl = " + strl);
-					stdlib.console.log("link_recv_varname = " + link_recv_varname);
-
-					link_recv_filedata = new Uint8Array(link_recv_varsize);
-					var packet_checksum = link_outgoing_queue[x-2] + link_outgoing_queue[x-1] * 256;
-					if ((computed_checksum & 0xFFFF) != packet_checksum) {
-						stdlib.console.log("WAIT_XDP: Wrong checksum: computed=" + emu.to_hex(computed_checksum, 4) + " packet=" + emu.to_hex(packet_checksum, 4) + "!");
-					}
-
-					// Skip what we processed.
-					link_outgoing_queue.splice(0, x+4);
-					link_incoming_queue.shift();
-					stdlib.console.log("Eaten an item in WAIT_XDP", x);
-
-					dump_outgoing_queue("After: ");
+					process_recv_XDP(x);
 				}
 			}
 			//stdlib.console.log("End WAIT_XDP, outgoing queue length:", link_outgoing_queue.length);
@@ -6584,44 +6782,7 @@ function link_handling()
 				    || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x+1] == 0x92))
 				{
 					// TODO: error handling
-					dump_outgoing_queue("WAIT_CNT Before: ");
-					var packet_type = link_outgoing_queue[x+1];
-
-					// Process contents of XDP packet, now that it was received entirely (libticalcs: ti89_recv_XDP + clients): build output file.
-					// Skip 4 first bytes.
-					var computed_checksum = 0;
-					for (var i = 4; i < link_recv_varsize + 4; i++) {
-						link_recv_filedata[i-4] = link_outgoing_queue[i];
-						computed_checksum += link_outgoing_queue[i];
-					}
-
-					var packet_checksum = link_outgoing_queue[x-2] + link_outgoing_queue[x-1] * 256;
-					if ((computed_checksum & 0xFFFF) != packet_checksum) {
-						stdlib.console.log("WAIT_CNT: Wrong checksum: computed=" + emu.to_hex(computed_checksum, 4) + " packet=" + emu.to_hex(packet_checksum, 4) + "!");
-					}
-
-					stdlib.console.log("link_recv_filedata has length " + link_recv_filedata.length);
-
-					link_outgoing_queue.splice(0, x+4);
-					link_incoming_queue.shift();
-					stdlib.console.log("Eaten an item in WAIT_CNT", x);
-
-					if (packet_type == 0x92) {
-						// EOT, we'll be able to create the target file.
-
-						// Push final ACK, so that transfer terminates on the calculator side.
-						// libticalcs: ti89_send_ACK.
-						//                PC_TI92p  CMD_ACK
-						link_incoming_queue.push(8, 0x56, 0, 0); // ACK packet (for calc's XDP)
-
-						// Create the target file.
-						link_build_output_file();
-					}
-					else {
-						recvfile_requestchunk(); // CNT, queue transfers for next chunk.
-					}
-
-					dump_outgoing_queue("After: ");
+					process_recv_CNTEOT(x);
 				}
 			}
 			//stdlib.console.log("End WAIT_CNT, outgoing queue length:", link_outgoing_queue.length);
@@ -6704,6 +6865,7 @@ return {
 	sendkey : sendkey,
 	sendkeys : sendkeys,
 	recvfile : recvfile,
+	recvfile_ns: recvfile_ns,
 
 	compute_link_status : compute_link_status,
 	read_byte : read_byte,
@@ -8039,7 +8201,7 @@ function getFileData(blob)
 	var url = stdlib.URL.createObjectURL(blob);
 	var a = document.querySelector("#" + elementid_downloadfile);
 	a.href = url;
-	a.download = emu.link_recv_foldername() + "." + emu.link_recv_varname() + emu.buildFileExtensionFromVartype();
+	a.download = link.link_recv_foldername() + "." + link.link_recv_varname() + link.buildFileExtensionFromVartype();
 	a.style.display='inline';
 }
 
