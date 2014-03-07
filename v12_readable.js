@@ -497,6 +497,18 @@ Changelog from PatrickD's version / work log:
 	  (debrouxl 2014/03/02)
 	* in ui.getFileData(), call functions from link rather than from emu, because that's where they have been for a while...
 	  (debrouxl 2014/03/02)
+	* split more inlined linking primitives to separate functions: ti89_send_CTS(), ti89_send_XDP(), ti89_send_REQ(), ti89_send_RTS().
+	  (debrouxl 2014/03/03)
+	* start implementing support for dirlist, needed a fix in process_recv_XDP() so that memory consumption remains under control.
+	  (debrouxl 2014/03/03)
+	* in TI68kEmulatorLinkModule object, use calculator_model directly, instead of using emu.calculator_model (which is wrong anyway, should be emu.calculator_model()).
+	  (debrouxl 2014/03/07)
+	* finish implementing support for dirlist: several new functions and variables added, several fixes (such as clamping array allocations based on link_recv_varsize to 64 KB).
+	  (debrouxl 2014/03/07)
+	* add link_reset_recv_vars() and link_reset_dirlist_vars() helper functions.
+	  (debrouxl 2014/03/07)
+	* rename link_recv_filedata to link_recv_data, as data received from the calculator is no longer necessarily a file (it can be the contents of a dirlist).
+	  (debrouxl 2014/03/07)
 
 
 Achievements:
@@ -602,7 +614,7 @@ var ROM_base = 0; // Deduced from calculator model
 var FlashMemorySize = 0;
 var large_flash_memory = false;
 var Protection_enabled = false; // The Protection with a capital P is not implemented, it slows down emulation.
-var enable_kludge_in_lea_d_pc_a0 = false;
+var enable_kludge_in_lea_d_pc_a0 = true;
 var hex_prefix = "$";
 
 // Flash memory state machine
@@ -2614,7 +2626,7 @@ function build_bit_operation(name, bits, registercost, memorycost)
 				(srcreg == MISCMODE_PC_OFFSET || srcreg == MISCMODE_PC_INDEX))))
 				for (var dreg = 0; dreg <= 8; dreg++) // if this value is 8, use bit number static version
 				{
-					var opcode, iname, code = "", cost;
+					var opcode, iname, code = "";
 					if (dreg == 8)
 					{
 						opcode = bits + (srcmode << 3) + srcreg;
@@ -6076,7 +6088,12 @@ var link_recv_varsize = 0;
 var link_recv_vartype = 0;
 var link_recv_varname = "";
 var link_recv_foldername = "";
-var link_recv_filedata = new Array();
+var link_recv_data = new Array();
+var link_recv_mode = 0;
+var link_dirlist_vars = new Array();
+var link_dirlist_folders = new Array();
+var link_dirlist_apps = new Array();
+var link_dirlist_curidx = 0;
 
 var link_pending_keys = new Array();
 var link_interval_timer_id = 0;
@@ -6178,6 +6195,12 @@ function ti89_recv_ACK()
 	link_incoming_queue.push('WAIT_ACK');
 }
 
+function ti89_send_CTS()
+{
+	//                PC_TI92p  CMD_CTS
+	link_incoming_queue.push(8, 0x09, 0, 0); // CTS packet
+}
+
 function ti89_recv_CTS()
 {
 	link_incoming_queue.push('WAIT_CTS');
@@ -6187,6 +6210,11 @@ function ti89_send_CNT()
 {
 	//                PC_TI92p  CMD_CNT
 	link_incoming_queue.push(8, 0x78, 0, 0);
+}
+
+function ti89_recv_CNT()
+{
+	link_incoming_queue.push('WAIT_CNT');
 }
 
 function ti89_send_EOT()
@@ -6203,10 +6231,26 @@ function ti89_send_KEY(keycode)
 	link_incoming_queue.push((keycode >>> 8) & 0xFF);
 }
 
-function ti89_send_CTS()
+function ti89_send_XDP(data_section_len, chunk_len, buf, offset, write_both_checksum_and_length)
 {
-	//                PC_TI92p  CMD_CTS
-	link_incoming_queue.push(8, 0x09, 0, 0); // CTS packet
+	//                PC_TI92p  CMD_XDP
+	link_incoming_queue.push(8, 0x15);
+
+	var data_checksum = 0;
+
+	link_incoming_queue.push(data_section_len % 256, data_section_len >>> 8); // length, little endian to calc
+	if (write_both_checksum_and_length) {
+		link_incoming_queue.push(0, 0, 0, 0);
+		link_incoming_queue.push((chunk_len >>> 8) & 0xFF, chunk_len % 256);
+		data_checksum = (chunk_len % 256) + ((chunk_len >>> 8) & 0xFF);
+	}
+
+	for (var x = offset; x < offset + chunk_len; x++)
+	{
+		link_incoming_queue.push(buf[x]);
+		data_checksum += buf[x];
+	}
+	link_incoming_queue.push(data_checksum % 256, (data_checksum >>> 8) % 256); // data checksum, little endian to calc
 }
 
 function ti89_recv_XDP()
@@ -6214,39 +6258,67 @@ function ti89_recv_XDP()
 	link_incoming_queue.push('WAIT_XDP');
 }
 
-function ti89_recv_CNT()
-{
-	link_incoming_queue.push('WAIT_CNT');
-}
-
 function ti89_recv_VAR()
 {
 	link_incoming_queue.push('WAIT_VAR');
 }
 
-function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_and_length)
+function ti89_send_REQ(length, varname, vartype)
 {
-	// Initial RTS.
+	// libticalcs: dbus_send (target + cmd), called by ti89_send_REQ.
+	//                PC_TI92p  CMD_REQ
+	link_incoming_queue.push(8, 0xA2); // standard variable header
+
+	// If varname is a string, let's convert it into an array of numbers.
+	if (typeof(varname) == "string") {
+		var bytes = new Array();
+		for (var i = 0; i < varname.length; ++i) {
+			bytes.push(varname.charCodeAt(i) & 0xFF);
+		}
+		varname = bytes;
+	}
+
+	var header_len = varname.length + 6;
+	if (vartype == 0x18) { // TI89_CLK
+		header_len++;
+	}
+
+	// libticalcs: dbus_send (length).
+	link_incoming_queue.push(header_len, 0); // header length, little endian to calc
+	// libticalcs: ti89_send_REQ.
+	link_incoming_queue.push(length % 256, (length >>> 8) & 0xFF, (length >>> 16) & 0xFF, (length >>> 24) & 0xFF);
+	link_incoming_queue.push(vartype); // variable type
+	link_incoming_queue.push(varname.length);
+
+	// libticalcs: dbus_send (checksum computation) on the sole data after the 4 first bytes.
+	var header_checksum = varname.length + vartype + (length % 256) + ((length >>> 8) & 0xFF) + ((length >>> 16) & 0xFF) + ((length >>> 24) & 0xFF);
+	for (var x = 0; x < varname.length; x++)
+	{
+		link_incoming_queue.push(varname[x]);
+		header_checksum += varname[x];
+	}
+
+	// libticalcs: dbus_send (sum).
+	link_incoming_queue.push(header_checksum % 256, header_checksum >>> 8); // header checksum, little endian to calc
+}
+
+function ti89_send_RTS(length, varname, vartype)
+{
 	// libticalcs: dbus_send (target + cmd), called by ti89_send_RTS.
 	//                PC_TI92p  CMD_RTS
 	link_incoming_queue.push(8, 0xC9); // standard variable header
 
 	var header_len = varname.length + 6 + 1;
-	var data_len_full = data_len;
-
-	if (write_both_checksum_and_length) {
-		data_len_full += 2;
-	}
 
 	// libticalcs: dbus_send (length).
 	link_incoming_queue.push(header_len, 0); // header length, little endian to calc
 	// libticalcs: ti89_send_RTS.
-	link_incoming_queue.push(data_len_full % 256, (data_len_full >>> 8) & 0xFF, (data_len_full >>> 16) & 0xFF, (data_len_full >>> 24) & 0xFF); // data length, little endian to calc
+	link_incoming_queue.push(length % 256, (length >>> 8) & 0xFF, (length >>> 16) & 0xFF, (length >>> 24) & 0xFF); // data length, little endian to calc
 	link_incoming_queue.push(vartype); // variable type
 	link_incoming_queue.push(varname.length);
 
 	// libticalcs: dbus_send (checksum computation) on the sole data after the 4 first bytes.
-	var header_checksum = varname.length + vartype + (data_len_full % 256) + ((data_len_full >>> 8) & 0xFF) + ((data_len_full >>> 16) & 0xFF) + ((data_len_full >>> 24) & 0xFF);
+	var header_checksum = varname.length + vartype + (length % 256) + ((length >>> 8) & 0xFF) + ((length >>> 16) & 0xFF) + ((length >>> 24) & 0xFF);
 	for (var x = 0; x < varname.length; x++)
 	{
 		link_incoming_queue.push(varname[x]);
@@ -6256,12 +6328,23 @@ function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_a
 
 	// libticalcs: dbus_send (sum).
 	link_incoming_queue.push(header_checksum % 256, header_checksum >>> 8); // header checksum, little endian to calc
+}
+
+function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_and_length)
+{
+	// Initial RTS.
+	var data_len_full = data_len;
+	if (write_both_checksum_and_length) {
+		data_len_full += 2;
+	}
+	ti89_send_RTS(data_len_full, varname, vartype);
 
 	// Loop until all chunks have been queued.
 	do {
 		var chunk_len = Math.min(65536, data_len);
 
 		ti89_recv_ACK();
+
 		ti89_recv_CTS();
 		ti89_send_ACK(); // for calc's CTS
 
@@ -6269,26 +6352,8 @@ function sendfile(varname, vartype, buf, data_len, offset, write_both_checksum_a
 		if (write_both_checksum_and_length) {
 			data_section_len += 6; // 4 length bytes + 2 checksum bytes
 		}
-		// libticalcs: ti89_send_XDP
-		//                PC_TI92p  CMD_XDP
-		link_incoming_queue.push(8, 0x15);
 
-		var data_checksum = 0;
-
-		link_incoming_queue.push(data_section_len % 256, data_section_len >>> 8); // length, little endian to calc
-		if (write_both_checksum_and_length) {
-			link_incoming_queue.push(0, 0, 0, 0);
-			link_incoming_queue.push((chunk_len >>> 8) & 0xFF, chunk_len % 256);
-			data_checksum = (chunk_len % 256) + ((chunk_len >>> 8) & 0xFF);
-		}
-
-		for (var x = offset; x < offset + chunk_len; x++)
-		{
-			link_incoming_queue.push(buf[x]);
-			data_checksum += buf[x];
-		}
-		link_incoming_queue.push(data_checksum % 256, (data_checksum >>> 8) % 256); // data checksum, little endian to calc
-
+		ti89_send_XDP(data_section_len, chunk_len, buf, offset, write_both_checksum_and_length);
 		ti89_recv_ACK();
 
 		if (chunk_len == 65536) {
@@ -6353,6 +6418,11 @@ function sendkeys(keyarray)
 	link_interval_timer_id = stdlib.setInterval(send_next_key, 200);
 }
 
+var MODE_RECVFILE = 0;
+var MODE_RECVFILE_NS = 1;
+var MODE_DIRLIST_ROOT = 2;
+var MODE_DIRLIST_FOLDER = 3;
+
 // This code was moved out to an external function, so that it can be called multiple times, in order to retrigger reception of one chunk.
 function recvfile_requestchunk()
 {
@@ -6371,53 +6441,62 @@ function recvfile_requestchunk()
 // For vartype, see http://debrouxl.github.io/gcc4ti/link.html#LIO_CTX and libtifiles:types89.c.
 function recvfile(varname, vartype)
 {
-	link_recv_varsize = 0;
-	link_recv_vartype = 0;
-	link_recv_varname = "";
-	link_recv_foldername = "";
-	link_recv_filedata = new Array();
-
-	// If varname is a string, let's convert it into an array of numbers.
-	if (typeof(varname) == "string") {
-		var bytes = new Array();
-		for (var i = 0; i < varname.length; ++i) {
-			bytes.push(varname.charCodeAt(i) & 0xFF);
-		}
-		varname = bytes;
-	}
+	link_reset_recv_vars();
 
 	// Initial REQ.
-	// libticalcs: dbus_send (target + cmd), called by ti89_send_REQ.
-	//                PC_TI92p  CMD_REQ
-	link_incoming_queue.push(8, 0xA2); // standard variable header
-
-	var header_len = varname.length + 6; // No +1 this time, according to libticalcs: ti89_send_REQ.
-
-	// libticalcs: dbus_send (length).
-	link_incoming_queue.push(header_len, 0); // header length, little endian to calc
-	// libticalcs: ti89_send_REQ.
-	link_incoming_queue.push(0, 0, 0, 0); // data length = 0
-	link_incoming_queue.push(vartype); // variable type
-	link_incoming_queue.push(varname.length);
-
-	// libticalcs: dbus_send (checksum computation) on the sole data after the 4 first bytes.
-	var header_checksum = varname.length + vartype;
-	for (var x = 0; x < varname.length; x++)
-	{
-		link_incoming_queue.push(varname[x]);
-		header_checksum += varname[x];
-	}
-
-	// libticalcs: dbus_send (sum).
-	link_incoming_queue.push(header_checksum % 256, header_checksum >>> 8); // header checksum, little endian to calc
-
+	ti89_send_REQ(0, varname, vartype);
 	ti89_recv_ACK();
 
 	// Just delegate the rest to the non-silent receive function.
-	recvfile_ns();
+	link_recv_mode = MODE_RECVFILE;
+	_recvfile_ns();
 }
 
 function recvfile_ns()
+{
+	link_reset_recv_vars();
+
+	link_recv_mode = MODE_RECVFILE_NS;
+	_recvfile_ns();
+}
+
+function dirlist()
+{
+	link_reset_recv_vars();
+	link_reset_dirlist_vars();
+
+	// Initial REQ.
+	//       TI89_FDIR << 24      TI89_RDIR 
+	ti89_send_REQ(0x1F000000, "", 0x1A);
+	ti89_recv_ACK();
+
+	// Delegate the rest of the root folder enumeration to the non-silent receive function.
+	link_recv_mode = MODE_DIRLIST_ROOT;
+	_recvfile_ns();
+
+	// TODO:
+	// 1) parse result, in link_handling() or a helper function;
+	// 2) build an array of objects (object of objects ?), one object per folder;
+	// 3) call dirlist_folder in a loop.
+}
+
+function dirlist_folder(foldername)
+{
+	// Initial REQ.
+	//       TI89_LDIR << 24              TI89_RDIR 
+	ti89_send_REQ(0x1B000000, foldername, 0x1A);
+	ti89_recv_ACK();
+
+	// Delegate the rest of the <foldername> enumeration to the non-silent receive function.
+	link_recv_mode = MODE_DIRLIST_FOLDER;
+	_recvfile_ns();
+
+	// TODO:
+	// 1) parse result, in link_handling() or a helper function;
+	// 2) add objects (containing name, size, type, state) corresponding to this folder's files into the array of objects / object of objects.
+}
+
+function _recvfile_ns()
 {
 	ti89_recv_VAR();
 
@@ -6429,9 +6508,26 @@ function recvfile_ns()
 	// * if the calculator sends an EOT packet, send final ACK.
 	recvfile_requestchunk();
 
-	stdlib.console.log("finished processing for receiving variable (first chunk)");
+	stdlib.console.log("finished processing for receiving variable / dirlist (first chunk)");
 
 	dump_incoming_queue("Incoming: " + link_incoming_queue.length + " (pseudo-)bytes\n");
+}
+
+function link_reset_recv_vars()
+{
+	link_recv_varsize = 0;
+	link_recv_vartype = 0
+	link_recv_varname = "";
+	link_recv_foldername = "";
+	link_recv_data = new Array();
+}
+
+function link_reset_dirlist_vars()
+{
+	link_dirlist_vars = new Array();
+	link_dirlist_folders = new Array();
+	link_dirlist_apps = new Array();
+	link_dirlist_curidx = 0;
 }
 
 function link_reset_state(packettype)
@@ -6439,12 +6535,10 @@ function link_reset_state(packettype)
 	stdlib.console.log("Receiving " + packettype + " failed, resetting link state !");
 	link_incoming_queue = new Array();
 	link_outgoing_queue = new Array();
+	link_reset_recv_vars();
+	link_reset_dirlist_vars();
+
 	emu.raise_interrupt(6); // AUTO_INT_6
-	link_recv_varsize = 0;
-	link_recv_vartype = 0
-	link_recv_varname = "";
-	link_recv_foldername = "";
-	link_recv_filedata = new Array();
 }
 
 // For vartype, see http://debrouxl.github.io/gcc4ti/link.html#LIO_CTX and libtifiles:types89.c.
@@ -6452,7 +6546,7 @@ function link_magic_number()
 {
 	if (link_recv_vartype >= 35) return "**TIFL**"; // (OS) FlashApp (Certificate)
 
-	if (emu.calculator_model == 1 || emu.calculator_model == 9) return "**TI89**";
+	if (calculator_model == 1 || calculator_model == 9) return "**TI89**";
 	else return "**TI92P*";
 }
 
@@ -6460,9 +6554,9 @@ function link_magic_number()
 function link_build_output_file()
 {
 	/*var dump = "";
-	for (var y = 0; y < link_recv_filedata.length; y++)
+	for (var y = 0; y < link_recv_data.length; y++)
 	{
-		dump += to_hex(link_recv_filedata[y], 2) + " ";
+		dump += to_hex(link_recv_data[y], 2) + " ";
 	}
 	stdlib.console.log(dump);*/
 
@@ -6551,9 +6645,9 @@ function link_build_output_file()
 
 	// 14) Data (at last :P)
 	var checksum = 0;
-	for (var i = 0; i < link_recv_filedata.length; i++) {
-		output_file.push(link_recv_filedata[i]);
-		checksum += link_recv_filedata[i];
+	for (var i = 0; i < link_recv_data.length; i++) {
+		output_file.push(link_recv_data[i]);
+		checksum += link_recv_data[i];
 	}
 
 	// 15) Checksum
@@ -6561,7 +6655,7 @@ function link_build_output_file()
 	output_file.push((checksum >>> 8) & 0xFF);
 
 	// Finally, replace file data.
-	link_recv_filedata = new Uint8Array(output_file);
+	link_recv_data = new Uint8Array(output_file);
 }
 
 function process_recv_XDP(x)
@@ -6577,7 +6671,10 @@ function process_recv_XDP(x)
 	computed_checksum += link_outgoing_queue[4] + link_outgoing_queue[5]; // vartype + strl
 	var strl = link_outgoing_queue[5];
 	for (var i = 0; i < strl; i++) {
-		link_recv_varname += String.fromCharCode(link_outgoing_queue[6+i]);
+		// Don't append to link_recv_varname if we're not receiving a file.
+		if (link_recv_mode < MODE_DIRLIST_ROOT) {
+			link_recv_varname += String.fromCharCode(link_outgoing_queue[6+i]);
+		}
 		computed_checksum += link_outgoing_queue[6+i];
 	}
 	stdlib.console.log("link_recv_varsize = " + link_recv_varsize);
@@ -6585,7 +6682,8 @@ function process_recv_XDP(x)
 	stdlib.console.log("strl = " + strl);
 	stdlib.console.log("link_recv_varname = " + link_recv_varname);
 
-	link_recv_filedata = new Uint8Array(link_recv_varsize);
+	// Strip high-order bits in varsize to prevent memory consumption explosion.
+	link_recv_data = new Uint8Array(link_recv_varsize & 0xFFFF);
 	var packet_checksum = link_outgoing_queue[x-2] + link_outgoing_queue[x-1] * 256;
 	if ((computed_checksum & 0xFFFF) != packet_checksum) {
 		stdlib.console.log("WAIT_XDP: Wrong checksum: computed=" + emu.to_hex(computed_checksum, 4) + " packet=" + emu.to_hex(packet_checksum, 4) + "!");
@@ -6608,8 +6706,9 @@ function process_recv_CNTEOT(x)
 	// Process contents of XDP packet, now that it was received entirely (libticalcs: ti89_recv_XDP + clients): build output file.
 	// Skip 4 first bytes.
 	var computed_checksum = 0;
-	for (var i = 4; i < link_recv_varsize + 4; i++) {
-		link_recv_filedata[i-4] = link_outgoing_queue[i];
+	// Strip high-order bits in varsize to prevent memory consumption explosion.
+	for (var i = 4; i < (link_recv_varsize & 0xFFFF) + 4; i++) {
+		link_recv_data[i-4] = link_outgoing_queue[i];
 		computed_checksum += link_outgoing_queue[i];
 	}
 
@@ -6618,23 +6717,134 @@ function process_recv_CNTEOT(x)
 		stdlib.console.log("WAIT_CNT: Wrong checksum: computed=" + emu.to_hex(computed_checksum, 4) + " packet=" + emu.to_hex(packet_checksum, 4) + "!");
 	}
 
-	stdlib.console.log("link_recv_filedata has length " + link_recv_filedata.length);
+	stdlib.console.log("link_recv_data has length " + link_recv_data.length);
 
 	link_outgoing_queue.splice(0, x+4);
 	link_incoming_queue.shift();
 	stdlib.console.log("Eaten an item in WAIT_CNT", x);
 
-	if (packet_type == 0x92) {
-		// EOT, we'll be able to create the target file.
+	if (link_recv_mode < MODE_DIRLIST_ROOT) {
+		if (packet_type == 0x92) {
+			// EOT, we'll be able to create the target file.
 
-		// Push final ACK, so that transfer terminates on the calculator side.
-		ti89_send_ACK(); // for calc's XDP;
+			// Push final ACK, so that transfer terminates on the calculator side.
+			ti89_send_ACK(); // for calc's XDP;
 
-		// Create the target file.
-		link_build_output_file();
+			// Create the target file.
+			link_build_output_file();
+		}
+		else {
+			recvfile_requestchunk(); // CNT, queue transfers for next chunk.
+		}
 	}
 	else {
-		recvfile_requestchunk(); // CNT, queue transfers for next chunk.
+		var extra = (calculator_model == 8) ? 8: 0;
+
+		if (link_recv_mode == MODE_DIRLIST_ROOT) {
+			//stdlib.console.log("Parsing root folder");
+			link_dirlist_vars = new Array();
+			link_dirlist_folders = new Array();
+			link_dirlist_apps = new Array();
+			link_dirlist_curidx = 0;
+
+			// Build folder list from data in root folder enumeration.
+			var i = 0;
+			while (i < link_recv_data.length) {
+				var name = "";
+				// link_recv_data instanceof Uint8Array, so we can't use Array.slice() and Array.join(), and Uint8Array.subarray() returns Uint8Array.
+				for (var j = 0; j < 8; j++) {
+					if (link_recv_data[i + j] != 0) {
+						name += String.fromCharCode(link_recv_data[i + j]);
+					}
+					else {
+						break;
+					}
+				}
+				var type = link_recv_data[i + 8];
+				var attr = link_recv_data[i + 9];
+				var size = link_recv_data[i + 10] + (link_recv_data[i + 11] * 256) + (link_recv_data[i + 12] * 65536);
+				stdlib.console.log("i=" + i + "\tname=" + name + "\ttype=" + type + "\tattr=" + attr + "\tsize=" + size);
+				if (type == 0x1F) { // TI89_DIR
+					// Record folder name.
+					link_dirlist_folders.push(name);
+				}
+				i += 14 + extra;
+			}
+
+			// Trigger next step: enumeration of the first folder. There should always be "main" anyway.
+			if (link_dirlist_folders.length > 0) {
+				// Push final ACK.
+				ti89_send_ACK(); // for calc's EOT.
+
+				dirlist_folder(link_dirlist_folders[link_dirlist_curidx]);
+			}
+		}
+		else if (link_recv_mode == MODE_DIRLIST_FOLDER) {
+			stdlib.console.log("Parsing folder\"" + link_dirlist_folders[link_dirlist_curidx] + "\"");
+
+			// Add to the array of entries from data in current folder enumeration.
+			var i = 14 + extra; // Skip redundant entry describing folder itself.
+			while (i < link_recv_data.length) {
+				var name = "";
+				// link_recv_data instanceof Uint8Array, so we can't use Array.slice() and Array.join(), and Uint8Array.subarray() returns Uint8Array.
+				for (var j = 0; j < 8; j++) {
+					if (link_recv_data[i + j] != 0) {
+						name += String.fromCharCode(link_recv_data[i + j]);
+					}
+					else {
+						break;
+					}
+				}
+				var type = link_recv_data[i + 8];
+				var attr = link_recv_data[i + 9];
+				var size = link_recv_data[i + 10] + (link_recv_data[i + 11] * 256) + (link_recv_data[i + 12] * 65536);
+				stdlib.console.log("i=" + i + "\tname=" + name + "\ttype=" + type + "\tattr=" + attr + "\tsize=" + size);
+				if (type == 0x24) { // TI89_APPL
+					var j = 0;
+					var k = -1;
+
+					while (j < link_dirlist_apps.length) {
+						if (link_dirlist_apps[j].name == name) {
+							k = j;
+							break;
+						}
+						j++;
+					}
+					if (k == -1) {
+						// App not found, add it.
+						var app = new Object();
+						app.name = name;
+						app.type = type; // Not really interesting for an app (always 0x24).
+						app.attr = attr; // Not really interesting for an app (always 0).
+						app.size = size;
+						link_dirlist_apps.push(app);
+					}
+				}
+				else {
+					// Skip regeq and regcoef in main.
+					if (   (link_dirlist_folders[link_dirlist_curidx] != "main")
+					    || (name != "regeq" && name != "regcoef")) {
+						// Record entry.
+						var newvar = new Object();
+						newvar.name = name;
+						newvar.type = type;
+						newvar.attr = attr;
+						newvar.size = size;
+						link_dirlist_vars.push(newvar);
+					}
+				}
+				i += 14 + extra;
+			}
+
+			// Trigger next step: enumeration of the next folder, if any.
+			link_dirlist_curidx++;
+			if (link_dirlist_curidx < link_dirlist_folders.length) {
+				// Push final ACK.
+				ti89_send_ACK(); // for calc's EOT.
+
+				dirlist_folder(link_dirlist_folders[link_dirlist_curidx]);
+			}
+		}
 	}
 
 	dump_outgoing_queue("After: ");
@@ -6793,7 +7003,7 @@ function link_handling()
 // libtifiles: types89.c
 function buildFileExtensionFromVartype()
 {
-	var prefix = (emu.calculator_model == 1 || emu.calculator_model == 9) ? ".89" : ((emu.calculator_model == 8) ? ".v2" : ".9x");
+	var prefix = (calculator_model == 1 || calculator_model == 9) ? ".89" : ((calculator_model == 8) ? ".v2" : ".9x");
 	var suffix = "";
 	switch (link_recv_vartype) {
 		case 0:  suffix = "e"; break; // Expression
@@ -6821,7 +7031,7 @@ function buildFileExtensionFromVartype()
 
 function getFileData()
 {
-	ui.getFileData(new Blob([link_recv_filedata], {type: "application/octet-binary"}));
+	ui.getFileData(new Blob([link_recv_data], {type: "application/octet-binary"}));
 }
 
 function get_link_config() { return link_config; }
@@ -6840,8 +7050,9 @@ function get_link_recv_varsize() { return link_recv_varsize; }
 function get_link_recv_vartype() { return link_recv_vartype; }
 function get_link_recv_varname() { return link_recv_varname; }
 function get_link_recv_foldername() { return link_recv_foldername; }
-function get_link_recv_filedata() { return link_recv_filedata; }
-
+function get_link_recv_data() { return link_recv_data; }
+function get_link_dirlist_vars() { return link_dirlist_vars; }
+function get_link_dirlist_apps() { return link_dirlist_apps; }
 
 return {
 	// Functions called directly from events on elements in the HTML page
@@ -6866,6 +7077,7 @@ return {
 	sendkeys : sendkeys,
 	recvfile : recvfile,
 	recvfile_ns: recvfile_ns,
+	dirlist: dirlist,
 
 	compute_link_status : compute_link_status,
 	read_byte : read_byte,
@@ -6876,7 +7088,9 @@ return {
 	link_recv_vartype : get_link_recv_vartype,
 	link_recv_varname : get_link_recv_varname,
 	link_recv_foldername : get_link_recv_foldername,
-	link_recv_filedata : get_link_recv_filedata,
+	link_recv_data : get_link_recv_data,
+	link_dirlist_vars : get_link_dirlist_vars,
+	link_dirlist_apps : get_link_dirlist_apps,
 	buildFileExtensionFromVartype : buildFileExtensionFromVartype,
 
 	get_link_config : get_link_config,
