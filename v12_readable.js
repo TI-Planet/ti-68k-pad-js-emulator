@@ -552,7 +552,8 @@ Changelog from PatrickD's version / work log
 	  (debrouxl 2014/03/09)
 	* move t[], n[] and cycles[] to new inner "cpu" object. Speed impact seems within the noise.
 	  (debrouxl 2014/03/09)
-
+	* fix ROM / OS upgrade loading, several occurrences of bare rom (instead of state.rom) remained.
+	  (debrouxl 2014/03/19)
 
 Achievements:
 	* on 2013/07/30, this emulator uncovered a nearly 6-year-old bug in the alternate grayscale routine for ExtGraph (gray.o). An invalid optimization in a HW1-only code path was added to ExtGraph around 2007/08/13.
@@ -4887,7 +4888,7 @@ function handle_newromready()
 	if (inputrom.byteLength == 0x200000 || inputrom.byteLength == 0x400000)
 	{
 		stdlib.console.log("Processing plain ROM image");
-		rom = new Uint16Array(inputrom.byteLength / 2);
+		state.rom = new Uint16Array(inputrom.byteLength / 2);
 		for (var x = 0; x < inputrom.byteLength; x += 2)
 		{
 			state.rom[x / 2] = buf[x] * 256 + buf[x + 1];
