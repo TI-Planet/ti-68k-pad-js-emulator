@@ -22,103 +22,116 @@
  */
 
 /*
-TODO LIST:
-MUST:
-	IMPORTANT BUGFIXES:
-		* highest usability annoyance: _completely_ fix the frequent emulator (apparent) hangs upon user clicks or keypresses...
-		  One of the simple reproducers is pressing F1 in the APPS Desktop on V200 AMS 3.10.
-		  It's not a consequence of port 600005 emulation being missing (the situation is not better after adding it).
-		  2013/07/27: a slightly less wrong implementation of the keyboard handling seems to help.
-		  2014/02/03: after implementing pending interrupts, the fact of no longer raising AUTO_INT_2 (with simplistic and wrong code) seems to help.
-		  2014/02/15: perhaps the last part of the fix was performed by putting back the try / catch at a deeper scope in execute_instructions() ?
-		* check build_* functions against M68000PRM. Two errors wrt. address registers have already been found (and ~600 instructions which should have been illegal made so), chances are that there are more problems.
-		* investigate why the emulator's memory consumption increases over time in such a way that the process ends up being killed in Chrome (even though profiling shows nothing of the appropriate order of magnitude ?!), and fix.
-		  2014/02/10: does that still occur 8 months later ?
-		* investigate emulator slowness on Firefox Nightly (it doesn't seem to occur on Chrome ?) after transferring a file.
-		  The slowness doesn't seem to disappear on its own, but it tends to disappear a while after the VAR-Link is launched and exited. Might be linking-related ??
-		  Idea: "WAIT_OK_LAST" special value, upon which the emulator should clear the incoming and outgoing queues ?
-		  Or maybe it's just bad interaction with the GC's mechanics...
-		  2014/02/10: does that still occur 8 months later ?
+**************
+Todo/wish list
+**************
+====
+MUST
+====
 
-	IMPORTANT FEATURES:
-		* memory search functions.
-		* add UI for receiving a file through silent linking, presumably based on window.prompt(). Needs a user-friendly solution for doing the same thing as buildFileExtensionFromVartype()..
-		* linking emulation: support for 89g/9xg/v2g group files.
-			* libtifiles, files9x.c::ti9x_file_read_regular(): loop on the number of entries (word at offset 0x3A). Requires changes (and why not some added sanity checking...) in emu.handle_newfileready() + link.sendfile().
-			* libticalcs, calc_89.c::send_var(): loop on the number of entries.
-		* linking emulation: support for silent dirlist.
-			* libticalcs, calc_89.c::get_dirlist(): initial step for enumerating the root folder, then loop on each folder (the code is very similar, warrants a helper function) and parse the result.
-		* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
-		* add the ability to _select_ and send multiple files. Suggested by Folco. The TI-Planet integration already shows how to send multiple files.
- 		* modularize the code further. The linking emulation code is now separated from the core code, but maybe the CPU, for instance, could be separated from the core ??
-		  That would be a prerequisite for rewriting part of the emulator using asm.js constructs.
-		* add / change key bindings in handle_keys_89_89T() and handle_keys_92P_V200(): for consistency with VTI and TIEmu, it would be great if F10 triggered the file input (romfile). Reported by Folco.
-		* add save state (and restore state, obviously) support...
-		  Ideas:
-			* a new JS exception, like STOP for 600005 emulation;
-			* generating a JS object containing all of the relevant emulator state and exporting it as JSON [jsTIfied uses JSON, makes sense anyway];
-			* loading the JSON, regenerating reset() and instructions and launching initemu().
-		* some form of debugger (note: would ease implementation of some other features) - well, basically, implement the features from JM's modified VTI & TIEmu :P
-			* (mostly done) implement disassembly(address, count) - in the beginning, through simple string substitution, we'll see whether that's enough;
-			* Ptr2Hd implementation.
-			* traverse the VAT - see core/ti_sw/var.c in TIEmu. That, and direct memory reads, could be used for dirlist, but then we'd have to rebuild metadata such as file types ourselves;
-			* add ROM_CALL table in an external file in JSON format, and have ROM_CALL() handle string arguments (for returning the address of a ROM_CALL). Maybe 3 tables inside the object wrapping ROM_CALL table access: one sorted by ROM_CALL number, one sorted by name, one sorted by address. That way, we could use binary search in all situations;
-			* etc.
-		  Breakpoints are going to kill emulation speed :(
-		* partially implemented semi-infrequent processor instructions:
-			* TAS: implemented - not checked.
-		* lsl(), asl(), lsr(), asr(), rol(), ror(), roxl() and roxr() should be generated, optimized, and probably have the "size" argument constant-propagated.
-		* the add*(), cmp*() and sub*() functions should be generated.
-		* disassembly support for all remaining unimplemented instructions (if any).
-		* cycle count support for all implemented instructions.
-			* NOTE: dynamic shift counts not yet implemented.
-		* linking emulation: UI for retrieving files from the emulator through silent linking.
-		* linking emulation: support for 89b/9xb/v2b backup files.
-			* libtifiles, files9x.c::ti9x_file_read_backup(): there's some metadata before the content, the content part is read as a whole;
-			* libticalcs, calc_89.c::send_backup(): a rather thin wrapper over send_var().
-		* make it possible to generate screenshots with 3:1 and 4:1 scaling. The code for upscaling with those factors already exists inside the UI part, but it's not exposed yet.
-		* generation of animated GIF images, see e.g. https://github.com/antimatter15/jsgif and https://github.com/deanm/omggif . jsTIfied does it.
-		* use asm.js for time-critical chunks of the emulator, as Kerm & jacobly have worked on doing for jsTIfied. Requires modularizing the code, see https://github.com/dherman/asm.js .
-		  Non-typed arrays are forbidden ?
-		* expand test suite.
-		  The one started by debrouxl is currently pretty small. Finding a ready-made test program for a 68000 seems to be extremely hard, though - debrouxl spent hours looking in emulators such as Cyclone, and with generic search engine, to no avail ?
+------------------
+General / multiple
+------------------
+	* modularize the code further. The linking emulation code is now separated from the core code, but maybe the CPU, for instance, could be separated from the core ??
+	  That would be a prerequisite for...
+	* rewrite time-critical chunks of the emulator using asm.js constructs as Kerm & jacobly have worked on doing for jsTIfied. See https://github.com/dherman/asm.js .
+	  Non-typed arrays are forbidden ?
+	* add save state (and restore state, obviously) support...
+	  Ideas:
+		* generating a JS object containing all of the relevant emulator state and exporting it as JSON [jsTIfied uses JSON, makes sense anyway];
+		* loading the JSON, regenerating reset() and instructions, launching initemu().
 
-	LESS IMPORTANT BUGFIXES / FEATURES:
-		* disassembler: for address register indexed with displacement, warn if scale bits != 0 (CPU32+) or bd/od present (68020+).
-		* useful hardware ports not handled:
-			* writes to 60001B: acknowledge AUTO_INT_2 for keyboard.
-		* unimplemented infrequent processor instructions:
-			* CHK (implementation is definitely wrong)
-			* STOP (currently wrongly implemented as a 4-byte NOP; rarely used, but there are several occurrences of STOP in AMS, usually dead ends because they're followed by a branch which gets back to the stop)
-		  Useful resources: M68000PRM.pdf, http://goldencrystal.free.fr/M68kOpcodes.pdf:
-		* bus / address error frame: implement instruction / not and function code;
-		* ExtGraph demo32: grayscale flickers. The grayscale handling algorithm is certainly a bit simplistic. Not that we want to do something as complex as TIEmu's code, though...
+----
+Core
+----
+	* check build_* functions against M68000PRM. Two errors wrt. address registers have already been found (and ~600 instructions which should have been illegal made so), chances are that there are more problems.
+	* partially implemented semi-infrequent processor instructions:
+		* TAS: implemented - not checked.
+	* lsl(), asl(), lsr(), asr(), rol(), ror(), roxl() and roxr() should be generated, optimized, and probably have the "size" argument constant-propagated.
+	* the add*(), cmp*() and sub*() functions should be generated.
+	* disassembly support for all remaining unimplemented instructions (if any).
+	* cycle count support for all implemented instructions.
+		* NOTE: dynamic shift counts not yet implemented.
 
-SHOULD at some point:
+	* unimplemented infrequent processor instructions:
+		* CHK: implementation is definitely wrong;
+		* STOP: correctly disassembled, currently wrongly implemented as a 4-byte NOP. Very rarely used, but there are several occurrences of STOP in AMS, usually dead ends because they're followed by a branch which gets back to the stop.
+		* MOVEP: correctly disassembled, currently wrongly implemented as a 4-byte NOP. Not sure whoever used that on the TI-68k series and whether it works :D
+
+	  Useful resources: M68000PRM.pdf, http://goldencrystal.free.fr/M68kOpcodes.pdf:
+
+	* disassembler: for address register indexed with displacement, warn if scale bits != 0 (CPU32+) or bd/od present (68020+).
+	* useful hardware ports not handled:
+		* writes to 60001B: acknowledge AUTO_INT_2 for keyboard.
+
+-------
+Linking
+-------
+	* add linking support for sending 89g/9xg/v2g group files to the emulator.
+		* libtifiles, files9x.c::ti9x_file_read_regular(): loop on the number of entries (word at offset 0x3A). Requires changes (and why not some added sanity checking...) in emu.handle_newfileready() + link.sendfile().
+		* libticalcs, calc_89.c::send_var(): loop on the number of entries.
+	* add linking support for sending tig group files to the emulator, which are uncompressed ZIP archives.
+	  Use https://en.wikipedia.org/wiki/ZIP_%28file_format%29 as a reference (only need to parse PK\x03\x04 entries, after all; parsing PK\x01\x02 and PK\x05\x06 sections is not strictly required), or maybe simply use an existing external library with a compatible license ?
+	* add linking support for sending 89b/9xb/v2b backup files to the emulator.
+		* libtifiles, files9x.c::ti9x_file_read_backup(): there's some metadata before the content, the content part is read as a whole;
+		* libticalcs, calc_89.c::send_backup(): a rather thin wrapper over send_var().
+	* add linking support for receiving multiple files in a row, especially for the purposes of non-silent linking.
+
+-------
+UI part
+-------
+	* add UI for receiving a single file through silent linking, presumably based on window.prompt() in the standalone version. Needs a user-friendly solution for doing the same thing as buildFileExtensionFromVartype()...
+	* add UI for displaying the result of dirlist, selecting variables, and triggering receive for those variables.
+	* add UI for _selecting_ multiple files to be sent to the emulator. Suggested by Folco. Sending multiple files at a time has been possible for a while with a loop over sendfile(), as shown by the TI-Planet integration.
+	* add large skins for 89, V200, 89T: the small skins are flat out unreadable on modern, not even necessarily high-definition screens (even a 15" 1920x1080 screen).
+	* add / change key bindings in handle_keys_89_89T() and handle_keys_92P_V200(): for consistency with VTI and TIEmu, it would be great if F10 triggered the file input (romfile). Reported by Folco.
+	* make it possible to generate screenshots with 3:1 and 4:1 scaling. The code for upscaling with those factors already exists inside the UI part, but it's not exposed yet.
+	* generation of animated GIF images, see e.g. https://github.com/antimatter15/jsgif and https://github.com/deanm/omggif . jsTIfied does it.
+
+--------
+Debugger (would ease implementation of some other features) providing most of the features from JM's modified VTI & TIEmu :P:
+--------
+	* (mostly done) implement disassembly(address, count) - in the beginning, through simple string substitution, we'll see whether that's enough;
+	* memory display area, with search functions;
+	* Ptr2Hd implementation;
+	* traverse the VAT - see core/ti_sw/var.c in TIEmu.
+	* add ROM_CALL table in an external file in JSON format, and have ROM_CALL() handle string arguments (for returning the address of a ROM_CALL). Maybe 3 tables inside the object wrapping ROM_CALL table access: one sorted by ROM_CALL number, one sorted by name, one sorted by address. That way, we could use binary search in all situations;
+	* etc.
+  Breakpoints are going to kill emulation speed :(
+
+----------
+Test suite
+----------
+* expand the test suite. The one started by debrouxl is currently pretty small. Finding a ready-made test program for a 68000 seems to be extremely hard, though - debrouxl spent hours looking in emulators such as Cyclone, and with generic search engine, to no avail ?
+
+======
+SHOULD
+======
 	* optimize more...
 	  NOTE: with default optimization level Google Closure compiler doesn't seem to help much, on either Firefox or Chrome.
 	  NOTE: various weirdness and counter-intuitive behaviour was met while trying to optimize, see the changelog below.
 	  Might use arrays of 16-bit signed integers for link_incoming_queue and link_outgoing_queue, the special values being negative numbers ? But then, no Array.push()...
 	  lsl(), rol() and several other shift/rotates were pessimized as a result of correctness fixes.
 	* make a more immediate implementation of pause / restart emulation: somehow stop immediately, instead of removing interval timer for emu_main_loop().
-	* count clock cycles for non-trivial instructions.
-	  Probably at high speed cost, given that merely counting instructions in the inner loop made the emulator ~50% slower !! (at some point)
 	* add symbolic key codes to sendkeys() ?
 
-MIGHT:
-	* unimplemented hardware hardware ports whose implementation can wait for finite or infinite amount of time:
+=====
+MIGHT
+=====
+	* implement remaining hardware ports or bits thereof:
 		- 600000 (battery checker bit). Don't care on emulator.
-		- 600001 (for RAM interleaving and vector table protection). However, proper emulation of that would make emulation slower due to extra checks in memory write functions...
+		- 600001 (for RAM interleaving and vector table protection). Proper emulation of that would make emulation slower due to extra checks in memory write functions...
 		- 600018 not fully handled: battery checker bits. Don't care on emulator.
 		- 600012 (for LCD logical width), 60001C (LCD row sync frequency): largely useless, though they provide a way to detect the screen being turned off.
 		- R/W 700000-700007, 700008-70000F, 700012: RAM execution protection, ghost of RAM execution protection, and Flash execution protection. Emulating these harmful things would make everything slower.
 		- 700011 "something to do with link port transfer speed". Nobody uses that.
-		- R/W 700014 (RTC with extra slow incrementation).
+		- R/W 700014 (RTC with extra slow incrementation) - useless for practical purposes, though easy to implement.
 		- R/W 70001D battery checker bits
-	* unimplemented processor instructions: proper implementation of the strange movep (not sure whoever used that on the TI-68k series and whether it works :D). Disassembly of movep works. Currently emulated as a 4-byte nop.
 
 
-Changelog from PatrickD's version / work log:
+********************************************
+Changelog from PatrickD's version / work log
+********************************************
 	* generated memory read and write functions
 	  (debrouxl, 2012)
 	* trace reads and writes to unimplemented MMIO ports
@@ -509,6 +522,36 @@ Changelog from PatrickD's version / work log:
 	  (debrouxl 2014/03/07)
 	* rename link_recv_filedata to link_recv_data, as data received from the calculator is no longer necessarily a file (it can be the contents of a dirlist).
 	  (debrouxl 2014/03/07)
+	* significantly reorganize todo/wish list.
+	  (debrouxl 2014/03/08)
+	* note that the following annoying behaviours of the emulator have been fixed, or at least alleviated, by a combination of code modifications and browser JS engine improvements:
+		* frequent emulator (apparent) hangs upon user clicks or keypresses...
+		  One of the simple reproducers is pressing F1 in the APPS Desktop on V200 AMS 3.10.
+		  It's not a consequence of port 600005 emulation being missing (the situation is not better after adding it).
+		  2013/07/27: a slightly less wrong implementation of the keyboard handling seems to help.
+		  2014/02/03: after implementing pending interrupts, the fact of no longer raising AUTO_INT_2 (with simplistic and wrong code) seems to help.
+		  2014/02/15: perhaps the last part of the fix was performed by putting back the try / catch at a deeper scope in execute_instructions() ?
+		* investigate why the emulator's memory consumption increases over time in such a way that the process ends up being killed in Chrome (even though profiling shows nothing of the appropriate order of magnitude ?!), and fix.
+		  2014/02/10: does that still occur 8 months later ?
+		* investigate emulator slowness on Firefox Nightly (it doesn't seem to occur on Chrome ?) after transferring a file.
+		  The slowness doesn't seem to disappear on its own, but it tends to disappear a while after the VAR-Link is launched and exited. Might be linking-related ??
+		  Idea: "WAIT_OK_LAST" special value, upon which the emulator should clear the incoming and outgoing queues ?
+		  Or maybe it's just bad interaction with the GC's mechanics...
+		  2014/02/10: does that still occur 8 months later ?
+	  (debrouxl 2014/03/08)
+	* wrap instruction table building into build_all_instructions().
+	  (debrouxl 2014/03/08)
+	* add stubs for save state and restore state functions in emu, link and ui.
+	  (debrouxl 2014/03/08)
+	* move most core emulator variables to a new inner "state" object, which should help implementing state saving (and maybe state restoring ?). For now, only a0-a7 are missing, as moving them to "state" triggers an address error when displaying the V200 AMS 3.10 apps desktop... probably a missed conversion somewhere.
+	  A side effect of the change is that the emulator becomes faster. That's due to looking up methods and variables up in a narrower scope (confirmed by UnknownLoner).
+	  (debrouxl 2014/03/08)
+	* make not.size an, neg.size an, negx.size an instructions undefined.
+	  (debrouxl 2014/03/09)
+	* fix the build_exchange() code to read from state.dn and state.an. Fixes Address error when booting V200 AMS 3.10 after moving address registers into state, which makes the emulator slightly faster again :)
+	  (debrouxl 2014/03/09)
+	* move t[], n[] and cycles[] to new inner "cpu" object. Speed impact seems within the noise.
+	  (debrouxl 2014/03/09)
 
 
 Achievements:
@@ -528,99 +571,145 @@ Achievements:
 function TI68kEmulatorCoreModule(stdlib) {
 "use strict";
 
+var state = new Object();
+state.version = 1;
 // Registers
-var d0 = 0; // data registers, treat as 32 bit ints
-var d1 = 0;
-var d2 = 0;
-var d3 = 0;
-var d4 = 0;
-var d5 = 0;
-var d6 = 0;
-var d7 = 0;
-var a0 = 0; // address registers, treat as 32 bit ints (A8 = the currently unused address register, i.e. sp / ssp)
-var a1 = 0;
-var a2 = 0;
-var a3 = 0;
-var a4 = 0;
-var a5 = 0;
-var a6 = 0;
-var a7 = 0;
-var a8 = 0;
-var sr = 0; // status register, treat as 16 bit int
-var prev_pc = 0; // previous program counter, treat as 32 bit int
-var pc = 0; // program counter, treat as 32 bit int
-var pending_ints = 0;
-var address_error_access_type = 0;
-var address_error_address = 0;
-var current_instruction = 0;
-var reading_instruction = 0;
+state.d0 = 0; // data registers, treat as 32 bit ints
+state.d1 = 0;
+state.d2 = 0;
+state.d3 = 0;
+state.d4 = 0;
+state.d5 = 0;
+state.d6 = 0;
+state.d7 = 0;
+state.a0 = 0; // address registers, treat as 32 bit ints
+state.a1 = 0;
+state.a2 = 0;
+state.a3 = 0;
+state.a4 = 0;
+state.a5 = 0;
+state.a6 = 0;
+state.a7 = 0;
+state.a8 = 0; // The currently unused stack pointer register, i.e. sp / ssp.
+state.sr = 0; // status register, treat as 16 bit int
+state.prev_pc = 0; // previous program counter, treat as 32 bit int
+state.pc = 0; // program counter, treat as 32 bit int
+state.pending_ints = 0;
+state.address_error_access_type = 0;
+state.address_error_address = 0;
+state.current_instruction = 0;
+state.reading_instruction = 0;
 
-// Emulator arrays (rom usually redefined elsewhere).
-var rom = false; //new Uint16Array(0x200000);
-var ram = new Uint16Array(131072); // 256K of RAM, treat as array of words
-var t = new Array(65536); // Instruction handlers.
-var n = new Array(65536); // Instruction names.
-var cycles = new Uint8Array(65536); // Instruction names.
+// Emulator arrays (rom is usually redefined elsewhere).
+state.rom = false;
+state.ram = new Uint16Array(131072); // 256K of RAM, treat as array of words
+var cpu = new Object();
+cpu.t = new Array(65536); // Instruction handlers.
+cpu.n = new Array(65536); // Instruction names.
+cpu.cycles = new Uint8Array(65536); // Instruction names.
 
 // Emulator variables, part 1.
-var unhandled_count = 0; // number of unhandled instructions encountered
+state.unhandled_count = 0; // number of unhandled instructions encountered
 var main_interval_timer_id = 0; // interval ID of main timer
-var main_interval_timer_interval = 11; // interval value in ms of main timer, defaulting to 11 (~90 Hz screen refresh).
-var tracecount = 0; // number of instructions to trace in console
-var cycle_count = 0;
-var overall = 2500;
-var osc2_counter = 0;
-var frames_counted = 0;
-var total_time = 0;
+state.main_interval_timer_interval = 11; // interval value in ms of main timer, defaulting to 11 (~90 Hz screen refresh).
+state.tracecount = 0; // number of instructions to trace in console
+state.cycle_count = 0;
+state.overall = 2500;
+state.osc2_counter = 0;
+state.frames_counted = 0;
+state.total_time = 0;
 var newromready = false;
 var newfileready = false;
 var newflashfileready = false;
 var ui = false;
 var link = false;
-var erase_ram_upon_reset = true;
+state.erase_ram_upon_reset = true;
 
 // Hardware ports and variables deduced from them.
-var port_600000 = 0x04;
-var vectorprotect = false; // 0x600001
-var wakemask = 0; // 0x600005
-var lcd_address_high = 9; // 0x600010: stores LCD address / 8, corresponding to the default 0x4c00
-var lcd_address_low = 0x80; // 0x600011
-var lcd_address = 0x4c00; // 0x700017: LCD address deduced from snoop palette range.
-var screen_width = 240; // 0x600012
-var screen_height = 128; // 0x600013
-var interrupt_control = 0x1B; // 0x600015
-var interrupt_rate = 0x200; // deduced from 0x600015
-var timer_min = 0xB2; // 0x600017; 0xCC on HW2
-var timer_current = 0; // 0x600017
-var keystatus = new Uint8Array(80); // status of each key is at ROW * 8 + COLUMN
-var keymaskhigh = 0xFF; // 0x600018
-var keymasklow = 0xFF; // 0x600019: which key rows are selected to read
-var port_60001A = 0x02; // 0x60001A: ON key not pressed
-var port_60001B = 0; // 0x60001B
-var port_60001C = 0x01; // 0x60001C
-var port_60001D = 0x8D; // 0x60001D
-var port_700017 = 0; // 0x700017
-var port_70001D = 0; // 0x70001D
-var port_70001F = 0; // 0x70001F
+state.port_600000 = 0x04;
+state.vectorprotect = false; // 0x600001
+state.wakemask = 0; // 0x600005
+state.lcd_address_high = 9; // 0x600010: stores LCD address / 8, corresponding to the default 0x4c00
+state.lcd_address_low = 0x80; // 0x600011
+state.lcd_address = 0x4c00; // 0x700017: LCD address deduced from snoop palette range.
+state.screen_width = 240; // 0x600012
+state.screen_height = 128; // 0x600013
+state.interrupt_control = 0x1B; // 0x600015
+state.interrupt_rate = 0x200; // deduced from 0x600015
+state.timer_min = 0xB2; // 0x600017; 0xCC on HW2
+state.timer_current = 0; // 0x600017
+state.keystatus = new Uint8Array(80); // status of each key is at ROW * 8 + COLUMN
+state.keymaskhigh = 0xFF; // 0x600018
+state.keymasklow = 0xFF; // 0x600019: which key rows are selected to read
+state.port_60001A = 0x02; // 0x60001A: ON key not pressed
+state.port_60001B = 0; // 0x60001B
+state.port_60001C = 0x01; // 0x60001C
+state.port_60001D = 0x8D; // 0x60001D
+state.port_700017 = 0; // 0x700017
+state.port_70001D = 0; // 0x70001D
+state.port_70001F = 0; // 0x70001F
 
 // Emulator variables, part 2.
-var stopped = false;
-var hardware_model = 1; // Only HW1 is emulated at the moment anyway.
-var calculator_model = 1;
-var pedrom = false;
-var punix = false;
-var jmp_tbl = 0;
-var ROM_base = 0; // Deduced from calculator model
-var FlashMemorySize = 0;
-var large_flash_memory = false;
-var Protection_enabled = false; // The Protection with a capital P is not implemented, it slows down emulation.
+state.stopped = false;
+state.hardware_model = 1; // Only HW1 is emulated at the moment anyway.
+state.calculator_model = 1;
+state.pedrom = false;
+state.punix = false;
+state.jmp_tbl = 0;
+state.ROM_base = 0; // Deduced from calculator model
+state.FlashMemorySize = 0;
+state.large_flash_memory = false;
+state.Protection_enabled = false; // The Protection with a capital P is not implemented, it slows down emulation.
 var enable_kludge_in_lea_d_pc_a0 = true;
-var hex_prefix = "$";
+state.hex_prefix = "$";
 
 // Flash memory state machine
-var flash_write_ready = 0;
-var flash_write_phase = 0x50;
-var flash_ret_or = 0;
+state.flash_write_ready = 0;
+state.flash_write_phase = 0x50;
+state.flash_ret_or = 0;
+
+// -------------------- Variables above this line should be saved and restored --------------------
+function save_state()
+{
+	var state = new Object();
+	state.apiversion = apiversion();
+	state.emu = _save_state();
+	state.link = link._save_state();
+	state.ui = ui._save_state();
+	// TODO store state somewhere.
+}
+
+function _save_state()
+{
+	var emustate = new Object();
+	return emustate;
+}
+
+function restore_state(state)
+{
+	if (   typeof(state) === "object"
+	    && typeof(state.emu) === "object"
+	    && typeof(state.link) === "object"
+	    && typeof(state.ui) === "object") {
+		stdlib.clearInterval(main_interval_timer_id);
+
+		if (state.emu.apiversion !== apiversion) {
+			stdlib.console.log("API version has changed, funny results may occur...");
+		}
+
+		_restore_state(state.emu);
+		link._restore_state(state.link);
+		ui._restore_state(state.ui);
+	}
+	else {
+		stdlib.console.log("Refusing to restore state from something not an object / from an object without the expected sub-objects");
+	}
+}
+
+function _restore_state(emustate)
+{
+	
+}
 
 var hex_digits = '0123456789ABCDEF';
 function to_hex(number, digits)
@@ -716,18 +805,18 @@ function memory_dump(address, size, stride)
 function ROM_CALL(id)
 {
 	id &= 0xFFFF;
-	return rl(jmp_tbl + 4 * id);
+	return rl(state.jmp_tbl + 4 * id);
 }
 
 // Special-casing for PedroM extracted from TIEmu, src/core/ti_sw/handles.c.
 function HeapTable()
 {
 	// Are we dealing with an old version of PedroM ?
-	if (pedrom && ram[0x30 >>> 1] <= 0x0080) {
+	if (state.pedrom && state.ram[0x30 >>> 1] <= 0x0080) {
 		return rl(0x5d58);
 	}
 	else {
-		if (ROM_CALL(-1) < 0x441 && !pedrom) { // TIOS_entries.
+		if (ROM_CALL(-1) < 0x441 && !state.pedrom) { // TIOS_entries.
 			// AMS 1.xx
 			return rl(rw(ROM_CALL(0x96) + 8)); // Use word at HeapDeref + 8.
 		}
@@ -747,12 +836,12 @@ function HeapDeref(id)
 // Special-casing for PedroM extracted from TIEmu, src/core/ti_sw/handles.c.
 function HeapSizeAddress(address)
 {
-	if (!pedrom) { // AMS
+	if (!state.pedrom) { // AMS
 		// Read 2 bytes before addess, remove locked indication, subtract 1 byte, and multiply by 2.
 		return ((rw(address - 2) & 0x7FFF) - 1) << 1;
 	}
 	else {
-		if (address >= ROM_base) { // archived file: use file size
+		if (address >= state.ROM_base) { // archived file: use file size
 			return rw(address) + 2;
 		}
 		else {
@@ -793,6 +882,7 @@ function disassemble_regs_mask(regs8, prefix)
 	var current;
 	var start = -1;
 	var end = -1;
+	var i;
 
 	for (i = 0; i < 8; i++) {
 		current = regs8 & 1;
@@ -834,6 +924,7 @@ function disassemble_regs_predec_mask(regs8, prefix)
 	var current;
 	var start = -1;
 	var end = -1;
+	var i;
 
 	for (i = 0; i < 8; i++) {
 		current = (regs8 & (1 << 7)) >> 7;
@@ -886,7 +977,7 @@ function disassemble(address, count)
 
 	while (count > 0) {
 		var opcode = rw(address);
-		var rawinstr = n[opcode];
+		var rawinstr = cpu.n[opcode];
 		var orig_address = address;
 		var leftside;
 		var rightside;
@@ -905,46 +996,46 @@ function disassemble(address, count)
 		address += 2;
 		if (leftside != "") {
 			if (leftside.indexOf("#xxxxxx") != -1) { // Immediate long value
-				leftside = leftside.replace("#xxxxxx", "#" + hex_prefix + to_hex(rl(address), 8));
+				leftside = leftside.replace("#xxxxxx", "#" + state.hex_prefix + to_hex(rl(address), 8));
 				address += 4;
 			}
 			else if (leftside.indexOf("#xxx") != -1) { // Immediate short value
-				leftside = leftside.replace("#xxx", "#" + hex_prefix + to_hex(rw(address), 4));
+				leftside = leftside.replace("#xxx", "#" + state.hex_prefix + to_hex(rw(address), 4));
 				address += 2;
 			}
 			else if (leftside.indexOf("#xx") != -1) { // Immediate byte value
-				leftside = leftside.replace("#xx", "#" + hex_prefix + to_hex(rw(address) & 0xFF, 2));
+				leftside = leftside.replace("#xx", "#" + state.hex_prefix + to_hex(rw(address) & 0xFF, 2));
 				address += 2;
 			}
 			else if (leftside.indexOf("xxx.W") != -1) { // Immediate short address
-				leftside = leftside.replace("xxx.W", hex_prefix + to_hex(rw(address), 4) + ".W");
+				leftside = leftside.replace("xxx.W", state.hex_prefix + to_hex(rw(address), 4) + ".W");
 				address += 2;
 			}
 			else if (leftside.indexOf("xxx.L") != -1) { // Immediate long address
-				leftside = leftside.replace("xxx.L", hex_prefix + to_hex(rl(address), 8) + ".L");
+				leftside = leftside.replace("xxx.L", state.hex_prefix + to_hex(rl(address), 8) + ".L");
 				address += 4;
 			}
 			else if (leftside.indexOf("d(A") != -1) { // address register with displacement
 				var disp = rw(address);
 				if (rightside.indexOf("Dn)") == 0) { // address register with displacement and index
-					leftside = leftside.replace("d(A", hex_prefix + to_hex(disp & 0xFF, 2) + "(A");
+					leftside = leftside.replace("d(A", state.hex_prefix + to_hex(disp & 0xFF, 2) + "(A");
 					leftside += "," + disassemble_indexed_disp(disp); // Adjust left side
 					rightside = rightside.substring(4); // Skip Dn),
 				}
 				else { 
-					leftside = leftside.replace("d(A", hex_prefix + to_hex(disp, 4) + "(A");
+					leftside = leftside.replace("d(A", state.hex_prefix + to_hex(disp, 4) + "(A");
 				}
 				address += 2;
 			}
 			else if (leftside.indexOf("d(PC") != -1) { // PC with displacement
 				var disp = rw(address);
 				if (rightside.indexOf("Dn)") == 0) { // PC with displacement and index
-					leftside = leftside.replace("d(PC", hex_prefix + to_hex(disp & 0xFF, 2) + "(PC");
+					leftside = leftside.replace("d(PC", state.hex_prefix + to_hex(disp & 0xFF, 2) + "(PC");
 					leftside += "," + disassemble_indexed_disp(disp); // Adjust left side
 					rightside = rightside.substring(4); // Skip Dn),
 				}
 				else {
-					leftside = leftside.replace("d(PC", hex_prefix + to_hex(disp, 4) + "(PC");
+					leftside = leftside.replace("d(PC", state.hex_prefix + to_hex(disp, 4) + "(PC");
 				}
 				address += 2;
 			}
@@ -952,10 +1043,10 @@ function disassemble(address, count)
 				var disp = rw(address) + 2;
 				if (disp & 0x8000) {
 					disp = 0x10000 - disp;
-					leftside = leftside.replace("disp", "-" + hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address - disp, 6) + "]");
+					leftside = leftside.replace("disp", "-" + state.hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address - disp, 6) + "]");
 				}
 				else {
-					leftside = leftside.replace("disp", "+" + hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address + disp, 6) + "]");
+					leftside = leftside.replace("disp", "+" + state.hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address + disp, 6) + "]");
 				}
 				address += 2;
 			}
@@ -963,10 +1054,10 @@ function disassemble(address, count)
 				var disp = (opcode & 0xFF) + 2;
 				if (disp & 0x80) {
 					disp = 0x100 - disp;
-					leftside = leftside.replace("disp", "-" + hex_prefix + to_hex(disp, 2) + " [" + to_hex(orig_address - disp, 6) + "]");
+					leftside = leftside.replace("disp", "-" + state.hex_prefix + to_hex(disp, 2) + " [" + to_hex(orig_address - disp, 6) + "]");
 				}
 				else {
-					leftside = leftside.replace("disp", "+" + hex_prefix + to_hex(disp, 2) + " [" + to_hex(orig_address + disp, 6) + "]");
+					leftside = leftside.replace("disp", "+" + state.hex_prefix + to_hex(disp, 2) + " [" + to_hex(orig_address + disp, 6) + "]");
 				}
 			}
 			else if (leftside.indexOf("regspredec") != -1) { // Registers for movem from regs to memory, predecremented write
@@ -1004,15 +1095,15 @@ function disassemble(address, count)
 		if (rightside != "") {
 			// Immediate values usually forbidden as dest ea, except for LINK
 			if (rightside.indexOf("#xxx") != -1) { // Immediate short value
-				rightside = rightside.replace("#xxx", "#" + hex_prefix + to_hex(rw(address), 4));
+				rightside = rightside.replace("#xxx", "#" + state.hex_prefix + to_hex(rw(address), 4));
 				address += 2;
 			}
 			else if (rightside.indexOf("xxx.W") != -1) { // Immediate short address
-				rightside = rightside.replace("xxx.W", hex_prefix + to_hex(rw(address), 4) + ".W");
+				rightside = rightside.replace("xxx.W", state.hex_prefix + to_hex(rw(address), 4) + ".W");
 				address += 2;
 			}
 			else if (rightside.indexOf("xxx.L") != -1) { // Immediate long address
-				rightside = rightside.replace("xxx.L", hex_prefix + to_hex(rl(address), 8) + ".L");
+				rightside = rightside.replace("xxx.L", state.hex_prefix + to_hex(rl(address), 8) + ".L");
 				address += 4;
 			}
 			else if (rightside.indexOf("d(A") != -1) { // address register with displacement
@@ -1020,11 +1111,11 @@ function disassemble(address, count)
 				//stdlib.console.log(rightside);
 				var disp = rw(address);
 				if (rightside.indexOf(",Dn)") != -1) { // address register with displacement and index
-					rightside = rightside.replace("d(A", hex_prefix + to_hex(disp & 0xFF, 2) + "(A");
+					rightside = rightside.replace("d(A", state.hex_prefix + to_hex(disp & 0xFF, 2) + "(A");
 					rightside = rightside.replace("Dn)", disassemble_indexed_disp(disp));
 				}
 				else {
-					rightside = rightside.replace("d(A", hex_prefix + to_hex(disp, 4) + "(A");
+					rightside = rightside.replace("d(A", state.hex_prefix + to_hex(disp, 4) + "(A");
 				}
 				address += 2;
 			}
@@ -1033,10 +1124,10 @@ function disassemble(address, count)
 				var disp = rw(address) + 2;
 				if (disp & 0x8000) {
 					disp = 0x10000 - disp;
-					rightside = rightside.replace("disp", "-" + hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address - disp, 6) + "]");
+					rightside = rightside.replace("disp", "-" + state.hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address - disp, 6) + "]");
 				}
 				else {
-					rightside = rightside.replace("disp", "+" + hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address + disp, 6) + "]");
+					rightside = rightside.replace("disp", "+" + state.hex_prefix + to_hex(disp, 4) + " [" + to_hex(orig_address + disp, 6) + "]");
 				}
 				address += 2;
 			}
@@ -1065,33 +1156,17 @@ function disassemble(address, count)
 	}
 }
 
-function unhandled_instruction()
-{
-	stdlib.console.log("Unhandled instruction " + to_hex(i, 4) + " at address " + to_hex(pc - 2, 8));
-	//print_status();
-	unhandled_count++;
-}
-
-// returns the executor for an unimplemented instruction
-function make_unhandled(i)
-{
-	t[i] = unhandled_instruction;
-	n[i] = 'UNKNOWN';
-	cycles[i] = 0;
-};
-
 // brief display of the system status
 function print_status()
 {
 	stdlib.console.log('---')
-	var opcode = rw(pc);
-	stdlib.console.log('PC=' + to_hex(pc, 9) + ' SR=' + to_hex(sr, 4) + ' opcode=' + to_hex(opcode, 4) + ' ' + n[opcode]);
+	var opcode = rw(state.pc);
+	stdlib.console.log('PC=' + to_hex(state.pc, 9) + ' SR=' + to_hex(state.sr, 4) + ' opcode=' + to_hex(opcode, 4) + ' ' + cpu.n[opcode]);
 	var a = '';
 	var d = '';
-	for (var r = 0; r < 8; r++)
-	{
-		a += 'A' + r + '=' + to_hex(eval('a' + r), 9) + ' ';
-		d += 'D' + r + '=' + to_hex(eval('d' + r), 9) + ' ';
+	for (var r = 0; r < 8; r++) {
+		a += 'A' + r + '=' + to_hex(eval('state.a' + r), 9) + ' ';
+		d += 'D' + r + '=' + to_hex(eval('state.d' + r), 9) + ' ';
 	}
 	stdlib.console.log(d);
 	stdlib.console.log(a);
@@ -1100,15 +1175,14 @@ function print_status()
 function print_status2()
 {
 	stdlib.console.log('---')
-	var opcode = rw(pc);
-	for (var r = 0; r < 8; r++)
-	{
-		stdlib.console.log('D' + r + '=' + to_hex(eval('d' + r), 9) + "\t" + 'A' + r + '=' + to_hex(eval('a' + r), 9));
+	var opcode = rw(state.pc);
+	for (var r = 0; r < 8; r++) {
+		stdlib.console.log('D' + r + '=' + to_hex(eval('state.d' + r), 9) + "\t" + 'A' + r + '=' + to_hex(eval('state.a' + r), 9));
 	}
-	stdlib.console.log('SR=' + to_hex(sr, 4) + "\tPC=" + to_hex(pc, 9));
-	stdlib.console.log('T=' + ((sr & 0x8000) >>> 15) + "\tS=" + ((sr & 0x2000) >>> 13) + "\tM=" + ((sr & 0x1000) >>> 12) + "\tI=" + ((sr & 0x0700) >>> 8));
-	stdlib.console.log('X=' + ((sr & 0x0010) >>>  4) + "\tN=" + ((sr & 0x0008) >>>  3) + "\tZ=" + ((sr & 0x0004) >>>  2) + "\tV=" + ((sr & 0x0002) >>> 1) + "\tC=" + (sr & 0x0001));
-	stdlib.console.log('opcode=' + to_hex(opcode, 4) + "\t" + n[opcode]);
+	stdlib.console.log('SR=' + to_hex(state.sr, 4) + "\tPC=" + to_hex(state.pc, 9));
+	stdlib.console.log('T=' + ((state.sr & 0x8000) >>> 15) + "\tS=" + ((state.sr & 0x2000) >>> 13) + "\tM=" + ((state.sr & 0x1000) >>> 12) + "\tI=" + ((state.sr & 0x0700) >>> 8));
+	stdlib.console.log('X=' + ((state.sr & 0x0010) >>>  4) + "\tN=" + ((state.sr & 0x0008) >>>  3) + "\tZ=" + ((state.sr & 0x0004) >>>  2) + "\tV=" + ((state.sr & 0x0002) >>> 1) + "\tC=" + (state.sr & 0x0001));
+	stdlib.console.log('opcode=' + to_hex(opcode, 4) + "\t" + cpu.n[opcode]);
 }
 
 // sign extend functions
@@ -1134,13 +1208,13 @@ function subw(subtrahend, minuend)
 	var complement = 0x10000 - subtrahend;
 	var result = complement + minuend;
 	var maskedresult = result >= 0x10000 ? result - 0x10000 : result;
-	sr = sr & 0xFFE0;
-	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 0x8000) sr += 8; // negative flag
+	state.sr &= 0xFFE0;
+	if (maskedresult == 0) state.sr += 4; // zero flag
+	if (result & 0x8000) state.sr += 8; // negative flag
 	if (maskedresult < 0) maskedresult += 0x10000;
-	if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) sr += 2; // overflow flag
-	if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) sr += 2; // overflow flag
-	if (subtrahend > minuend) sr += 0x11; // carry and overflow
+	if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) state.sr += 2; // overflow flag
+	if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) state.sr += 2; // overflow flag
+	if (subtrahend > minuend) state.sr += 0x11; // carry and overflow
 	return maskedresult;
 }
 
@@ -1151,13 +1225,13 @@ function cmpw(subtrahend, minuend)
 	var complement = 0x10000 - subtrahend;
 	var result = complement + minuend;
 	var maskedresult = result >= 0x10000 ? result - 0x10000 : result;
-	sr = sr & 0xFFF0;
-	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 0x8000) sr += 8; // negative flag
+	state.sr &= 0xFFF0;
+	if (maskedresult == 0) state.sr += 4; // zero flag
+	if (result & 0x8000) state.sr += 8; // negative flag
 	if (maskedresult < 0) maskedresult += 0x10000;
-	if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) sr += 2; // overflow flag
-	if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) sr += 2; // overflow flag
-	if (subtrahend > minuend) sr += 1; // carry and overflow
+	if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) state.sr += 2; // overflow flag
+	if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) state.sr += 2; // overflow flag
+	if (subtrahend > minuend) state.sr += 1; // carry and overflow
 	return maskedresult;
 }
 
@@ -1167,12 +1241,12 @@ function addw(x, y)
 	y &= 0xFFFF;
 	var result = x + y;
 	var maskedresult = result & 0xFFFF;
-	sr = sr & 0xFFE0;
-	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 0x8000) sr += 8; // negative flag
-	if (result != maskedresult) sr += 0x11; // carry and overflow
-	if (y < 0x8000 && x < 0x8000 && maskedresult >= 0x8000) sr += 2; // overflow flag
-	if (y >= 0x8000 && x >= 0x8000 && maskedresult < 0x8000) sr += 2; // overflow flag
+	state.sr &= 0xFFE0;
+	if (maskedresult == 0) state.sr += 4; // zero flag
+	if (result & 0x8000) state.sr += 8; // negative flag
+	if (result != maskedresult) state.sr += 0x11; // carry and overflow
+	if (y < 0x8000 && x < 0x8000 && maskedresult >= 0x8000) state.sr += 2; // overflow flag
+	if (y >= 0x8000 && x >= 0x8000 && maskedresult < 0x8000) state.sr += 2; // overflow flag
 	return maskedresult;
 }
 
@@ -1183,13 +1257,13 @@ function subb(subtrahend, minuend)
 	var complement = 0x100 - subtrahend;
 	var result = complement + minuend;
 	var maskedresult = result >= 0x100 ? result - 0x100 : result;
-	sr = sr & 0xFFE0;
-	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 0x80) sr += 8; // negative flag
+	state.sr &= 0xFFE0;
+	if (maskedresult == 0) state.sr += 4; // zero flag
+	if (result & 0x80) state.sr += 8; // negative flag
 	if (maskedresult < 0) maskedresult += 0x100;
-	if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) sr += 2; // overflow flag
-	if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) sr += 2; // overflow flag
-	if (subtrahend > minuend) sr += 0x11; // carry and overflow
+	if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) state.sr += 2; // overflow flag
+	if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) state.sr += 2; // overflow flag
+	if (subtrahend > minuend) state.sr += 0x11; // carry and overflow
 	return maskedresult;
 }
 
@@ -1200,13 +1274,13 @@ function cmpb(subtrahend, minuend)
 	var complement = 0x100 - subtrahend;
 	var result = complement + minuend;
 	var maskedresult = result >= 0x100 ? result - 0x100 : result;
-	sr = sr & 0xFFF0;
-	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 0x80) sr += 8; // negative flag
+	state.sr &= 0xFFF0;
+	if (maskedresult == 0) state.sr += 4; // zero flag
+	if (result & 0x80) state.sr += 8; // negative flag
 	if (maskedresult < 0) maskedresult += 0x100;
-	if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) sr += 2; // overflow flag
-	if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) sr += 2; // overflow flag
-	if (subtrahend > minuend) sr += 1; // carry and overflow
+	if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) state.sr += 2; // overflow flag
+	if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) state.sr += 2; // overflow flag
+	if (subtrahend > minuend) state.sr += 1; // carry and overflow
 	return maskedresult;
 }
 
@@ -1216,12 +1290,12 @@ function addb(x, y)
 	y &= 0xFF;
 	var result = x + y;
 	var maskedresult = result & 0xFF;
-	sr = sr & 0xFFE0;
-	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 0x80) sr += 8; // negative flag
-	if (result != maskedresult) sr += 0x11; // carry and overflow
-	if (y < 0x80 && x < 0x80 && maskedresult >= 0x80) sr += 2; // overflow flag
-	if (y >= 0x80 && x >= 0x80 && maskedresult < 0x80) sr += 2; // overflow flag
+	state.sr &= 0xFFE0;
+	if (maskedresult == 0) state.sr += 4; // zero flag
+	if (result & 0x80) state.sr += 8; // negative flag
+	if (result != maskedresult) state.sr += 0x11; // carry and overflow
+	if (y < 0x80 && x < 0x80 && maskedresult >= 0x80) state.sr += 2; // overflow flag
+	if (y >= 0x80 && x >= 0x80 && maskedresult < 0x80) state.sr += 2; // overflow flag
 	return maskedresult;
 }
 
@@ -1230,13 +1304,13 @@ function subl(subtrahend, minuend)
 	var complement = 4294967296 - subtrahend;
 	var result = complement + minuend;
 	var maskedresult = result >= 4294967296 ? result - 4294967296 : result;
-	sr = sr & 0xFFE0;
-	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 2147483648) sr += 8; // negative flag
+	state.sr &= 0xFFE0;
+	if (maskedresult == 0) state.sr += 4; // zero flag
+	if (result & 2147483648) state.sr += 8; // negative flag
 	if (maskedresult < 0) maskedresult += 4294967296;
-	if (complement < 2147483648 && minuend < 2147483648 && maskedresult >= 2147483648) sr += 2; // overflow flag
-	if (complement >= 2147483648 && minuend >= 2147483648 && maskedresult < 2147483648) sr += 2; // overflow flag
-	if (subtrahend > minuend) sr += 0x11; // carry and overflow
+	if (complement < 2147483648 && minuend < 2147483648 && maskedresult >= 2147483648) state.sr += 2; // overflow flag
+	if (complement >= 2147483648 && minuend >= 2147483648 && maskedresult < 2147483648) state.sr += 2; // overflow flag
+	if (subtrahend > minuend) state.sr += 0x11; // carry and overflow
 	return maskedresult;
 }
 
@@ -1245,13 +1319,13 @@ function cmpl(subtrahend, minuend)
 	var complement = 4294967296 - subtrahend;
 	var result = complement + minuend;
 	var maskedresult = result >= 4294967296 ? result - 4294967296 : result;
-	sr = sr & 0xFFF0;
-	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 2147483648) sr += 8; // negative flag
+	state.sr &= 0xFFF0;
+	if (maskedresult == 0) state.sr += 4; // zero flag
+	if (result & 2147483648) state.sr += 8; // negative flag
 	if (maskedresult < 0) maskedresult += 4294967296;
-	if (complement < 2147483648 && minuend < 2147483648 && maskedresult >= 2147483648) sr += 2; // overflow flag
-	if (complement >= 2147483648 && minuend >= 2147483648 && maskedresult < 2147483648) sr += 2; // overflow flag
-	if (subtrahend > minuend) sr += 1; // carry and overflow
+	if (complement < 2147483648 && minuend < 2147483648 && maskedresult >= 2147483648) state.sr += 2; // overflow flag
+	if (complement >= 2147483648 && minuend >= 2147483648 && maskedresult < 2147483648) state.sr += 2; // overflow flag
+	if (subtrahend > minuend) state.sr += 1; // carry and overflow
 	return maskedresult;
 }
 
@@ -1259,13 +1333,13 @@ function addl(x, y)
 {
 	var result = x + y;
 	var maskedresult = result >= 4294967296 ? result - 4294967296 : result;
-	sr = sr & 0xFFE0;
-	if (maskedresult == 0) sr += 4; // zero flag
-	if (result & 2147483648) sr += 8; // negative flag
-	if (result != maskedresult) sr += 0x11; // carry and overflow
+	state.sr &= 0xFFE0;
+	if (maskedresult == 0) state.sr += 4; // zero flag
+	if (result & 2147483648) state.sr += 8; // negative flag
+	if (result != maskedresult) state.sr += 0x11; // carry and overflow
 	if (maskedresult < 0) maskedresult += 4294967296;
-	if (x < 2147483648 && y < 2147483648 && maskedresult >= 2147483648) sr += 2; // overflow flag
-	if (x >= 2147483648 && y >= 2147483648 && maskedresult < 2147483648) sr += 2; // overflow flag
+	if (x < 2147483648 && y < 2147483648 && maskedresult >= 2147483648) state.sr += 2; // overflow flag
+	if (x >= 2147483648 && y >= 2147483648 && maskedresult < 2147483648) state.sr += 2; // overflow flag
 	return maskedresult;
 }
 
@@ -1293,7 +1367,7 @@ function add(x, y, size)
 function abcd(x,y)
 {
 	var lowsum = (x & 0xF) + (y & 0xF);
-	if (sr & 0x10) lowsum++; // carry in from the x register
+	if (state.sr & 0x10) lowsum++; // carry in from the x register
 
 	var carrymid = 0;
 	if (lowsum >= 10) {
@@ -1302,13 +1376,13 @@ function abcd(x,y)
 	}
 
 	var highsum = (x & 0xF0) + (y & 0xF0) + carrymid;
-	sr &= 0xFFE4;
+	state.sr &= 0xFFE4;
 	if (highsum >= 0xA0) {
 		highsum -= 0xA0;
-		sr |= 0x11; // carry out into both X and C
+		state.sr |= 0x11; // carry out into both X and C
 	}
 	var result = highsum + lowsum;
-	if (result != 0) sr &= 0xFFFB; // zero flag
+	if (result != 0) state.sr &= 0xFFFB; // zero flag
 	return result;
 }
 
@@ -1319,13 +1393,13 @@ function sbcd(dst,src)
 	var subtrahend = (src >>> 4) * 10 + (src & 0xF);
 	var minuend = (dst >>> 4) * 10 + (dst & 0xF);
 	var result = minuend - subtrahend;
-	if (sr & 0x10) result--; // borrow from previous subtraction
-	sr &= 0xFFE4; // clear all condition codes but Z
+	if (state.sr & 0x10) result--; // borrow from previous subtraction
+	state.sr &= 0xFFE4; // clear all condition codes but Z
 	if (result < 0) {
 		result = result + 100;
-		sr |= 0x11; // set carry and extend if we had a borrow.
+		state.sr |= 0x11; // set carry and extend if we had a borrow.
 	}
-	if (result != 0) sr &= 0xFFFB; // clear zero flag
+	if (result != 0) state.sr &= 0xFFFB; // clear zero flag
 	var lowdigit = result % 10;
 	var highdigit = (result - lowdigit) / 10;
 	var finalresult = highdigit * 16 + lowdigit;
@@ -1467,7 +1541,7 @@ function nbcd(src)
 {
 	src &= 0xFF;
 	var result;
-	if (sr & 0x10) {
+	if (state.sr & 0x10) {
 		result = 153 - src;
 		if (result < 0) result += 256;
 	}
@@ -1480,26 +1554,10 @@ function nbcd(src)
 			if (result == 160 || result == 256) result = 0;
 		}
 	}
-	sr &= 0xFFE4; // clear all condition codes but Z
-	if (result & 0x80) sr |= 8; // Set N.
-	if (result != 0) { sr &= 0xFFFB; sr |= 0x11; } // clear zero flag, set X and C
+	state.sr &= 0xFFE4; // clear all condition codes but Z
+	if (result & 0x80) state.sr |= 8; // Set N.
+	if (result != 0) { state.sr &= 0xFFFB; state.sr |= 0x11; } // clear zero flag, set X and C
 	return result;
-/*
-	src &= 0xFF;
-	var subtrahend = (src >>> 4) * 10 + (src & 0xF);
-	var result = 0 - subtrahend;
-	if (sr & 0x10) result--; // borrow from previous subtraction
-	sr &= 0xFFE4; // clear all condition codes but Z
-	if (result < 0) {
-		result = result + 100;
-		sr |= 0x11; // set carry and extend if we had a borrow.
-	}
-	if (result != 0) sr &= 0xFFFB; // clear zero flag
-	var lowdigit = result % 10;
-	var highdigit = (result - lowdigit) / 10;
-	var finalresult = highdigit * 16 + lowdigit;
-	return finalresult;
-*/
 }
 
 function addx(x,y,size)
@@ -1509,15 +1567,15 @@ function addx(x,y,size)
 	if (size==2) overflow = 4294967296;
 	var neg = overflow / 2;
 	var result = x + y;
-	if (sr & 0x10) result++; // carry in from X bit
+	if (state.sr & 0x10) result++; // carry in from X bit
 	var maskedresult = result >= overflow ? result - overflow : result;
-	sr &= 0xFFE0; // clear condition flags
-	if (result == 0) sr |= 4; // set zero flag
-	if (result & neg) sr += 8; // negative flag
-	if (result != maskedresult) sr += 0x11; // carry and overflow
+	state.sr &= 0xFFE0; // clear condition flags
+	if (result == 0) state.sr |= 4; // set zero flag
+	if (result & neg) state.sr += 8; // negative flag
+	if (result != maskedresult) state.sr += 0x11; // carry and overflow
 	if (maskedresult < 0) maskedresult += overflow;
-	if (x < neg && y < neg && maskedresult >= neg) sr += 2; // overflow flag
-	if (x >= neg && y >= neg && maskedresult < neg) sr += 2; // overflow flag
+	if (x < neg && y < neg && maskedresult >= neg) state.sr += 2; // overflow flag
+	if (x >= neg && y >= neg && maskedresult < neg) state.sr += 2; // overflow flag
 	return maskedresult;
 }
 
@@ -1528,17 +1586,17 @@ function subx(x,y,size)
 	if (size==2) overflow = 4294967296;
 	var neg = overflow / 2;
 	var result = y - x;
-	if (sr & 0x10) result--; // carry in from X bit
-	sr &= 0xFFE4; // clear condition flags but Z
+	if (state.sr & 0x10) result--; // carry in from X bit
+	state.sr &= 0xFFE4; // clear condition flags but Z
 	if (result < 0)
 	{
 		result += overflow;
-		sr |= 0x11; // set X and C on carry out
+		state.sr |= 0x11; // set X and C on carry out
 	}
-	if (result != 0) sr &= 0xFFBF; // clear zero flag
-	if (result + result >= overflow) sr |= 8; // set negative flag
-	if (x >= neg && y < neg && result >= neg) sr |= 2; // set overflow flag (positive minus negative giving negative)
-	if (x < neg && y >= neg && result < neg) sr |= 2; // set overflow flag (negative minus positive giving positive)
+	if (result != 0) state.sr &= 0xFFBF; // clear zero flag
+	if (result + result >= overflow) state.sr |= 8; // set negative flag
+	if (x >= neg && y < neg && result >= neg) state.sr |= 2; // set overflow flag (positive minus negative giving negative)
+	if (x < neg && y >= neg && result < neg) state.sr |= 2; // set overflow flag (negative minus positive giving positive)
 	return result;
 }
 
@@ -1551,12 +1609,12 @@ function muls(x, y)
 	if (x >= 0x8000) x -= 0x10000;
 	if (y >= 0x8000) y -= 0x10000;
 	var product = x * y;
-	sr &= 0xFFF0; // clear all user flags but X
+	state.sr &= 0xFFF0; // clear all user flags but X
 	if (product < 0) {
 		product += 4294967296;
-		sr |= 8; // negative flag
+		state.sr |= 8; // negative flag
 	}
-	if (product == 0) sr |= 4; // zero flag
+	if (product == 0) state.sr |= 4; // zero flag
 	return product;
 }
 
@@ -1565,10 +1623,10 @@ function mulu(x, y)
 	x = x & 0xFFFF;
 	y = y & 0xFFFF;
 	var product = x * y;
-	sr &= 0xFFF0; // clear all user flags but X
+	state.sr &= 0xFFF0; // clear all user flags but X
 	//product &= 0xFFFFFFFF;
-	if (product >= 2147483648 /*0x80000000*/) sr |= 8; // negative flag
-	if (product == 0) sr |= 4; // zero flag
+	if (product >= 2147483648 /*0x80000000*/) state.sr |= 8; // negative flag
+	if (product == 0) state.sr |= 4; // zero flag
 	//stdlib.console.log("mulu pc=" + pc + "x=" + x + "y=" + y + "product=" + product);
 	return product;
 }
@@ -1579,18 +1637,18 @@ function divu(divisor, dividend)
 	divisor &= 0xFFFF;
 	var quotient = Math.floor(dividend / divisor) & 4294967295;
 	var remainder = (dividend % divisor) & 0xFFFF;
-	sr &= 0xFFF0; // clear all user flags but X
-	if (quotient == 0) sr |= 4; // zero flag
+	state.sr &= 0xFFF0; // clear all user flags but X
+	if (quotient == 0) state.sr |= 4; // zero flag
 
 	if (quotient & 4294901760) { // 0xFFFF0000
 		// NOTE: M68000PRM indicates "N undefined when V".
-		if (quotient >= 2147483648 /*0x80000000*/) sr |= 8; // negative
-		sr |= 2; // overflow
+		if (quotient >= 2147483648 /*0x80000000*/) state.sr |= 8; // negative
+		state.sr |= 2; // overflow
 		return dividend;
 	}
 	if (quotient > 0x10000 || remainder > 0x10000 || quotient < 0 || remainder < 0) stdlib.console.log("bad divide!");
 	var result = quotient | (remainder << 16);
-	if (result & 0x8000) sr |= 8; // negative flag
+	if (result & 0x8000) state.sr |= 8; // negative flag
 	if (result < 0) result += 4294967296;
 	//result &= 0xFFFFFFFF;
 	//stdlib.console.log("divu pc=" + pc + "dividend=" + dividend + "divisor=" + divisor + "result=" + result);
@@ -1611,13 +1669,13 @@ function divs(divisor, dividend)
 
 	//stdlib.console.log("decimal results : " + adividend + " divided by " + adivisor + " = " + quotient + " remainder " + remainder);
 
-	sr &= 0xFFF0; // clear all user flags but X
-	if (quotient >= 2147483648 /*0x80000000*/) sr |= 8; // negative flag
-	if (quotient == 0) sr |= 4; // zero flag
+	state.sr &= 0xFFF0; // clear all user flags but X
+	if (quotient >= 2147483648 /*0x80000000*/) state.sr |= 8; // negative flag
+	if (quotient == 0) state.sr |= 4; // zero flag
 	
 	if (quotient >= 0x8000 || quotient < -32768) {
-		if (quotient >= 2147483648 /*0x80000000*/) sr |= 8; // negative
-		sr |= 2; // overflow
+		if (quotient >= 2147483648 /*0x80000000*/) state.sr |= 8; // negative
+		state.sr |= 2; // overflow
 		return dividend;
 	}
 
@@ -1644,11 +1702,11 @@ function lsl(x, shift, size)
 	if (size == 2) overflow = 4294967296;
 	var neg = overflow / 2;
 	x &= overflow - 1;
-	sr &= 0xFFF0; // initially clear all user condition flags but X
+	state.sr &= 0xFFF0; // initially clear all user condition flags but X
 	while (shift > 0)
 	{
-		if (x & neg) sr |= 0x11; // set carry and extend if last bit shifted out is 1
-		else sr &= 0xFFEE;
+		if (x & neg) state.sr |= 0x11; // set carry and extend if last bit shifted out is 1
+		else state.sr &= 0xFFEE;
 		x <<= 1;
 		if (x >= overflow) {
 			x -= overflow;
@@ -1656,8 +1714,8 @@ function lsl(x, shift, size)
 		shift--;
 	}
 	x &= overflow - 1;
-	if (x & neg) sr |= 8 // negative flag
-	if (x == 0) sr |= 4; // zero flag
+	if (x & neg) state.sr |= 8 // negative flag
+	if (x == 0) state.sr |= 4; // zero flag
 	return x;
 }
 
@@ -1670,23 +1728,23 @@ function asl(x, shift, size)
 	if (size == 2) overflow = 4294967296;
 	var neg = overflow / 2;
 	x &= overflow - 1;
-	sr &= 0xFFE1; // initially clear all user condition flags but carry
-	if (shift > 0) sr &= 0xFFE0; // clear carry if nonzero shift
+	state.sr &= 0xFFE1; // initially clear all user condition flags but carry
+	if (shift > 0) state.sr &= 0xFFE0; // clear carry if nonzero shift
 	while (shift > 0)
 	{
-		if (x & neg) sr |= 0x11; // set carry and extend if last bit shifted out is 1
-		else sr &= 0xFFEE;
+		if (x & neg) state.sr |= 0x11; // set carry and extend if last bit shifted out is 1
+		else state.sr &= 0xFFEE;
 		var old = x;
 		x <<= 1;
 		if (x >= overflow) {
 			x -= overflow;
 		}
-		if ((x & neg) != (old & neg)) sr |= 2; // set overflow flag if high bit changed
+		if ((x & neg) != (old & neg)) state.sr |= 2; // set overflow flag if high bit changed
 		shift--;
 	}
 	x &= overflow - 1;
-	if (x & neg) sr |= 8 // negative flag
-	if (x == 0) sr |= 4; // zero flag
+	if (x & neg) state.sr |= 8 // negative flag
+	if (x == 0) state.sr |= 4; // zero flag
 	return x;
 }
 
@@ -1699,17 +1757,17 @@ function lsr(x, shift, size)
 	if (size == 2) overflow = 4294967296;
 	var neg = overflow / 2;
 	x &= overflow - 1;
-	sr &= 0xFFE0; // initially clear all user condition flags
+	state.sr &= 0xFFE0; // initially clear all user condition flags
 	while (shift > 0)
 	{
-		if (x & 1) sr |= 0x11; // set carry and extend if last bit shifted out is 1
-		else sr &= 0xFFEE;
+		if (x & 1) state.sr |= 0x11; // set carry and extend if last bit shifted out is 1
+		else state.sr &= 0xFFEE;
 		x >>>= 1;
 		shift--;
 	}
 	x &= overflow - 1;
-	if (x & neg) sr |= 8 // negative flag
-	if (x == 0) sr |= 4; // zero flag
+	if (x & neg) state.sr |= 8 // negative flag
+	if (x == 0) state.sr |= 4; // zero flag
 	return x;
 }
 
@@ -1722,12 +1780,12 @@ function asr(x, shift, size)
 	if (size == 2) overflow = 4294967296;
 	var neg = overflow / 2;
 	x &= overflow - 1;
-	sr &= 0xFFF0; // initially clear all user condition flags but X
-	if (shift > 0) sr &= 0xFFEF; // clear X if nonzero shift count
+	state.sr &= 0xFFF0; // initially clear all user condition flags but X
+	if (shift > 0) state.sr &= 0xFFEF; // clear X if nonzero shift count
 	while (shift > 0)
 	{
-		if (x & 1) sr |= 0x11; // set carry and extend if last bit shifted out is 1
-		else sr &= 0xFFEE;
+		if (x & 1) state.sr |= 0x11; // set carry and extend if last bit shifted out is 1
+		else state.sr &= 0xFFEE;
 		if (x & neg) {
 			x >>>= 1;
 			x |= neg;
@@ -1738,8 +1796,8 @@ function asr(x, shift, size)
 		shift--;
 	}
 	x &= overflow - 1;
-	if (x & neg) sr |= 8 // negative flag
-	if (x == 0) sr |= 4; // zero flag
+	if (x & neg) state.sr |= 8 // negative flag
+	if (x == 0) state.sr |= 4; // zero flag
 	return x;
 }
 
@@ -1752,7 +1810,7 @@ function ror(x, shift, size)
 	if (size == 2) overflow = 4294967296;
 	var neg = overflow / 2;
 	x &= overflow - 1;
-	sr &= 0xFFF0; // initially clear all user condition flags but X
+	state.sr &= 0xFFF0; // initially clear all user condition flags but X
 	while (shift--)
 	{
 		var out = x & 1;
@@ -1760,8 +1818,8 @@ function ror(x, shift, size)
 		if (out) x = x + neg;
 	}
 	x &= overflow - 1;
-	if (x & neg) sr |= 0x9 // negative flag and carry flag
-	if (x == 0) sr |= 4; // zero flag
+	if (x & neg) state.sr |= 0x9 // negative flag and carry flag
+	if (x == 0) state.sr |= 4; // zero flag
 	return x;
 }
 
@@ -1774,7 +1832,7 @@ function rol(x, shift, size)
 	if (size == 2) overflow = 4294967296;
 	var neg = overflow / 2;
 	x &= overflow - 1;
-	sr &= 0xFFF0; // initially clear all user condition flags but X
+	state.sr &= 0xFFF0; // initially clear all user condition flags but X
 	while (shift > 0)
 	{
 		if (x & neg) {
@@ -1790,9 +1848,9 @@ function rol(x, shift, size)
 		shift--;
 	}
 	x &= overflow - 1;
-	if (x & neg) sr |= 0x8; // negative flag
-	if (x & 1) sr |= 1; // carry flag
-	if (x == 0) sr |= 4; // zero flag
+	if (x & neg) state.sr |= 0x8; // negative flag
+	if (x & 1) state.sr |= 1; // carry flag
+	if (x == 0) state.sr |= 4; // zero flag
 	return x;
 }
 
@@ -1807,14 +1865,14 @@ function roxr(x, shift, size)
 	{
 		var out = x & 1;
 		x >>>= 1;
-		if (sr & 0x10) x = x + neg; // shift 1 in if X was set
-		sr = sr & 0xFFE0; // clear all user condition flags including X
-		if (out) sr += 0x10; // set X if bit shifted out was set
+		if (state.sr & 0x10) x = x + neg; // shift 1 in if X was set
+		state.sr = state.sr & 0xFFE0; // clear all user condition flags including X
+		if (out) state.sr += 0x10; // set X if bit shifted out was set
 	}
 	x &= overflow - 1;
-	if (x & neg) sr |= 0x9 // negative flag and carry flag
-	if (x == 0) sr |= 4; // zero flag
-	if (sr & 0x10) sr |= 1; // carry flag gets a copy of the X flag
+	if (x & neg) state.sr |= 0x9 // negative flag and carry flag
+	if (x == 0) state.sr |= 4; // zero flag
+	if (state.sr & 0x10) state.sr |= 1; // carry flag gets a copy of the X flag
 	return x;
 }
 
@@ -1825,81 +1883,74 @@ function roxl(x, shift, size)
 	if (size == 2) overflow = 4294967296;
 	var neg = overflow / 2;
 	x &= overflow - 1;
-	sr &= 0xFFF0; // initially clear all user condition flags but X
+	state.sr &= 0xFFF0; // initially clear all user condition flags but X
 	while (shift > 0)
 	{
 		var old = x;
 		x <<= 1;
-		if (sr & 0x10) x = x + 1; // shift 1 in if X was set
+		if (state.sr & 0x10) x = x + 1; // shift 1 in if X was set
 		if (old & neg) {
-			sr |= 0x10; // set X if bit was shifted out
+			state.sr |= 0x10; // set X if bit was shifted out
 		}
 		else {
-			sr &= 0xFFEF; // clear X
+			state.sr &= 0xFFEF; // clear X
 		}
 		if (x >= overflow) {
 			x -= overflow;
 		}
 		shift--;
 	}
-	/*while (shift--)
-	{
-		x <<= 1;
-		if (sr & 0x10) x = x + 1; // shift 1 in if X was set
-		sr &= 0xFFE0; // clear all user condition flags including X
-		if (x >= overflow) {
-			x -= overflow;
-			sr += 0x10; // set X if bit was shifted out
-		}
-	}*/
 	x &= overflow - 1;
-	if (x & neg) sr |= 0x8; // negative flag
-	if (sr & 0x10) sr |= 1; // carry flag gets a copy of the X flag
-	if (x == 0) sr |= 4; // zero flag
+	if (x & neg) state.sr |= 0x8; // negative flag
+	if (state.sr & 0x10) state.sr |= 1; // carry flag gets a copy of the X flag
+	if (x == 0) state.sr |= 4; // zero flag
 	return x;
 }
 
-function aline() { pc -= 2; fire_cpu_exception(10); } // A-Line
-function fline() { pc -= 2; fire_cpu_exception(11); } // F-Line
+function aline() { state.pc -= 2; fire_cpu_exception(10); } // A-Line
+function fline() { state.pc -= 2; fire_cpu_exception(11); } // F-Line
+function unhandled_instruction() { state.pc -= 2; fire_cpu_exception(4); } // Illegal / unhandled instruction.
+/*stdlib.console.log("Unhandled instruction " + to_hex(current_instruction, 4) + " at address " + to_hex(pc - 2, 8));
+//print_status();
+unhandled_count++;*/
 
 // update the status register in situations that might change S bit (flips A7)
-
 function update_sr(new_sr)
 {
-	if ((new_sr ^ sr) & 0x2000)
+	if ((new_sr ^ state.sr) & 0x2000)
 	{
-		var t = a7; // Switch between supervisor and user modes.
-		a7 = a8;
-		a8 = t;
+		var t = state.a7; // Switch between supervisor and user modes.
+		state.a7 = state.a8;
+		state.a8 = t;
 	}
-	sr = new_sr & 0xA71F; // Mask out bits which do not exist.
+	state.sr = new_sr & 0xA71F; // Mask out bits which do not exist.
 }
 
 function an(reg)
 {
 	switch(reg) {
-		case 0: return a0;
-		case 1: return a1;
-		case 2: return a2;
-		case 3: return a3;
-		case 4: return a4;
-		case 5: return a5;
-		case 6: return a6;
-		case 7: return a7;
+		case 0: return state.a0;
+		case 1: return state.a1;
+		case 2: return state.a2;
+		case 3: return state.a3;
+		case 4: return state.a4;
+		case 5: return state.a5;
+		case 6: return state.a6;
+		case 7: return state.a7;
 	}
 }
 
 function dn(reg)
 {
 	switch(reg) {
-		case 0: return d0;
-		case 1: return d1;
-		case 2: return d2;
-		case 3: return d3;
-		case 4: return d4;
-		case 5: return d5;
-		case 6: return d6;
-		case 7: return d7;
+		case 0: return state.d0;
+		case 1: return state.d1;
+		case 2: return state.d2;
+		case 3: return state.d3;
+		case 4: return state.d4;
+		case 5: return state.d5;
+		case 6: return state.d6;
+		case 7: return state.d7;
 	}
 }
 
@@ -1922,15 +1973,15 @@ var instruction_list = ""
 // insert into instruction table
 function insert_inst(opcode, code, name)
 {
-	instruction_list += "t[" + opcode +"] = function() { " + code + "};";
-	n[opcode] = name;
+	instruction_list += "cpu.t[" + opcode +"] = function() { " + code + "};";
+	cpu.n[opcode] = name;
 }
 
 function insert_inst2(opcode, code, name, count)
 {
-	instruction_list += "t[" + opcode +"] = function() { " + code + "};";
-	n[opcode] = name;
-	cycles[opcode] = count;
+	instruction_list += "cpu.t[" + opcode +"] = function() { " + code + "};";
+	cpu.n[opcode] = name;
+	cpu.cycles[opcode] = count;
 }
 
 // Check whether the given effective address is valid for common uses
@@ -2007,18 +2058,18 @@ function read_pc(size, dest, sideeffects)
 {
 	if (size==0)
 	{
-		var code = "var " + dest + "=rb(pc+1);"
-		return sideeffects ? code + "pc+=2;" : code
+		var code = "var " + dest + "=rb(state.pc+1);"
+		return sideeffects ? code + "state.pc+=2;" : code
 	}
 	else if (size==1)
 	{
-		var code = "var " + dest + "=rw(pc);"
-		return sideeffects ? code + "pc+=2;" : code
+		var code = "var " + dest + "=rw(state.pc);"
+		return sideeffects ? code + "state.pc+=2;" : code
 	}
 	else if (size==2)
 	{
-		var code = "var " + dest + "=rl(pc);"
-		return sideeffects ? code + "pc+=4;" : code
+		var code = "var " + dest + "=rl(state.pc);"
+		return sideeffects ? code + "state.pc+=4;" : code
 	}
 }
 
@@ -2036,7 +2087,7 @@ function amode_read(mode, reg, size, sideeffects)
 	if (mode == MODE_MISC && reg == MISCMODE_PC_OFFSET)
 	{
 		var code = read_pc(1, "o", sideeffects);
-		code += "var a=pc+ewl(o)-2;"
+		code += "var a=state.pc+ewl(o)-2;"
 		code += "var s=" + get_read(size) + "(a);"
 		return code;
 	}	
@@ -2046,7 +2097,7 @@ function amode_read(mode, reg, size, sideeffects)
 		var code = read_pc(1, "e", sideeffects)
 		code += "var a=e&0xFF;"
 		code += "if(a>127)a-=256;"
-		code += "a+=pc-2;"
+		code += "a+=state.pc-2;"
 		code += "var x=(e>>>12)&7;"
 		code += "var y=(e>32767)?an(x):dn(x);"
 		code += "if(!(e&0x800))y=ewl(y);"
@@ -2070,28 +2121,28 @@ function amode_read(mode, reg, size, sideeffects)
 	// address register indirect
 	if (mode == MODE_AREG_INDIRECT)
 	{
-		return "var s=" + get_read(size) + "(a" + reg + ");"
+		return "var s=" + get_read(size) + "(state.a" + reg + ");"
 	}
 	// address register indirect with postincrement 
 	if (mode == MODE_AREG_POSTINC)
 	{
-		var code = "var s=" + get_read(size) + "(a" + reg + ");" 
-		if (sideeffects) code += "a" + reg + "+=" + increment + ";"
+		var code = "var s=" + get_read(size) + "(state.a" + reg + ");" 
+		if (sideeffects) code += "state.a" + reg + "+=" + increment + ";"
 		return code;
 	}
 	// address register indirect with predecrement
 	if (mode == MODE_AREG_PREDEC)
 	{
 		if (sideeffects)
-			return "a" + reg + "-=" + increment + ";" + "var s=" + get_read(size) + "(a" + reg + ");" 
+			return "state.a" + reg + "-=" + increment + ";" + "var s=" + get_read(size) + "(state.a" + reg + ");" 
 		else
-			return "var s=" + get_read(size) + "(a" + reg + "-" + increment + ");" 
+			return "var s=" + get_read(size) + "(state.a" + reg + "-" + increment + ");" 
 	}
 	// address register indirect with offset
 	if (mode == MODE_AREG_OFFSET)
 	{
 		var code = read_pc(1, "o", sideeffects)
-		code += "var a=a" + reg + "+ewl(o);"
+		code += "var a=state.a" + reg + "+ewl(o);"
 		code += "var s=" + get_read(size) + "(a);"
 		return code;
 	}
@@ -2101,7 +2152,7 @@ function amode_read(mode, reg, size, sideeffects)
 		var code = read_pc(1, "e", sideeffects)
 		code += "var a=e&255;"
 		code += "if (a>=128)a-=256;"
-		code += "a+=a" + reg + ";"
+		code += "a+=state.a" + reg + ";"
 		code += "var x=(e>>>12)&7;"
 		code += "var y=(e>32767)?an(x):dn(x);"
 		code += "if(!(e&0x800))y=ewl(y);"
@@ -2112,21 +2163,21 @@ function amode_read(mode, reg, size, sideeffects)
 	if (mode == MODE_DREG)
 	{
 		if (size == 0)
-			return "var s=d" + reg + "&255;"
+			return "var s=state.d" + reg + "&255;"
 		if (size == 1)
-			return "var s=d" + reg + "&65535;"
+			return "var s=state.d" + reg + "&65535;"
 // The two if are _really_ important for AMS 2.03 92+ to boot.
 		if (size == 2)
-			return "var s=d" + reg + "; if(s<0)s+=4294967296; if(s>4294967295)s-=4294967296;"
+			return "var s=state.d" + reg + "; if(s<0)s+=4294967296; if(s>4294967295)s-=4294967296;"
 	}
 	// a register direct
 	if (mode == MODE_AREG)
 	{
 		if (size == 1)
-			return "var s=a" + reg + "&65535;"
+			return "var s=state.a" + reg + "&65535;"
 // The two if are _really_ important for AMS 2.03 92+ to boot.
 		if (size == 2)
-			return "var s=a" + reg + "; if(s<0)s+=4294967296; if(s>4294967295)s-=4294967296;"
+			return "var s=state.a" + reg + "; if(s<0)s+=4294967296; if(s>4294967295)s-=4294967296;"
 	}
 	return "fire_cpu_exception(4);"; // Illegal instruction
 }
@@ -2138,7 +2189,7 @@ function effective_address_calc(mode, reg)
 	if (mode == MODE_MISC && reg == MISCMODE_PC_OFFSET)
 	{
 		code = read_pc(1, "o", true)
-		code += "var z=pc-2+ewl(o);"
+		code += "var z=state.pc-2+ewl(o);"
 		code += "if(z>4294967295)z-=4294967296;"
 	}
 	// PC-relative indexed
@@ -2147,7 +2198,7 @@ function effective_address_calc(mode, reg)
 		code = read_pc(1, "e", true)
 		code += "var a=e&0xFF;"
 		code += "if(a>127)a-=256;"
-		code += "a+=pc-2;"
+		code += "a+=state.pc-2;"
 		code += "var x=(e>>>12)&7;"
 		code += "var y=(e>32767)?an(x):dn(x);"
 		code += "if (!(e&0x800))y=ewl(y);"
@@ -2160,7 +2211,7 @@ function effective_address_calc(mode, reg)
 		code = read_pc(1, "e", true)
 		code += "var a = e&0xFF;"
 		code += "if(a>127)a-=256;"
-		code += "a+=a" + reg + ";"
+		code += "a+=state.a" + reg + ";"
 		code += "var x=(e>>>12)&7;"
 		code += "var y=(e>32767)?an(x):dn(x);"
 		code += "if (!(e&0x800))y=ewl(y);"
@@ -2180,23 +2231,23 @@ function effective_address_calc(mode, reg)
 	if (mode == MODE_AREG_OFFSET)
 	{
 		code = read_pc(1, "o", true)
-		code += "var z=a" + reg + "+ewl(o);"
+		code += "var z=state.a" + reg + "+ewl(o);"
 		code += "if(z>4294967295)z-=4294967296;"
 	}
 	// address register indirect
 	if (mode == MODE_AREG_INDIRECT)
-		code = "var z=a" + reg + ";"
+		code = "var z=state.a" + reg + ";"
 	return code
 }
 
 // generate code to set condition flags based on a value
 function set_condition_flags_data(size, s)
 {
-	var code = "sr&=65520;" // clear negative, zero, overflow, carry
-	code += "if(" + s + "==0)sr+=4;" // set zero flag
-	if (size == 0) return code + "if(" + s + "&128)sr+=8;" // set negative flag
-	if (size == 1) return code + "if(" + s + "&32768)sr+=8;" // set negative flag
-	if (size == 2) return code + "if(" + s + "&2147483648)sr+=8;" // set negative flag
+	var code = "state.sr &= 65520;" // clear negative, zero, overflow, carry
+	code += "if(" + s + "==0) state.sr += 4;" // set zero flag
+	if (size == 0) return code + "if(" + s + "&128) state.sr += 8;" // set negative flag
+	if (size == 1) return code + "if(" + s + "&32768) state.sr += 8;" // set negative flag
+	if (size == 2) return code + "if(" + s + "&2147483648) state.sr += 8;" // set negative flag
 }
 
 // generate code to write the data to the effective a specified by mode and reg of size size
@@ -2208,38 +2259,38 @@ function amode_write(mode, reg, size, data)
 	
 	// Absolute long
 	if (mode == MODE_MISC && reg == MISCMODE_LONG)
-		return "var addr = rl(pc); pc += 4; " + get_write(size) + "(addr," + data + ");"
+		return "var addr = rl(state.pc); state.pc += 4; " + get_write(size) + "(addr," + data + ");"
 	// Absolute short
 	if (mode == MODE_MISC && reg == MISCMODE_SHORT)
-		return "var addr = ewl(rw(pc)); pc += 2; " + get_write(size) + "(addr," + data + ");"
+		return "var addr = ewl(rw(state.pc)); state.pc += 2; " + get_write(size) + "(addr," + data + ");"
 	// address register direct
 	if (mode == MODE_AREG)
 	{
 		if (size == 2)
-			return "a" + reg + "=" + data + "&4294967295;" // if(a" + reg + "<0)a" + reg + "=4294967296; if(a" + reg + ">4294967295)a" + reg + "-=4294967296;"
+			return "state.a" + reg + "=" + data + "&4294967295;" // if(a" + reg + "<0)a" + reg + "=4294967296; if(a" + reg + ">4294967295)a" + reg + "-=4294967296;"
 		if (size == 1)
-			return "a" + reg + "=ewl(" + data + ")&4294967295;" // if(a" + reg + "<0)a" + reg + "=4294967296; if(a" + reg + ">4294967295)a" + reg + "-=4294967296;"
+			return "state.a" + reg + "=ewl(" + data + ")&4294967295;" // if(a" + reg + "<0)a" + reg + "=4294967296; if(a" + reg + ">4294967295)a" + reg + "-=4294967296;"
 	}
 	// address register indirect
 	if (mode == MODE_AREG_INDIRECT)
-		return get_write(size)+"(a" + reg + "," + data + ");"
+		return get_write(size)+"(state.a" + reg + "," + data + ");"
 	// address register indirect with postincrement 
 	if (mode == MODE_AREG_POSTINC)
-		return get_write(size)+"(a" + reg + "," + data + "); a" + reg + "+=" + increment + ";"
+		return get_write(size)+"(state.a" + reg + "," + data + "); state.a" + reg + "+=" + increment + ";"
 	// address register indirect with predecrement
 	if (mode == MODE_AREG_PREDEC) {
-		return "a" + reg + "-=" + increment + "; " + get_write(size) + "(a" + reg + "," + data + ");"
+		return "state.a" + reg + "-=" + increment + "; " + get_write(size) + "(state.a" + reg + "," + data + ");"
 	}
 	// adress register indirect with offset
 	if (mode == MODE_AREG_OFFSET)
-		return read_pc(1, "o", true) + get_write(size) + "(a" + reg + "+ewl(o)," + data + ");"
+		return read_pc(1, "o", true) + get_write(size) + "(state.a" + reg + "+ewl(o)," + data + ");"
 	// address register indirect with indexing
 	if (mode == MODE_AREG_INDEX)
 	{
 		var code = read_pc(1, "e", true)
 		code += "var a=e%256;"
 		code += "if(a>127)a-=256;"
-		code += "a+=a" + reg + ";"
+		code += "a+=state.a" + reg + ";"
 		code += "var x=(e>>>12)&7;"
 		code += "var y=(e>32767)?an(x):dn(x);"
 		code += "if(!(e&0x800))y=ewl(y);"
@@ -2250,11 +2301,11 @@ function amode_write(mode, reg, size, data)
 	if (mode == MODE_DREG)
 	{
 		if (size == 2)
-			return "d" + reg + "=" + data + "&4294967295;" // if(d" + reg + "<0)d" + reg + "=4294967296; if(d" + reg + ">4294967295)d" + reg + "-=4294967296;"
+			return "state.d" + reg + "=" + data + "&4294967295;" // if(d" + reg + "<0)d" + reg + "=4294967296; if(d" + reg + ">4294967295)d" + reg + "-=4294967296;"
 		if (size == 0)
-			return "d" + reg + "=((d" + reg + ">>>8)*256)+(" + data + "&255);"
+			return "state.d" + reg + "=((state.d" + reg + ">>>8)*256)+(" + data + "&255);"
 		if (size == 1)
-			return "d" + reg + "=((d" + reg + ">>>16)*65536)+(" + data + "&65535);"
+			return "state.d" + reg + "=((state.d" + reg + ">>>16)*65536)+(" + data + "&65535);"
 	}
 	return "fire_cpu_exception(4);" // Illegal Instruction
 }
@@ -2304,21 +2355,19 @@ function effective_address_calculation_time(mode, reg, size)
 // generate code for MOVEQ instructions
 function build_moveq()
 {
-	for (var data = 0; data <= 255; data++)
-	{
-		for (var reg = 0; reg < 8; reg++)
-		{
+	for (var data = 0; data <= 255; data++) {
+		for (var reg = 0; reg < 8; reg++) {
 			var opcode = 0x7000 + (reg << 9) + data;
-			var code = "sr&=65520;"; // clear all flags (except X)
-			code += "d" + reg + " = ";
+			var code = "state.sr &= 65520;"; // clear all flags (except X)
+			code += "state.d" + reg + " = ";
 			if (data < 128) {
 				code += data + "; ";
 				if (data == 0)
-					code += "sr|=4;"; // set zero flag
+					code += "state.sr |= 4;"; // set zero flag
 			}
 			else 
-				code += (data + 0xFFFFFF00) + "; sr|=8; ";
-			insert_inst2(opcode, code, "MOVEQ #" + hex_prefix + (data >= 128 ? to_hex(data - 256, 2) : to_hex(data, 2)) + ",D" + reg, 4);
+				code += (data + 0xFFFFFF00) + "; state.sr |= 8; ";
+			insert_inst2(opcode, code, "MOVEQ #" + state.hex_prefix + (data >= 128 ? to_hex(data - 256, 2) : to_hex(data, 2)) + ",D" + reg, 4);
 		}
 	}
 }
@@ -2326,61 +2375,67 @@ function build_moveq()
 // build executors for ADDQ and SUBQ
 function build_addsubq()
 {
-	for (var offset = -8; offset < 9; offset++)
-		for (var mode = 0; mode < 8; mode++)
-			for (var reg = 0; reg < 8; reg++)
-				for (var size = 0; size < 3; size++)
-					// do not allow add/subtract of byte from address register, or add/subtract of 0
-					if (valid_dest(mode, reg) && (mode != MODE_AREG || size != 0) && (offset != 0))
-					{
-						var name = "";
-						var opcode = 0;
-						if (offset > 0)
+	for (var offset = -8; offset < 9; offset++) {
+		if (offset != 0) {
+			for (var mode = 0; mode < 8; mode++) {
+				for (var reg = 0; reg < 8; reg++) {
+					for (var size = 0; size < 3; size++) {
+						// do not allow add/subtract of byte from address register, or add/subtract of 0
+						if (valid_dest(mode, reg) && (mode != MODE_AREG || size != 0))
 						{
-							opcode = 0x5000 + (offset << 9)
-							if (offset == 8) opcode = 0x5000
-							opcode += (size << 6) + (mode << 3) + reg
-							name = "ADDQ" + size_name(size) + " #" + offset + "," + amode_name(mode, reg, 0)
+							var name = "";
+							var opcode = 0;
+							if (offset > 0)
+							{
+								opcode = 0x5000 + (offset << 9)
+								if (offset == 8) opcode = 0x5000
+								opcode += (size << 6) + (mode << 3) + reg
+								name = "ADDQ" + size_name(size) + " #" + offset + "," + amode_name(mode, reg, 0)
+							}
+							else
+							{
+								opcode = 0x5100 + ((-offset) << 9)
+								if (offset == -8) opcode = 0x5100
+								opcode += (size << 6) + (mode << 3) + reg
+								name = "SUBQ" + size_name(size) + " #" + (-offset) + "," + amode_name(mode, reg, 0)
+							}
+							var actualsize = (mode == MODE_AREG) ? 2 : size; // for address registers, always treat as long
+							var cost = (size == 2) ? (((mode == MODE_DREG) || (mode == MODE_AREG)) ? 4 : 8)
+									       : (((mode == MODE_DREG) || (mode == MODE_AREG)) ? 8 : 12);
+							var code = amode_read(mode, reg, actualsize, false);
+							if (mode == MODE_AREG) 
+							{
+								// for address registers we don't set condition codes and thus can use a much simpler operation
+								code += "var r=s+" + offset + ";"
+								if (offset < 0) code += "if(r<0)r+=4294967296;"
+								if (offset > 0) code += "if(r>4294967295)r-=4294967296;" // was state.pc ???
+							}
+							else
+							{
+								// regular arithmetic with condition flags set for every other destination
+								if (size == 0 && offset < 0)
+									code +=  "var r=subb(" + (-offset) + ", s);" 
+								if (size == 0 && offset > 0)
+									code +=  "var r=addb(" + offset + ", s);" 
+								if (size == 1 && offset < 0)
+									code +=  "var r=subw(" + (-offset) + ", s);" 
+								if (size == 1 && offset > 0)
+									code +=  "var r=addw(" + offset + ", s);" 
+								if (size == 2 && offset < 0)
+									code +=  "var r=subl(" + (-offset) + ", s);" 
+								if (size == 2 && offset > 0)
+									code +=  "var r=addl(" + offset + ", s);" 
+								// copy carry flag into X flag
+								code += "state.sr = (state.sr&0xFFEF)|((state.sr&1)<<4);"
+							}
+							code += amode_write(mode, reg, actualsize, "r")
+							insert_inst2(opcode, code, name, cost + effective_address_calculation_time(mode, reg, size));
 						}
-						else
-						{
-							opcode = 0x5100 + ((-offset) << 9)
-							if (offset == -8) opcode = 0x5100
-							opcode += (size << 6) + (mode << 3) + reg
-							name = "SUBQ" + size_name(size) + " #" + (-offset) + "," + amode_name(mode, reg, 0)
-						}
-						var actualsize = (mode == MODE_AREG) ? 2 : size; // for address registers, always treat as long
-						var cost = (size == 2) ? (((mode == MODE_DREG) || (mode == MODE_AREG)) ? 4 : 8)
-						                       : (((mode == MODE_DREG) || (mode == MODE_AREG)) ? 8 : 12);
-						var code = amode_read(mode, reg, actualsize, false);
-						if (mode == MODE_AREG) 
-						{
-							// for address registers we don't set condition codes and thus can use a much simpler operation
-							code += "var r=s+" + offset + ";"
-							if (offset < 0) code += "if(r<0)r+=4294967296;"
-							if (offset > 0) code += "if(r>4294967295)pc+=4294967296;"
-						}
-						else
-						{
-							// regular arithmetic with condition flags set for every other destination
-							if (size == 0 && offset < 0)
-								code +=  "var r=subb(" + (-offset) + ", s);" 
-							if (size == 0 && offset > 0)
-								code +=  "var r=addb(" + offset + ", s);" 
-							if (size == 1 && offset < 0)
-								code +=  "var r=subw(" + (-offset) + ", s);" 
-							if (size == 1 && offset > 0)
-								code +=  "var r=addw(" + offset + ", s);" 
-							if (size == 2 && offset < 0)
-								code +=  "var r=subl(" + (-offset) + ", s);" 
-							if (size == 2 && offset > 0)
-								code +=  "var r=addl(" + offset + ", s);" 
-							// copy carry flag into X flag
-							code += "sr=(sr&0xFFEF)|((sr&1)<<4);"
-						}
-						code += amode_write(mode, reg, actualsize, "r")
-						insert_inst2(opcode, code, name, cost + effective_address_calculation_time(mode, reg, size));
 					}
+				}
+			}
+		}
+	}
 }
 
 // build all the branches for the given condition, name, and bits
@@ -2390,8 +2445,7 @@ function build_conditionals(condition, name, bits)
 	var dbcc_opcode = 0x50C8 + (bits << 8)
 	var scc_opcode = 0x50C0 + (bits << 8)
 	// Bcc
-	for (var o = 0; o < 256; o++)
-	{
+	for (var o = 0; o < 256; o++) {
 		var opcode = bcc_opcode + o;
 		var iname = "B" + name;
 		var cost = 10;
@@ -2412,38 +2466,38 @@ function build_conditionals(condition, name, bits)
 		if (o == 0)
 		{
 			// Branch using word displacement.
-			code = "var o=rw(pc);"
+			code = "var o=rw(state.pc);"
 			if (name == "F")
 			{
-				code += amode_write(4, 7, 2, "(pc+2)")
+				code += amode_write(4, 7, 2, "(state.pc+2)")
 				code += "if(true) {"
 			}
 			else
 			{
 				code += condition + "{";
 			}
-			code += "pc+=ewl(o);";
-			code += "if(pc>4294967295)pc-=4294967296;";
+			code += "state.pc+=ewl(o);";
+			code += "if(state.pc>4294967295)state.pc-=4294967296;";
 			code += "}";
 			code += "else {";
-			code += "pc += 2; cycle_count += 2;"; // Word branches are slower if not taken.
+			code += "state.pc += 2; state.cycle_count += 2;"; // Word branches are slower if not taken.
 			code += "}";
 		}
 		else
 		{
 			// Branch using byte displacement.
 			if (name == "F")
-				code = amode_write(4, 7, 2, "pc")
+				code = amode_write(4, 7, 2, "state.pc")
 			else
 				code += condition + "{";
 			if (o < 128)
-				code +=  "pc+=" + o + ";"
+				code +=  "state.pc+=" + o + ";"
 			else
-				code +=  "pc-=" + (256 - o) + ";"
+				code +=  "state.pc-=" + (256 - o) + ";"
 			if (name != "F") {
 				code += "}";
 				code += "else {";
-				code += "cycle_count -= 2;"; // Short branches are faster if not taken.
+				code += "state.cycle_count -= 2;"; // Short branches are faster if not taken.
 				code += "}";
 			}
 		}
@@ -2451,50 +2505,50 @@ function build_conditionals(condition, name, bits)
 	}
 
 	// DBcc
-	for (var reg = 0; reg < 8; reg++)
-	{
+	for (var reg = 0; reg < 8; reg++) {
 		var opcode = dbcc_opcode + reg
 		var cost = 10;
-		var code = condition + "{ pc += 2; cycle_count += 2; } else {"
-		code += "var p=d" + reg + ";"
+		var code = condition + "{ state.pc += 2; state.cycle_count += 2; } else {"
+		code += "var p=state.d" + reg + ";"
 		code += "var u=(p>>>16)*65536;"
 		code += "var l=p%65536;"
 		code += "var m=(l - 1)&65535;"
-		code += "d" + reg + "=u+m;"
+		code += "state.d" + reg + "=u+m;"
 		code += "if(m==65535) {"
-		code += "pc+=2; cycle_count += 4;"
+		code += "state.pc+=2; state.cycle_count += 4;"
 		code += "} else {"
-		code += "pc=(pc+ewl(rw(pc)))%4294967296;}"
+		code += "state.pc=(state.pc+ewl(rw(state.pc)))%4294967296;}"
 		code += "}"
 		insert_inst2(opcode, code, "DB" + name + " D" + reg + ",disp", cost)
 	}
 
 	// Scc
-	for (var reg = 0; reg < 8; reg++)
-		for (var mode = 0; mode < 8; mode++)
+	for (var reg = 0; reg < 8; reg++) {
+		for (var mode = 0; mode < 8; mode++) {
 			if (valid_dest(mode, reg) && mode != 1)
 			{
 				var opcode = scc_opcode + reg + (mode << 3)
 				var cost = (mode == MODE_DREG) ? 4 : 8;
 				var code = condition + "{"
 				code += amode_write(mode, reg, 0, "255");
-				if (mode == MODE_DREG) code += "cycle_count += 2;"
+				if (mode == MODE_DREG) code += "state.cycle_count += 2;"
 				code += "} else {"
 				code += amode_write(mode, reg, 0, "0")
 				code += "}"
 				insert_inst2(opcode, code, "S" + name + " " + amode_name(mode, reg, 0), cost + effective_address_calculation_time(mode, reg, 0))
 			}
+		}
+	}
 }
 
 // generate standard MOVE instructions
 function build_moves(name, size, pattern)
 {
-	for (var srcmode = 0; srcmode < 8; srcmode++)
-		for (var srcreg = 0; srcreg < 8; srcreg++)
-			for (var dstmode = 0; dstmode < 8; dstmode++)
-			{
+	for (var srcmode = 0; srcmode < 8; srcmode++) {
+		for (var srcreg = 0; srcreg < 8; srcreg++) {
+			for (var dstmode = 0; dstmode < 8; dstmode++) {
 				if (size == 0 && (dstmode == 1 || srcmode == 1)) continue; // no byte moves from and to address registers
-				for (var dstreg = 0; dstreg < 8; dstreg++)
+				for (var dstreg = 0; dstreg < 8; dstreg++) {
 					if (valid_source(srcmode, srcreg) && valid_dest(dstmode, dstreg))
 					{
 						var opcode = pattern + (dstreg << 9) + (dstmode << 6) + (srcmode << 3) + srcreg
@@ -2502,39 +2556,45 @@ function build_moves(name, size, pattern)
 						var code = amode_read(srcmode, srcreg, size, true)
 						code += amode_write(dstmode, dstreg, size, "s")
 						// set condition codes, except when writing to a registers
-						if (dstmode != 1)
+						if (dstmode != MODE_AREG) {
 							code += set_condition_flags_data(size, "s")
+						}
 						insert_inst2(opcode, code, fullname, 4 + effective_address_calculation_time(srcmode, srcreg, size) + effective_address_calculation_time(dstmode, dstreg, size))
 					}
+				}
 			}
+		}
+	}
 }
 
 function build_movep()
 {
 	// TODO: emulate this instruction properly instead of a 4-byte NOP.
 	// From memory to register
-	for (var opmode = 4; opmode < 6; opmode++)
-		for (var areg = 0; areg < 8; areg++)
-			for (var dreg = 0; dreg < 8; dreg++)
-			{
+	for (var opmode = 4; opmode < 6; opmode++) {
+		for (var areg = 0; areg < 8; areg++) {
+			for (var dreg = 0; dreg < 8; dreg++) {
 				var opcode = 0x0008 + (dreg << 9) + (opmode << 6) + areg
 				var fullname = "MOVEP" + ((opmode & 1) ? ".L " : ".W ") + "d(A" + areg + "),D" + dreg;
-				var code = "pc += 2" // TODO
+				var code = "state.pc += 2" // TODO
 				// condition codes not affected.
 				insert_inst2(opcode, code, fullname, ((opmode & 1) ? 24 : 16))
 			}
+		}
+	}
 
 	// From register to memory
-	for (var opmode = 6; opmode < 8; opmode++)
-		for (var areg = 0; areg < 8; areg++)
-			for (var dreg = 0; dreg < 8; dreg++)
-			{
+	for (var opmode = 6; opmode < 8; opmode++) {
+		for (var areg = 0; areg < 8; areg++) {
+			for (var dreg = 0; dreg < 8; dreg++) {
 				var opcode = 0x0008 + (dreg << 9) + (opmode << 6) + areg
 				var fullname = "MOVEP" + ((opmode & 1) ? ".L " : ".W ") + "D" + dreg + ",d(A" + areg + ")"
-				var code = "pc += 2" // TODO
+				var code = "state.pc += 2" // TODO
 				// condition codes not affected.
 				insert_inst2(opcode, code, fullname, ((opmode & 1) ? 24 : 16))
 			}
+		}
+	}
 }
 
 // perform a standard operation of given size between given source and dest
@@ -2563,11 +2623,10 @@ function build_operation(name, size, source, dest)
 // build standard calculation operations
 function build_calc(name, bits)
 {
-	for (var dreg = 0; dreg < 8; dreg++)
-		for (var reg = 0; reg < 8; reg++)
-			for (var mode = 0; mode < 8; mode++)
-				for (var size = 0; size < 3; size++)
-				{
+	for (var dreg = 0; dreg < 8; dreg++) {
+		for (var reg = 0; reg < 8; reg++) {
+			for (var mode = 0; mode < 8; mode++) {
+				for (var size = 0; size < 3; size++) {
 					var opcode = bits + (dreg << 9) + (size << 6) + (mode << 3) + reg
 					// generate version with EA as source
 					if (valid_source(mode, reg) && name != "EOR") // EA as source does work for EOR
@@ -2581,7 +2640,7 @@ function build_calc(name, bits)
 								cost += 2;
 							}
 						}
-						code += build_operation(name, size, "s", "d" + dreg + "")
+						code += build_operation(name, size, "s", "state.d" + dreg + "")
 						code += amode_write(MODE_DREG, dreg, size, "r")
 						insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(mode, reg, size))
 					}
@@ -2592,38 +2651,43 @@ function build_calc(name, bits)
 						var iname = name + size_name(size) + " D" + dreg + "," + amode_name(mode, reg, size)
 						var code = amode_read(mode, reg, size, false)
 						var cost = (size == 2) ? 12 : 8;
-						code += build_operation(name, size, "d" + dreg, "s")
+						code += build_operation(name, size, "state.d" + dreg, "s")
 						code += amode_write(mode, reg, size, "r")
 						insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(mode, reg, size))
 					}
 				}
+			}
+		}
+	}
 }
 
 // build multiply and divide
 function build_muldiv(name, bits, calcfunc, cost)
 {
-	for (var dreg = 0; dreg < 8; dreg++)
-		for (var mode = 0; mode < 8; mode++)
-			for (var reg = 0; reg < 8; reg++)
-				if (valid_source(mode, reg) && mode != MODE_AREG)
-				{
+	for (var dreg = 0; dreg < 8; dreg++) {
+		for (var mode = 0; mode < 8; mode++) {
+			for (var reg = 0; reg < 8; reg++) {
+				if (valid_source(mode, reg) && mode != MODE_AREG) {
 					var opcode = bits + (dreg << 9) + (mode << 3) + reg
 					var iname = name + " " + amode_name(mode, reg, 1) + ",D" + dreg
 					var code = amode_read(mode, reg, 1, true)
-					code += "d" + dreg + " = " + calcfunc + "(s,d" + dreg +");";
+					code += "state.d" + dreg + " = " + calcfunc + "(s,state.d" + dreg +");";
 //					code += "if(d" + dreg + "<0)d" + dreg + "+=4294967296; if(d" + dreg + ">4294967295)d" + dreg + "-=4294967296;"
 					insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(mode, reg, 1))
 				}
+			}
+		}
+	}
 }
 
 // build a bit operation
 function build_bit_operation(name, bits, registercost, memorycost)
 {
-	for (var srcmode = 0; srcmode < 8; srcmode++)
-		for (var srcreg = 0; srcreg < 8; srcreg++)
+	for (var srcmode = 0; srcmode < 8; srcmode++) {
+		for (var srcreg = 0; srcreg < 8; srcreg++) {
 			if (srcmode != 1 && (valid_dest(srcmode, srcreg) || // No bit operations to address registers.
 				(name == 'BTST' && srcmode == MODE_MISC && 
-				(srcreg == MISCMODE_PC_OFFSET || srcreg == MISCMODE_PC_INDEX))))
+				(srcreg == MISCMODE_PC_OFFSET || srcreg == MISCMODE_PC_INDEX)))) {
 				for (var dreg = 0; dreg <= 8; dreg++) // if this value is 8, use bit number static version
 				{
 					var opcode, iname, code = "";
@@ -2645,7 +2709,7 @@ function build_bit_operation(name, bits, registercost, memorycost)
 						if (dreg == 8)
 							code += "b&=31;"
 						else
-							code += "var b=31&d" + dreg +";"
+							code += "var b=31&state.d" + dreg +";"
 						code += amode_read(srcmode, srcreg, 2, name == "BTST")
 					}
 					else
@@ -2654,11 +2718,11 @@ function build_bit_operation(name, bits, registercost, memorycost)
 						if (dreg == 8)
 							code += "b&=7;"
 						else
-							code += "var b=7&d" + dreg +";"
+							code += "var b=7&state.d" + dreg +";"
 						code += amode_read(srcmode, srcreg, 0, name == "BTST")
 					}
-					code += "sr|=4;" // set zero flag
-					code += "if (s&(1<<b))sr=sr&65531;" // clear zero flag if bit is set (nonzero)
+					code += "state.sr|=4;" // set zero flag
+					code += "if (s&(1<<b))state.sr=state.sr&65531;" // clear zero flag if bit is set (nonzero)
 					if (name != "BTST")
 					{
 						if (srcmode <= 1)
@@ -2681,21 +2745,24 @@ function build_bit_operation(name, bits, registercost, memorycost)
 					}
 					insert_inst(opcode, code, iname)
 				}
+			}
+		}
+	}
 }
 
 function build_cmp()
 {
-	for (var size = 0; size < 3; size++)
-		for (var srcmode = 0; srcmode < 8; srcmode++)
-			for (var srcreg = 0; srcreg < 8; srcreg++)
-				for (var firstreg = 0; firstreg < 8; firstreg++)
+	for (var size = 0; size < 3; size++) {
+		for (var srcmode = 0; srcmode < 8; srcmode++) {
+			for (var srcreg = 0; srcreg < 8; srcreg++) {
+				for (var firstreg = 0; firstreg < 8; firstreg++) {
 					if (valid_source(srcmode, srcreg))
 					{
 						var opcode = 0xB000 + (firstreg << 9) + (size << 6) + (srcmode << 3) + srcreg;
 						var iname = "CMP" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",D" + firstreg
 						var code = amode_read(srcmode, srcreg, size, true)
 						var cost = (size == 2) ? 6 : 4;
-						code += "var m=d" + firstreg + ";"
+						code += "var m=state.d" + firstreg + ";"
 						if (size == 1) code += "m=m&0xFFFF;"
 						if (size == 0) code += "m=m&0xFF;"
 						if (size == 0) code += "cmpb(s,m);"
@@ -2703,14 +2770,18 @@ function build_cmp()
 						if (size == 2) code += "cmpl(s,m);"
 						insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
 					}
+				}
+			}
+		}
+	}
 }
 
 function build_adest()
 {
-	for (var areg = 0; areg < 8; areg++)
-		for (var srcreg = 0; srcreg < 8; srcreg++)
-			for (var srcmode = 0; srcmode < 8; srcmode++)
-				for (var size = 1; size < 3; size++)
+	for (var areg = 0; areg < 8; areg++) {
+		for (var srcreg = 0; srcreg < 8; srcreg++) {
+			for (var srcmode = 0; srcmode < 8; srcmode++) {
+				for (var size = 1; size < 3; size++) {
 					if (valid_source(srcmode, srcreg))
 					{
 						var opcode = 0xB0C0 + (areg << 9) + ((size - 1) << 8) + (srcmode << 3) + srcreg
@@ -2718,7 +2789,7 @@ function build_adest()
 						var code = amode_read(srcmode, srcreg, size, true)
 						var cost = 6 + effective_address_calculation_time(srcmode, srcreg, size);
 						if (size == 1) code += "s=ewl(s);"
-						code += "cmpl(s,a" + areg + ");"
+						code += "cmpl(s,state.a" + areg + ");"
 						insert_inst2(opcode, code, iname, cost)
 
 						cost += 2;
@@ -2730,7 +2801,7 @@ function build_adest()
 						iname = "SUBA" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",A" + areg
 						code = amode_read(srcmode, srcreg, size, true)
 						if (size == 1) code += "s=ewl(s);"
-						code += "var r=a" + areg + " - s;"
+						code += "var r=state.a" + areg + " - s;"
 						code += "if(r<0)r+=4294967296;"
 						code += amode_write(1, areg, 2, "r")
 						insert_inst2(opcode, code, iname, cost)
@@ -2739,22 +2810,25 @@ function build_adest()
 						iname = "ADDA" + size_name(size) + " " + amode_name(srcmode, srcreg, size) + ",A" + areg
 						code = amode_read(srcmode, srcreg, size, true)
 						if (size == 1) code += "s=ewl(s);"; cost += 2;
-						code += "var r=a" + areg + "+s;"
+						code += "var r=state.a" + areg + " + s;"
 						code += "if(r>4294967295)r-=4294967296;"
 						code += amode_write(1, areg, 2, "r")
 						insert_inst2(opcode, code, iname, cost)
 					}
+				}
+			}
+		}
+	}
 
 }
 
 function build_shifts(name, mask, altmask, namelower)
 {
 	// register target version
-	for (var reg = 0; reg < 8; reg++)
-		for (var size = 0; size < 3; size++)
-			for (var shift = 0; shift < 8; shift++)
-				for (var mm = 0; mm < 2; mm++)
-				{
+	for (var reg = 0; reg < 8; reg++) {
+		for (var size = 0; size < 3; size++) {
+			for (var shift = 0; shift < 8; shift++) {
+				for (var mm = 0; mm < 2; mm++) {
 					var actualshift = shift == 0 ? 8 : shift;
 					var iname = "";
 					var opcode = mask + 0x20 + (size << 6) + reg + (shift << 9);
@@ -2769,19 +2843,23 @@ function build_shifts(name, mask, altmask, namelower)
 					else
 					{
 						iname = name + size_name(size) + " D" + shift + ",D" + reg
-						shiftamount = "d" + shift + "&31";
+						shiftamount = "state.d" + shift + "&31";
 					}
 					var src = "";
-					if (size == 0) src = "d" + reg + "&255"
-					else if (size == 1) src = "d" + reg + "&65535"
-					else if (size == 2) src = "d" + reg
+					if (size == 0) src = "state.d" + reg + "&255"
+					else if (size == 1) src = "state.d" + reg + "&65535"
+					else if (size == 2) src = "state.d" + reg
 					// TODO implement variable cost according to shiftamount.
 					var code = amode_write(MODE_DREG, reg, size, namelower + "(" + src + "," + shiftamount + "," + size + ")")
 					insert_inst2(opcode, code, iname, cost)
 				}
+			}
+		}
+	}
+
 	// EA target version
-	for (var reg = 0; reg < 8; reg++)
-		for (var mode = 0; mode < 8; mode++)
+	for (var reg = 0; reg < 8; reg++) {
+		for (var mode = 0; mode < 8; mode++) {
 			if (valid_dest(mode, reg) && mode != MODE_DREG && mode != MODE_AREG)
 			{
 				var opcode = altmask + (mode << 3) + reg;
@@ -2790,13 +2868,15 @@ function build_shifts(name, mask, altmask, namelower)
 				code += amode_write(mode, reg, 1, namelower + "(s,1,1)")
 				insert_inst2(opcode, code, iname, 8 + effective_address_calculation_time(mode, reg, 1))
 			}
+		}
+	}
 }
 
 function build_immediate(name, mask, operation)
 {
-	for (var reg = 0; reg < 8; reg++)
-		for (var mode = 0; mode < 8; mode++)
-			for (var size = 0; size < 3; size++)
+	for (var reg = 0; reg < 8; reg++) {
+		for (var mode = 0; mode < 8; mode++) {
+			for (var size = 0; size < 3; size++) {
 				if ((valid_dest(mode, reg) && mode != MODE_AREG) || (mode == MODE_MISC && reg == 4 && size < 2 && operation != ""))
 				{
 					var opcode = mask + (size << 6) + (mode << 3) + reg
@@ -2814,9 +2894,9 @@ function build_immediate(name, mask, operation)
 					}
 					if (mode == MODE_MISC && reg == 4)
 					{
-						if (size == 1) code += "if(sr&0x2000==0)fire_cpu_exception(8);";
+						if (size == 1) code += "if(state.sr&0x2000==0)fire_cpu_exception(8);";
 						if (size == 0 && name == "ANDI") code += "m|=0xFF00;"
-						code += "update_sr(sr" + operation.substring(7,8) + "m);"
+						code += "update_sr(state.sr" + operation.substring(7,8) + "m);"
 						insert_inst2(opcode, code, iname, 20)
 					}
 					else
@@ -2835,15 +2915,17 @@ function build_immediate(name, mask, operation)
 						insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(mode, reg, size))
 					}
 				}
+			}
+		}
+	}
 }
 
 function build_ext(name, bits)
 {
-	for (var src = 0; src < 8; src++)
-		for (var dst = 0; dst < 8; dst++)
-			for (var size = 0; size < 3; size++)
-				for (var mem = 0; mem < 2; mem++)
-				{
+	for (var src = 0; src < 8; src++) {
+		for (var dst = 0; dst < 8; dst++) {
+			for (var size = 0; size < 3; size++) {
+				for (var mem = 0; mem < 2; mem++) {
 					var opcode = bits + (dst << 9) + (size << 6) + (mem << 3) + src
 					var iname = name + size_name(size)
 					if (mem == 0)
@@ -2859,14 +2941,17 @@ function build_ext(name, bits)
 					var cost = (mode == MODE_DREG) ? ((size == 2) ? 8 : 4) : ((size == 2) ? 30 : 18)
 					insert_inst2(opcode, code, iname, cost)
 				}
+			}
+		}
+	}
 }
 
 function build_not_neg_clr_tst_tas()
 {
-	for (var size = 0; size < 3; size++)
-		for (var srcmode = 0; srcmode < 8; srcmode++)
-			for (var srcreg = 0; srcreg < 8; srcreg++)
-				if (valid_dest(srcmode, srcreg))
+	for (var size = 0; size < 3; size++) {
+		for (var srcmode = 0; srcmode < 8; srcmode++) {
+			for (var srcreg = 0; srcreg < 8; srcreg++) {
+				if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
 				{
 					var opcode = 0x4600 + (size << 6) + (srcmode << 3) + srcreg;
 					var iname = "NOT" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
@@ -2887,19 +2972,19 @@ function build_not_neg_clr_tst_tas()
 					opcode = 0x4400 + (size << 6) + (srcmode << 3) + srcreg;
 					iname = "NEG" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					code = amode_read(srcmode, srcreg, size, false)
-					code += "sr &= 0xFFE0;"
-					if (size == 0) code += "var r=s==0?0:256-s;if(r&0x80)sr|=8;"
-					if (size == 1) code += "var r=s==0?0:65536-s;if(r&0x8000)sr|=8;"
-					if (size == 2) code += "var r=s==0?0:4294967296-s;if(r&2147483647)sr|=8;"
-					code += "if(r==0)sr|=4;else sr|=17;" // set zero flag for zero, extend and carry otherwise
+					code += "state.sr &= 0xFFE0;"
+					if (size == 0) code += "var r=s==0?0:256-s;if(r&0x80)state.sr|=8;"
+					if (size == 1) code += "var r=s==0?0:65536-s;if(r&0x8000)state.sr|=8;"
+					if (size == 2) code += "var r=s==0?0:4294967296-s;if(r&2147483647)state.sr|=8;"
+					code += "if(r==0)state.sr|=4;else state.sr|=17;" // set zero flag for zero, extend and carry otherwise
 					code += amode_write(srcmode, srcreg, size, "r")
 					insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
 
 					opcode = 0x4000 + (size << 6) + (srcmode << 3) + srcreg;
 					iname = "NEGX" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
 					code = amode_read(srcmode, srcreg, size, false)
-					code += "sr &= 0xFFF0;"
-					code += "if(sr&0x10)s++;"
+					code += "state.sr &= 0xFFF0;"
+					code += "if(state.sr&0x10)s++;"
 					if (size == 0) code += "var r=256-s;"
 					if (size == 1) code += "var r=65536-s;"
 					if (size == 2) code += "var r=4294967296-s;if(r>4294967295)r=0;"
@@ -2907,57 +2992,60 @@ function build_not_neg_clr_tst_tas()
 					code += amode_write(srcmode, srcreg, size, "r")
 					insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
 
-					if (srcmode != MODE_AREG)
+					opcode = 0x4200 + (size << 6) + (srcmode << 3) + srcreg;
+					iname =  "CLR" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
+					code = amode_write(srcmode, srcreg, size, "0")
+					code += "state.sr|=4;"
+					insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
+
+					opcode = 0x4a00 + (size << 6) + (srcmode << 3) + srcreg;
+					iname = "TST" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
+					code = amode_read(srcmode, srcreg, size, true)
+					code += set_condition_flags_data(size, "s")
+					insert_inst2(opcode, code, iname, 4 + effective_address_calculation_time(srcmode, srcreg, size))
+
+					// TAS exists only under byte form.
+					if (size == 0)
 					{
-						opcode = 0x4200 + (size << 6) + (srcmode << 3) + srcreg;
-						iname =  "CLR" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
-						code = amode_write(srcmode, srcreg, size, "0")
-						code += "sr|=4;"
-						insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
-
-						opcode = 0x4a00 + (size << 6) + (srcmode << 3) + srcreg;
-						iname = "TST" + size_name(size) + " " + amode_name(srcmode, srcreg, size)
-						code = amode_read(srcmode, srcreg, size, true)
-						code += set_condition_flags_data(size, "s")
-						insert_inst2(opcode, code, iname, 4 + effective_address_calculation_time(srcmode, srcreg, size))
-
-						// TAS exists only under byte form.
-						if (size == 0)
-						{
-							opcode = 0x4ac0 + (srcmode << 3) + srcreg;
-							iname = "TAS.B" + " " + amode_name(srcmode, srcreg, 0)
-							code = amode_read(srcmode, srcreg, 0, true)
-							code += set_condition_flags_data(0, "s")
-							code += amode_write(srcmode, srcreg, 0, "s | 0x80")
-							insert_inst2(opcode, code, iname, (srcmode == MODE_DREG) ? 4 : (14 + effective_address_calculation_time(srcmode, srcreg, size)))
-						}
+						opcode = 0x4ac0 + (srcmode << 3) + srcreg;
+						iname = "TAS.B" + " " + amode_name(srcmode, srcreg, 0)
+						code = amode_read(srcmode, srcreg, 0, true)
+						code += set_condition_flags_data(0, "s")
+						code += amode_write(srcmode, srcreg, 0, "s | 0x80")
+						insert_inst2(opcode, code, iname, (srcmode == MODE_DREG) ? 4 : (14 + effective_address_calculation_time(srcmode, srcreg, size)))
 					}
 				}
+			}
+		}
+	}
 }
 
 function build_lea()
 {
-	for (var srcmode = 0; srcmode < 8; srcmode++)
-		for (var srcreg = 0; srcreg < 8; srcreg++)
-			for (var reg = 0; reg < 8; reg++)
+	for (var srcmode = 0; srcmode < 8; srcmode++) {
+		for (var srcreg = 0; srcreg < 8; srcreg++) {
+			for (var reg = 0; reg < 8; reg++) {
 				if (valid_calc_effective_address(srcmode, srcreg))
 				{
 					var opcode = 0x41C0 + (reg << 9) + (srcmode << 3) + srcreg;
 					var iname = "LEA " + amode_name(srcmode, srcreg, 1) + ",A" + reg
 					var code = effective_address_calc(srcmode, srcreg)
-					code += "a" + reg + "=z;"
+					code += "state.a" + reg + "=z;"
 					if (opcode == 0x41FA && enable_kludge_in_lea_d_pc_a0) {
-						code += "if((o == 7) && (pc < 0x40000) && (rw(pc) == 0x4210) && (rw(pc+2) == 0x6000) && (rw(pc+4) == 0x000A) && (rw(pc+6) == 0x0000) && (rw(pc+8) == 0x4E4C) && (rw(pc+10) == 0x534F) && (rw(pc+12) == 0x4AFC)) { pc += 14; }";
+						code += "if((o == 7) && (state.pc < 0x40000) && (rw(state.pc) == 0x4210) && (rw(state.pc+2) == 0x6000) && (rw(state.pc+4) == 0x000A) && (rw(state.pc+6) == 0x0000) && (rw(state.pc+8) == 0x4E4C) && (rw(state.pc+10) == 0x534F) && (rw(state.pc+12) == 0x4AFC)) { state.pc += 14; }";
 					}
 					insert_inst(opcode, code, iname)
 				}
+			}
+		}
+	}
 }
 
 function build_cmpi()
 {
-	for (var size = 0; size < 3; size++)
-		for (var srcmode = 0; srcmode < 8; srcmode++)
-			for (var srcreg = 0; srcreg < 8; srcreg++)
+	for (var size = 0; size < 3; size++) {
+		for (var srcmode = 0; srcmode < 8; srcmode++) {
+			for (var srcreg = 0; srcreg < 8; srcreg++) {
 				if (valid_dest(srcmode, srcreg))
 				{
 					var opcode = 0xC00 + (size << 6) + (srcmode << 3) + srcreg;
@@ -2976,14 +3064,16 @@ function build_cmpi()
 					if (size==2) code += "cmpl(subtrahend, s);"
 					insert_inst2(opcode, code, iname, cost + effective_address_calculation_time(srcmode, srcreg, size))
 				}
+			}
+		}
+	}
 }
 
 function build_movem()
 {
-	for (var reg = 0; reg < 8; reg++)
-		for (var mode = 0; mode < 8; mode++)
-			for (var size = 1; size < 3; size++)
-			{
+	for (var reg = 0; reg < 8; reg++) {
+		for (var mode = 0; mode < 8; mode++) {
+			for (var size = 1; size < 3; size++) {
 				var actualsize = size * 2
 				// to registers
 				if (mode == MODE_AREG_INDIRECT || 
@@ -3000,7 +3090,7 @@ function build_movem()
 					var iname = "MOVEM" + size_name(size + 1) + " " + amode_name(mode, reg, size) + ",regs"
 					var code = read_pc(1, "regs", true)
 					if (mode == MODE_AREG_POSTINC)
-						code += "var newval = load_multiple_postinc(a" + reg + ", regs, " + size + "); a" + reg + " = newval;";
+						code += "var newval = load_multiple_postinc(state.a" + reg + ", regs, " + size + "); state.a" + reg + " = newval;";
 					else
 					{
 						code += effective_address_calc(mode, reg);
@@ -3024,7 +3114,7 @@ function build_movem()
 					if (mode == MODE_AREG_PREDEC)
 					{
 						iname = iname.replace("regs", "regspredec");
-						code += "var newval = store_multiple_predec(a" + reg + ", regs, " + size + "); a" + reg + " = newval;";
+						code += "var newval = store_multiple_predec(state.a" + reg + ", regs, " + size + "); state.a" + reg + " = newval;";
 					}
 					else
 					{
@@ -3034,14 +3124,15 @@ function build_movem()
 					insert_inst(opcode, code, iname)
 				}
 			}
+		}
+	}
 }
 
 function build_cmpm()
 {
-	for (var src = 0; src < 8; src++)
-		for (var dest = 0; dest < 8; dest++)
-			for (var size = 0; size < 3; size++)
-			{
+	for (var src = 0; src < 8; src++) {
+		for (var dest = 0; dest < 8; dest++) {
+			for (var size = 0; size < 3; size++) {
 				var opcode = 0xB108 + (dest << 9) + (size << 6) + src
 				var iname = "CMPM" + size_name(size) + " (A" + src + ")+,(A" + dest + ")+'"
 				var code = amode_read(MODE_AREG_POSTINC, src, size, true)
@@ -3052,16 +3143,17 @@ function build_cmpm()
 				if (size == 2) code += "cmpl(u,s);"
 				insert_inst2(opcode, code, iname, (size == 2) ? 20 : 12)
 			}
+		}
+	}
 }
 
 function build_bcd()
 {
 	// ABCD, SBCD
-	for (var src = 0; src < 8; src++)
-		for (var dest = 0; dest < 8; dest++)
-			for (var m = 1; m >= 0; m--)
-				for (var sub = 0; sub <= 1; sub++)
-				{
+	for (var src = 0; src < 8; src++) {
+		for (var dest = 0; dest < 8; dest++) {
+			for (var m = 1; m >= 0; m--) {
+				for (var sub = 0; sub <= 1; sub++) {
 					var operation = sub == 0 ? "ABCD" : "SBCD"
 					var opcode = 0x8100 + (dest << 9) + src
 					if (operation == "ABCD") opcode += 0x4000
@@ -3088,14 +3180,17 @@ function build_bcd()
 					}
 					else
 					{
-						code = "d" + dest + "+=" + operation.toLowerCase() + "(d" + dest + ",d" + src + ")-d" + dest + "&0xFF;"
+						code = "state.d" + dest + "+=" + operation.toLowerCase() + "(state.d" + dest + ",state.d" + src + ")-state.d" + dest + "&0xFF;"
 					}
 					insert_inst2(opcode, code, iname, cost)
 				}
+			}
+		}
+	}
 
 	// NBCD, more similar to NEG and NOT (more different EAs are allowed).
-	for (var srcmode = 0; srcmode < 8; srcmode++)
-		for (var srcreg = 0; srcreg < 8; srcreg++)
+	for (var srcmode = 0; srcmode < 8; srcmode++) {
+		for (var srcreg = 0; srcreg < 8; srcreg++) {
 			if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
 			{
 				opcode = 0x4800 + (srcmode << 3) + srcreg;
@@ -3105,24 +3200,25 @@ function build_bcd()
 				code += amode_write(srcmode, srcreg, 0, "r")
 				insert_inst2(opcode, code, iname, (srcmode == MODE_DREG) ? 6 : (8 + effective_address_calculation_time(srcmode, srcreg, 0)))
 			}
+		}
+	}
 
 }
 
 function build_movesrccr()
 {
-	for (var srcmode = 0; srcmode < 8; srcmode++)
-		for (var srcreg = 0; srcreg < 8; srcreg++)
-		{
+	for (var srcmode = 0; srcmode < 8; srcmode++) {
+		for (var srcreg = 0; srcreg < 8; srcreg++) {
 			if (valid_source(srcmode, srcreg) && srcmode != MODE_AREG)
 			{
 				var opcode = 0x46C0 + (srcmode << 3) + srcreg;
 				var iname = "MOVE " + amode_name(srcmode, srcreg, 1) + ",SR"
 				var cost = 12 + effective_address_calculation_time(srcmode, srcreg, 0);
-				insert_inst2(opcode, "if(sr&0x2000==0)fire_cpu_exception(8);" + amode_read(srcmode, srcreg, 1, true) + "update_sr(s);", iname, cost)
+				insert_inst2(opcode, "if(state.sr&0x2000==0)fire_cpu_exception(8);" + amode_read(srcmode, srcreg, 1, true) + "update_sr(s);", iname, cost)
 
 				opcode = 0x44C0 + (srcmode << 3) + srcreg;
 				iname = "MOVE " + amode_name(srcmode, srcreg, 0) + ",CCR"
-				insert_inst2(opcode, amode_read(srcmode, srcreg, 0, true) + "sr = (sr&0xFF00) + s;", iname, cost)
+				insert_inst2(opcode, amode_read(srcmode, srcreg, 0, true) + "state.sr = (state.sr&0xFF00) + s;", iname, cost)
 			}
 			if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
 			{
@@ -3130,216 +3226,229 @@ function build_movesrccr()
 				var iname = "MOVE SR," + amode_name(srcmode, srcreg, 1)
 				var cost = (srcmode == MODE_DREG) ? 6 : 8;
 				// MOVE from SR is not privileged on the 68000.
-				insert_inst2(opcode, amode_write(srcmode, srcreg, 1, "sr"), iname, cost + effective_address_calculation_time(srcmode, srcreg, 1))
+				insert_inst2(opcode, amode_write(srcmode, srcreg, 1, "state.sr"), iname, cost + effective_address_calculation_time(srcmode, srcreg, 1))
 			}
 		}
+	}
 }
 
 function build_exchange(xtype, ytype, bits)
 {
-	for (var x = 0; x < 8; x++)
-		for (var y = 0; y < 8; y++)
-		{
+	for (var x = 0; x < 8; x++) {
+		for (var y = 0; y < 8; y++) {
 			var opcode = bits + (x << 9) + y
 			var iname = "EXG " + xtype + x + "," + ytype + y
-			var xstr = xtype.toLowerCase() + x
-			var ystr = ytype.toLowerCase() + y
+			var xstr = "state." + xtype.toLowerCase() + x
+			var ystr = "state." + ytype.toLowerCase() + y
 			var code = "var e=" + xstr + ";"
 			code += xstr + "=" + ystr + ";"
 			code += ystr + "=e;"
 			insert_inst2(opcode, code, iname, 6)
 		}
+	}
 }
 
 function build_jmpjsr()
 {
-	for (var mode = 0; mode < 8; mode++)
-		for (var reg = 0; reg < 8; reg++)
-			if (valid_calc_effective_address(mode, reg))
-				for (var jsr = 1; jsr >= 0; jsr--)
-				{
+	for (var mode = 0; mode < 8; mode++) {
+		for (var reg = 0; reg < 8; reg++) {
+			if (valid_calc_effective_address(mode, reg)) {
+				for (var jsr = 1; jsr >= 0; jsr--) {
 					var opcode = 0x4EC0 + (mode << 3) + reg - jsr * 0x40;
 					var iname = (jsr == 1 ? "JSR " : "JMP ") + amode_name(mode, reg, 0)
 					var code = effective_address_calc(mode, reg)
 					if (jsr == 1)
-						code += amode_write(4, 7, 2, "pc")
-					code += "pc=z;"
+						code += amode_write(4, 7, 2, "state.pc")
+					code += "state.pc=z;"
 					insert_inst(opcode, code, iname)
 				}
+			}
+		}
+	}
 }
 
 function build_pea()
 {
-	for (var srcmode = 0; srcmode < 8; srcmode++)
-		for (var srcreg = 0; srcreg < 8; srcreg++)
+	for (var srcmode = 0; srcmode < 8; srcmode++) {
+		for (var srcreg = 0; srcreg < 8; srcreg++) {
 			if (valid_calc_effective_address(srcmode, srcreg))
 			{
 				var opcode = 0x4840 + (srcmode << 3) + srcreg;
 				var iname = "PEA " + amode_name(srcmode, srcreg, 0)
 				insert_inst(opcode, effective_address_calc(srcmode, srcreg) + amode_write(4, 7, 2, "z"), iname)
 			}
+		}
+	}
 }
 
 function build_swap()
 {
-	for (var reg = 0; reg < 8; reg++)
-	{
-		var code = "var l = d" + reg + "&65535;"
-		code += "var h = d" + reg + " >>> 16;"
-		code += "d" + reg + " = (l * 65536) + h;"
+	for (var reg = 0; reg < 8; reg++) {
+		var code = "var l = state.d" + reg + "&65535;"
+		code += "var h = state.d" + reg + " >>> 16;"
+		code += "state.d" + reg + " = (l * 65536) + h;"
 		insert_inst2(0x4840 + reg, code, "SWAP D" + reg, 4)
 	}
 }
 
 function build_chk()
 {
-	for (var srcmode = 0; srcmode < 8; srcmode++)
-		for (var srcreg = 0; srcreg < 8; srcreg++)
-			for (var reg = 0; reg < 8; reg++)
+	for (var srcmode = 0; srcmode < 8; srcmode++) {
+		for (var srcreg = 0; srcreg < 8; srcreg++) {
+			for (var reg = 0; reg < 8; reg++) {
 				if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG)
 				{
 					var opcode = 0x4180 + (reg << 9) + (srcmode << 3) + srcreg;
 					var iname = "CHK.W " + amode_name(srcmode, srcreg, 1) + ",D" + reg
 					var code = amode_read(srcmode, srcreg, 1, true)
-					code += "if (d" + reg + "<0) { sr |= 8; fire_cpu_exception(6); } if(d" + reg + "> s) { sr &= 0xFFF7; fire_cpu_exception(6); }"
+					code += "if (state.d" + reg + "<0) { state.sr |= 8; fire_cpu_exception(6); } if(state.d" + reg + "> s) { state.sr &= 0xFFF7; fire_cpu_exception(6); }"
 					insert_inst(opcode, code, iname)
 				}
+			}
+		}
+	}
 }
 
-// fill default instruction table, initially all unimplemented instructions 
-
-// fill unhandled instructions by default
+// fill default instruction table, initially all unhandled instructions, except A-Line and F-Line.
 function build_initial_instructions_handlers()
 {
 	var i;
 	for (i = 0; i < 0xA000; i++) {
-		make_unhandled(i);
+		cpu.t[i] = unhandled_instruction;
+		cpu.n[i] = 'UNKNOWN';
+		cpu.cycles[i] = 0; // Should be 34
 	}
 
 	for (i = 0xA000; i <= 0xAFFF; i++) {
-		t[i] = aline;
-		n[i] = "ALINE " + to_hex(i,3);
-		cycles[i] = 34;
+		cpu.t[i] = aline;
+		cpu.n[i] = "ALINE " + to_hex(i,3);
+		cpu.cycles[i] = 34;
 	}
 
 	for (i = 0xB000; i < 0xF000; i++) {
-		make_unhandled(i);
+		cpu.t[i] = unhandled_instruction;
+		cpu.n[i] = 'UNKNOWN';
+		cpu.cycles[i] = 0; // Should be 34
 	}
 
 	for (i = 0xF000; i <= 0xFFFF; i++) {
-		t[i] = fline;
-		n[i] = "FLINE " + to_hex(i,3);
-		cycles[i] = 34;
+		cpu.t[i] = fline;
+		cpu.n[i] = "FLINE " + to_hex(i,3);
+		cpu.cycles[i] = 34;
 	}
 }
 
-build_initial_instructions_handlers();
-
-build_moveq();
-build_addsubq();
-// bit patterns specifying size are different for MOVE than most other instructions, and Sybex book has them wrong!
-build_moves("MOVE.L", 2, 0x2000);
-build_moves("MOVE.W", 1, 0x3000);
-build_moves("MOVE.B", 0, 0x1000);
-build_movep(); // TODO: proper implementation, instead of a 4-byte NOP
-build_conditionals("if(true)", "T", 0)
-build_conditionals("if(false)", "F", 1)
-build_conditionals("if(!(sr&5))", "HI", 2)
-build_conditionals("if(sr&5)", "LS", 3)
-build_conditionals("if(!(sr&1))", "CC", 4)
-build_conditionals("if(sr&1)", "CS", 5)
-build_conditionals("if(!(sr&4))", "NE", 6)
-build_conditionals("if(sr&4)", "EQ", 7)
-build_conditionals("if(!(sr&2))", "VC", 8)
-build_conditionals("if(sr&2)", "VS", 9)
-build_conditionals("if(!(sr&8))", "PL", 10)
-build_conditionals("if(sr&8)", "MI", 11)
-build_conditionals("if(((sr&10)==0)||((sr&10)==10))", "GE", 12)
-build_conditionals("if(((sr&10)==8)||((sr&10)==2))", "LT", 13)
-build_conditionals("if((((sr&10)==0)||((sr&10)==10))&(!(sr&4)))", "GT", 14)
-build_conditionals("if((sr&4)||((sr&10)==8)||((sr&10)==2))", "LE", 15)
-build_calc("EOR", 0xB000)
-build_calc("ADD", 0xD000)
-build_calc("AND", 0xC000)
-build_calc("SUB", 0x9000)
-build_calc("OR", 0x8000)
-build_muldiv("DIVS", 0x81C0, "divs", 158)
-build_muldiv("DIVU", 0x80C0, "divu", 140)
-build_muldiv("MULS", 0xC1C0, "muls", 70)
-build_muldiv("MULU", 0xC0C0, "mulu", 70)
-build_bit_operation("BCHG", 0x840, 8, 8)
-build_bit_operation("BCLR", 0x880, 10, 8)
-build_bit_operation("BSET", 0x8C0, 8, 8)
-build_bit_operation("BTST", 0x800, 6, 4)
-build_shifts("ASL", 0xE100, 0xE1C0, "asl")
-build_shifts("ASR", 0xE000, 0xE0C0, "asr")
-build_shifts("LSL", 0xE108, 0xE3C0, "lsl")
-build_shifts("LSR", 0xE008, 0xE2C0, "lsr")
-build_shifts("ROXL", 0xE110, 0xE5C0, "roxl")
-build_shifts("ROXR", 0xE010, 0xE4C0, "roxr")
-build_shifts("ROL", 0xE118, 0xE7C0, "rol")
-build_shifts("ROR", 0xE018, 0xE6C0, "ror")
-build_cmp()
-build_adest()
-build_immediate("ORI", 0, "var r=s|m;")
-build_immediate("ANDI", 0x200, "var r=s&m;")
-build_immediate("EORI", 0xA00, "var r=s^m;")
-build_immediate("ADDI", 0x600, "")
-build_immediate("SUBI", 0x400, "")
-build_ext("ADDX", 0xD100)
-build_ext("SUBX", 0x9100)
-build_not_neg_clr_tst_tas()
-build_lea()
-build_cmpi()
-build_movem()
-build_cmpm()
-build_bcd()
-build_exchange("D", "D", 0xC140)
-build_exchange("A", "A", 0xC148)
-build_exchange("D", "A", 0xC188)
-insert_inst2(0x4E70, "if(sr&0x2000==0)fire_cpu_exception(8);initialize_calculator()", "RESET", 132)
-insert_inst2(0x4E71, "", "NOP", 4)
-insert_inst2(0x4E72, "if(sr&0x2000==0)fire_cpu_exception(8);pc+=2", "STOP #xxx", 4) // TODO: proper implementation, instead of a 4-byte NOP
-insert_inst2(0x4E73, "if(sr&0x2000==0)fire_cpu_exception(8);var s=rw(a7);a7+=2;pc=rl(a7);a7+=4;update_sr(s)", "RTE", 20)
-insert_inst2(0x4E75, "pc=rl(a7);a7+=4;", "RTS", 16)
-insert_inst2(0x4E76, "if(sr&2)fire_cpu_exception(7)", "TRAPV", 4) // TRAPV
-insert_inst2(0x4E77, "var s=rw(a7);a7+=2;pc=rl(a7);a7+=4;sr=(sr&0xFFE0)|(s&0x001F)", "RTR", 20)
-insert_inst2(0x4AFC, "print_status(); disassemble(pc-32, 20); fire_cpu_exception(4)", "ILLEGAL", 34) // Illegal instruction
-build_movesrccr()
-build_jmpjsr()
-build_pea()
-build_swap()
-build_chk()
-for (var vector = 0; vector < 16; vector++)
-	insert_inst2(0x4E40 + vector, "fire_cpu_exception(" + (32 + vector) + ")", "TRAP #" + vector, 34) // TRAP #
-for (var reg = 0; reg < 8; reg++)
+function build_all_instructions()
 {
-	insert_inst2(0x4E60 + reg, "if(sr&0x2000==0)fire_cpu_exception(8);a8=a" + reg, "MOVE A" + reg + ",USP", 4) // Privilege violation
-	insert_inst2(0x4E68 + reg, "if(sr&0x2000==0)fire_cpu_exception(8);a" + reg +"=a8", "MOVE USP,A" + reg, 4) // Privilege violation
-	insert_inst2(0x4880 + reg, "d" + reg + "=((d" + reg + ">>>16)*65536)+ebw(d" + reg + ")", "EXT.W D" + reg, 4)
-	insert_inst2(0x48C0 + reg, "d" + reg + "=ewl(d" + reg + ")", "EXT.L D" + reg, 4)
-	var linkcode = "a7-=4; wl(a7,a" + reg + "); var o=rw(pc); pc+=2; a" + reg + "=a7; a7+=(o<0x8000?o:o-0x10000);"
-	insert_inst2(0x4e50 + reg, linkcode, "LINK A" + reg + ",#xxx", 16)
-	var unlkcode ="a7 = a" + reg + "; var s=rl(a7); a7+=4; a" + reg + " = s;"
-	insert_inst2(0x4e58 + reg, unlkcode, "UNLK A" + reg, 12)
-}
-eval(instruction_list);
+	build_initial_instructions_handlers();
 
-
-var unknown = 0
-var nocost = 0;
-for (var i = 0; i < 65536; i++) {
-	if (n[i] == "UNKNOWN") {
-		unknown++;
-		n[i] = "DC.W " + hex_prefix + to_hex(i, 4);
+	build_moveq();
+	build_addsubq();
+	// bit patterns specifying size are different for MOVE than most other instructions, and Sybex book has them wrong!
+	build_moves("MOVE.L", 2, 0x2000);
+	build_moves("MOVE.W", 1, 0x3000);
+	build_moves("MOVE.B", 0, 0x1000);
+	build_movep(); // TODO: proper implementation, instead of a 4-byte NOP
+	build_conditionals("if(true)", "T", 0)
+	build_conditionals("if(false)", "F", 1)
+	build_conditionals("if(!(state.sr&5))", "HI", 2)
+	build_conditionals("if(state.sr&5)", "LS", 3)
+	build_conditionals("if(!(state.sr&1))", "CC", 4)
+	build_conditionals("if(state.sr&1)", "CS", 5)
+	build_conditionals("if(!(state.sr&4))", "NE", 6)
+	build_conditionals("if(state.sr&4)", "EQ", 7)
+	build_conditionals("if(!(state.sr&2))", "VC", 8)
+	build_conditionals("if(state.sr&2)", "VS", 9)
+	build_conditionals("if(!(state.sr&8))", "PL", 10)
+	build_conditionals("if(state.sr&8)", "MI", 11)
+	build_conditionals("if(((state.sr&10)==0)||((state.sr&10)==10))", "GE", 12)
+	build_conditionals("if(((state.sr&10)==8)||((state.sr&10)==2))", "LT", 13)
+	build_conditionals("if((((state.sr&10)==0)||((state.sr&10)==10))&(!(state.sr&4)))", "GT", 14)
+	build_conditionals("if((state.sr&4)||((state.sr&10)==8)||((state.sr&10)==2))", "LE", 15)
+	build_calc("EOR", 0xB000)
+	build_calc("ADD", 0xD000)
+	build_calc("AND", 0xC000)
+	build_calc("SUB", 0x9000)
+	build_calc("OR", 0x8000)
+	build_muldiv("DIVS", 0x81C0, "divs", 158)
+	build_muldiv("DIVU", 0x80C0, "divu", 140)
+	build_muldiv("MULS", 0xC1C0, "muls", 70)
+	build_muldiv("MULU", 0xC0C0, "mulu", 70)
+	build_bit_operation("BCHG", 0x840, 8, 8)
+	build_bit_operation("BCLR", 0x880, 10, 8)
+	build_bit_operation("BSET", 0x8C0, 8, 8)
+	build_bit_operation("BTST", 0x800, 6, 4)
+	build_shifts("ASL", 0xE100, 0xE1C0, "asl")
+	build_shifts("ASR", 0xE000, 0xE0C0, "asr")
+	build_shifts("LSL", 0xE108, 0xE3C0, "lsl")
+	build_shifts("LSR", 0xE008, 0xE2C0, "lsr")
+	build_shifts("ROXL", 0xE110, 0xE5C0, "roxl")
+	build_shifts("ROXR", 0xE010, 0xE4C0, "roxr")
+	build_shifts("ROL", 0xE118, 0xE7C0, "rol")
+	build_shifts("ROR", 0xE018, 0xE6C0, "ror")
+	build_cmp()
+	build_adest()
+	build_immediate("ORI", 0, "var r=s|m;")
+	build_immediate("ANDI", 0x200, "var r=s&m;")
+	build_immediate("EORI", 0xA00, "var r=s^m;")
+	build_immediate("ADDI", 0x600, "")
+	build_immediate("SUBI", 0x400, "")
+	build_ext("ADDX", 0xD100)
+	build_ext("SUBX", 0x9100)
+	build_not_neg_clr_tst_tas()
+	build_lea()
+	build_cmpi()
+	build_movem()
+	build_cmpm()
+	build_bcd()
+	build_exchange("D", "D", 0xC140)
+	build_exchange("A", "A", 0xC148)
+	build_exchange("D", "A", 0xC188)
+	insert_inst2(0x4E70, "if(state.sr&0x2000==0)fire_cpu_exception(8);initialize_calculator()", "RESET", 132)
+	insert_inst2(0x4E71, "", "NOP", 4)
+	insert_inst2(0x4E72, "if(state.sr&0x2000==0)fire_cpu_exception(8);state.pc+=2", "STOP #xxx", 4) // TODO: proper implementation, instead of a 4-byte NOP
+	insert_inst2(0x4E73, "if(state.sr&0x2000==0)fire_cpu_exception(8);var s=rw(state.a7);state.a7+=2;state.pc=rl(state.a7);state.a7+=4;update_sr(s)", "RTE", 20)
+	insert_inst2(0x4E75, "state.pc=rl(state.a7);state.a7+=4;", "RTS", 16)
+	insert_inst2(0x4E76, "if(state.sr&2)fire_cpu_exception(7)", "TRAPV", 4) // TRAPV
+	insert_inst2(0x4E77, "var s=rw(state.a7);state.a7+=2;state.pc=rl(state.a7);state.a7+=4;state.sr=(state.sr&0xFFE0)|(s&0x001F)", "RTR", 20)
+	insert_inst2(0x4AFC, "print_status(); disassemble(state.pc-32, 20); fire_cpu_exception(4)", "ILLEGAL", 34) // Illegal instruction
+	build_movesrccr()
+	build_jmpjsr()
+	build_pea()
+	build_swap()
+	build_chk()
+	for (var vector = 0; vector < 16; vector++) {
+		insert_inst2(0x4E40 + vector, "fire_cpu_exception(" + (32 + vector) + ")", "TRAP #" + vector, 34) // TRAP #
 	}
-	if (cycles[i] == 0) {
-		nocost++;
+	for (var reg = 0; reg < 8; reg++) {
+		insert_inst2(0x4E60 + reg, "if(state.sr&0x2000==0)fire_cpu_exception(8);state.a8=state.a" + reg, "MOVE A" + reg + ",USP", 4) // Privilege violation
+		insert_inst2(0x4E68 + reg, "if(state.sr&0x2000==0)fire_cpu_exception(8);state.a" + reg +"=state.a8", "MOVE USP,A" + reg, 4) // Privilege violation
+		insert_inst2(0x4880 + reg, "state.d" + reg + "=((state.d" + reg + ">>>16)*65536)+ebw(state.d" + reg + ")", "EXT.W D" + reg, 4)
+		insert_inst2(0x48C0 + reg, "state.d" + reg + "=ewl(state.d" + reg + ")", "EXT.L D" + reg, 4)
+		var linkcode = "state.a7-=4; wl(state.a7,state.a" + reg + "); var o=rw(state.pc); state.pc+=2; state.a" + reg + "=state.a7; state.a7+=(o<0x8000?o:o-0x10000);"
+		insert_inst2(0x4e50 + reg, linkcode, "LINK A" + reg + ",#xxx", 16)
+		var unlkcode ="state.a7 = state.a" + reg + "; var s=rl(state.a7); state.a7+=4; state.a" + reg + " = s;"
+		insert_inst2(0x4e58 + reg, unlkcode, "UNLK A" + reg, 12)
 	}
-}
-stdlib.console.log("number of unknown opcodes is " + unknown)
-stdlib.console.log("number of opcodes without cycle cost is " + nocost)
+	eval(instruction_list);
 
+	var unknown = 0;
+	var nocost = 0;
+	for (var i = 0; i < 65536; i++) {
+		if (cpu.n[i] == "UNKNOWN") {
+			unknown++;
+			cpu.n[i] = "DC.W " + state.hex_prefix + to_hex(i, 4);
+		}
+		if (cpu.cycles[i] == 0) {
+			nocost++;
+		}
+	}
+	stdlib.console.log("number of unknown opcodes is " + unknown)
+	stdlib.console.log("number of opcodes without cycle cost is " + nocost)
+
+}
+
+build_all_instructions();
 
 function read_hreg(reg)
 {
@@ -3352,7 +3461,7 @@ function read_hreg(reg)
 
 		case 0x600001: // 0x600001
 		{
-			return vectorprotect ? 4 : 0;
+			return state.vectorprotect ? 4 : 0;
 		}
 
 		case 0x60000c: // 0x60000c
@@ -3378,27 +3487,27 @@ function read_hreg(reg)
 
 		case 0x600015: // 0x600015
 		{
-			return interrupt_control; // default value for interrupt / display control
+			return state.interrupt_control; // default value for interrupt / display control
 		}
 
 		case 0x600017: // 0x600017
 		{
-			return timer_current; // programmable timer
+			return state.timer_current; // programmable timer
 		}
 
 		case 0x600018: // 0x600018
 		{
-			return keymaskhigh; // which keys are readable
+			return state.keymaskhigh; // which keys are readable
 		}
 
 		case 0x600019: // 0x600019
 		{
-			return keymasklow; // which keys are readable
+			return state.keymasklow; // which keys are readable
 		}
 
 		case 0x60001a: // 0x60001a
 		{
-			return port_60001A; // ON key read
+			return state.port_60001A; // ON key read
 		}
 
 		case 0x60001b: // 0x60001b
@@ -3406,42 +3515,38 @@ function read_hreg(reg)
 			// keyboard read - treat as no keys pressed
 			// In TIEmu, see src/core/ti_hw/kbd.c::hw_kbd_read_cols().
 			var result = 0xFF;
-			var keymask = keymaskhigh * 256 + keymasklow;
-			for (var row = 0; row <= 9; row++) 
-			{
-				if ((keymask & (1 << row)) == 0) 
-				{
-					for (var col = 0; col < 8; col++) 
-					{
-						if (keystatus[row * 8 + col] == 1)
-						{
+			var keymask = state.keymaskhigh * 256 + state.keymasklow;
+			for (var row = 0; row <= 9; row++) {
+				if ((keymask & (1 << row)) == 0) {
+					for (var col = 0; col < 8; col++) {
+						if (state.keystatus[row * 8 + col] == 1) {
 							result &= (0xFF - (1 << col));
 						}
 					}
 				}
 			}
-			port_60001B = result;
+			state.port_60001B = result;
 			return result;
 		}
 
 		case 0x60001d: // 0x60001d: contrast setting
 		{
-			return port_60001D;
+			return state.port_60001D;
 		}
 
 		case 0x700017: // 0x700017: HW2 snoop palette range.
 		{
-			return port_700017;
+			return state.port_700017;
 		}
 
 		case 0x70001d: // 0x70001d
 		{
-			return port_70001D;
+			return state.port_70001D;
 		}
 		
 		case 0x70001f: // 0x70001f
 		{
-			return port_70001F;
+			return state.port_70001F;
 		}
 
 		default:
@@ -3465,7 +3570,7 @@ function write_hreg(reg, value)
 
 		case 0x600001: // 0x600001
 		{
-			vectorprotect = ((value & 4) == 4);
+			state.vectorprotect = ((value & 4) == 4);
 			break;
 		}
 
@@ -3478,9 +3583,9 @@ function write_hreg(reg, value)
 
 		case 0x600005: // 0x600005
 		{
-			wakemask = value;
+			state.wakemask = value;
 			//throw "STOP";
-			stopped = true;
+			state.stopped = true;
 			break;
 		}
 
@@ -3498,26 +3603,26 @@ function write_hreg(reg, value)
 
 		case 0x600010: // 0x600010
 		{
-			lcd_address_high = value;
+			state.lcd_address_high = value;
 			break;
 		}
 
 		case 0x600011: // 0x600011
 		{
-			lcd_address_low = value;
+			state.lcd_address_low = value;
 			//stdlib.console.log(to_hex((lcd_address_high * 256 + lcd_address_low) * 8, 6));
 			break;
 		}
 
 		case 0x600012: // 0x600012: logical LCD width.
 		{
-			screen_width = (64 - (value & 63)) * 16;
+			state.screen_width = (64 - (value & 63)) * 16;
 			break;
 		}
 
 		case 0x600013: // 0x600013
 		{
-			screen_height = 256 - value;
+			state.screen_height = 256 - value;
 			break;
 		}
 
@@ -3529,23 +3634,23 @@ function write_hreg(reg, value)
 
 		case 0x600015: // 0x600015
 		{
-			interrupt_control = value;
-			switch ((interrupt_control >> 4) & 0x3)
+			state.interrupt_control = value;
+			switch ((state.interrupt_control >> 4) & 0x3)
 			{
 				case 0:
-					interrupt_rate = 0x20;
+					state.interrupt_rate = 0x20;
 					break;
 				case 1:
-					interrupt_rate = 0x200;
+					state.interrupt_rate = 0x200;
 					break;
 				case 2:
-					interrupt_rate = 0x1000;
+					state.interrupt_rate = 0x1000;
 					break;
 				case 3:
-					interrupt_rate = 0x40000;
+					state.interrupt_rate = 0x40000;
 					break;
 			}
-			//stdlib.console.log("writing interrupt_control: " + to_hex(interrupt_control, 2) + " at " + to_hex(prev_pc, 6));
+			//stdlib.console.log("writing interrupt_control: " + to_hex(interrupt_control, 2) + " at " + to_hex(state.prev_pc, 6));
 			break;
 		}
 
@@ -3557,48 +3662,48 @@ function write_hreg(reg, value)
 
 		case 0x600017: // 0x600017: programmable timer
 		{
-			timer_current = value; timer_min = value;
+			state.timer_current = value; state.timer_min = value;
 			break;
 		}
 
 		case 0x600018: // 0x600018
 		{
-			keymaskhigh = value;
+			state.keymaskhigh = value;
 			break;
 		}
 
 		case 0x600019: // 0x600019
 		{
-			keymasklow = value;
+			state.keymasklow = value;
 			break;
 		}
 
 		case 0x60001a: // 0x60001a: acknowledge AUTO_INT_6
 		{
-			port_60001A = value;
+			state.port_60001A = value;
 			break;
 		}
 
 		case 0x60001b: // 0x60001b: acknowledge AUTO_INT_2
 		{
 			// TODO: implement this.
-			port_60001B = value; // Tentative implementation ?
+			state.port_60001B = value; // Tentative implementation ?
 			break;
 		}
 
 		case 0x60001c: // 0x60001C: LCD row sync frequency
 		{
-			port_60001C = value;
+			state.port_60001C = value;
 			//stdlib.console.log("Setting 60001C to " + to_hex(value, 2));
-			ui.set_screen_enabled_and_contrast(calculator_model, hardware_model, port_60001C, port_60001D, port_70001D, port_70001F);
+			ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
 			break;
 		}
 
 		case 0x60001d: // 0x60001d
 		{
-			port_60001D = value;
+			state.port_60001D = value;
 			//stdlib.console.log("Setting 60001D to " + to_hex(value, 2));
-			ui.set_screen_enabled_and_contrast(calculator_model, hardware_model, port_60001C, port_60001D, port_70001D, port_70001F);
+			ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
 			break;
 		}
 
@@ -3639,8 +3744,8 @@ function write_hreg(reg, value)
 
 		case 0x700017: // 0x700017: LCD snoop palette range
 		{
-			port_700017 = value & 0x03;
-			lcd_address = 0x4c00 + (port_700017 * 0x1000);
+			state.port_700017 = value & 0x03;
+			state.lcd_address = 0x4c00 + (state.port_700017 * 0x1000);
 			//stdlib.console.log("Setting LCD address to " + to_hex(lcd_address, 4));
 			break;
 		}
@@ -3653,17 +3758,17 @@ function write_hreg(reg, value)
 
 		case 0x70001d: // 0x70001d
 		{
-			port_70001D = value;
+			state.port_70001D = value;
 			//stdlib.console.log("Setting 70001D to " + to_hex(value, 2));
-			ui.set_screen_enabled_and_contrast(calculator_model, hardware_model, port_60001C, port_60001D, port_70001D, port_70001F);
+			ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
 			break;
 		}
 
 		case 0x70001f: // 0x70001f
 		{
-			port_70001F = value;
+			state.port_70001F = value;
 			//stdlib.console.log("Setting 70001F to " + to_hex(value, 2));
-			ui.set_screen_enabled_and_contrast(calculator_model, hardware_model, port_60001C, port_60001D, port_70001D, port_70001F);
+			ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
 			break;
 		}
 
@@ -3683,7 +3788,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 	var memory_read_function =
 "rw_" + suffix + "_normal = function rw_" + suffix + "_normal(address)" +
 "{" +
-"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 1; fire_cpu_exception(3); }" + // Address Error
+"	if ((address & 1) != 0) { state.address_error_address = address; state.address_error_access_type = 1; fire_cpu_exception(3); }" + // Address Error
 "	switch (((address & 0x00FFF000) >>> 12) & 0xFFF) {";
 	for (var i = 0; i < 8; i++) {
 		for (var j = 0; j < 0x40; j++) { // RAM and ghosts (HW1, HW2 - ignore HW3 & HW4 ghosts at 200000 & 400000, nobody uses that)
@@ -3699,7 +3804,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 	for (var j = flashmemoryaddress >>> 12; j < (flashmemoryaddress + flashmemorysize) >>> 12; j++) {
 		memory_read_function += "case " + j + ":";
 	}
-	memory_read_function += "address -= " + flashmemoryaddress + "; return rom[address >>> 1];";
+	memory_read_function += "address -= " + flashmemoryaddress + "; return state.rom[address >>> 1];";
 	memory_read_function += "case 0x600: return read_hreg(address) * 256 + read_hreg(address + 1);";
 	memory_read_function += "case 0x700: return read_hreg(address) * 256 + read_hreg(address + 1);";
 	memory_read_function += "case 0x710: return read_hreg(address) * 256 + read_hreg(address + 1);";
@@ -3712,13 +3817,13 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 	var memory_read_function =
 "rw_" + suffix + "_normal = function rw_" + suffix + "_normal(address)" +
 "{" +
-"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 1; fire_cpu_exception(3); }" + // Address Error
+"	if ((address & 1) != 0) { state.address_error_address = address; state.address_error_access_type = 1; fire_cpu_exception(3); }" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
-"		return ram[(address & 0x3FFFE) >>> 1];" +
+"		return state.ram[(address & 0x3FFFE) >>> 1];" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
-"		return rom[(address - " + flashmemoryaddress + ") >>> 1];" +
+"		return state.rom[(address - " + flashmemoryaddress + ") >>> 1];" +
 "	}" +
 "	else if (address >= 0x600000 && address < 0x800000) {" +
 "		return read_hreg(address) * 256 + read_hreg(address + 1);" +
@@ -3735,18 +3840,18 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		address &= 0x3FFFF;" +
 "		if ((address & 1) == 0) {" +
-"			return ram[address >>> 1] >>> 8;" +
+"			return state.ram[address >>> 1] >>> 8;" +
 "		}" +
 "		else {" +
-"			return ram[address >>> 1] & 0xFF;" +
+"			return state.ram[address >>> 1] & 0xFF;" +
 "		}" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
 "		if ((address & 1) == 0) {" +
-"			return rom[(address - " + flashmemoryaddress + ") >>> 1] >>> 8;" +
+"			return state.rom[(address - " + flashmemoryaddress + ") >>> 1] >>> 8;" +
 "		}" +
 "		else {" +
-"			return rom[(address - " + flashmemoryaddress + "- 1) >>> 1] & 0xFF;" +
+"			return state.rom[(address - " + flashmemoryaddress + "- 1) >>> 1] & 0xFF;" +
 "		}" +
 "	}" +
 "	else if (address >= 0x600000 && address < 0x800000) {" +
@@ -3760,21 +3865,21 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 	memory_read_function =
 "rw_" + suffix + "_flashspecial = function rw_" + suffix + "_flashspecial(address)" +
 "{" +
-"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 1; fire_cpu_exception(3); };" + // Address Error
+"	if ((address & 1) != 0) { state.address_error_address = address; state.address_error_access_type = 1; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
-"		return ram[(address & 0x3FFFE) >>> 1];" +
+"		return state.ram[(address & 0x3FFFE) >>> 1];" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
-"		if (flash_write_phase == 0x90) {" + // Read identifier codes mode
+"		if (state.flash_write_phase == 0x90) {" + // Read identifier codes mode
 "			switch (address & 0xffff) {" +
 "				case 0:  return " + ((suffix == 8 || suffix == 9) ? "0x00b0" : "0x0089") + ";" + // manufacturer code
-"				case 2:  return " + (large_flash_memory ? "0x00b0" : "0x00b5") + ";" + // device code
+"				case 2:  return " + ((suffix == 9 && state.large_flash_memory) ? "0x00b0" : "0x00b5") + ";" + // device code
 "				default: return 0xffff;" +
 "			}" +
 "		}" +
 "		else {" +
-"			return rom[(address - " + flashmemoryaddress + ") >>> 1] | flash_ret_or;" +
+"			return state.rom[(address - " + flashmemoryaddress + ") >>> 1] | state.flash_ret_or;" +
 "		}" +
 "	}" +
 "	else if (address >= 0x600000 && address < 0x800000) {" +
@@ -3790,28 +3895,28 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 "	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		address &= 0x3FFFF;" +
 "		if ((address & 1) == 0) {" +
-"			return ram[address >>> 1] >>> 8;" +
+"			return state.ram[address >>> 1] >>> 8;" +
 "		}" +
 "		else {" +
-"			return ram[address >>> 1] & 0xFF;" +
+"			return state.ram[address >>> 1] & 0xFF;" +
 "		}" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
-"		if (flash_write_phase == 0x90) {" + // Read identifier codes mode; not sure anyone uses it under byte form...
+"		if (state.flash_write_phase == 0x90) {" + // Read identifier codes mode; not sure anyone uses it under byte form...
 "			switch (address & 0xffff) {" +
 "				case 0:  return 0x00;" +
 "				case 1:  return " + ((suffix == 8 || suffix == 9) ? "0xb0" : "0x89") + ";" + // manufacturer code
 "				case 2:  return 0x00;" +
-"				case 3:  return " + (large_flash_memory ? "0xb0" : "0xb5") + ";" + // device code
+"				case 3:  return " + ((suffix == 9 && state.large_flash_memory) ? "0xb0" : "0xb5") + ";" + // device code
 "				default: return 0xff;" +
 "			}" +
 "		}" +
 "		else {" +
 "			if ((address & 1) == 0) {" +
-"				return ((rom[(address - " + flashmemoryaddress + ") >>> 1] >>> 8) | flash_ret_or) & 0xFF;" +
+"				return ((state.rom[(address - " + flashmemoryaddress + ") >>> 1] >>> 8) | state.flash_ret_or) & 0xFF;" +
 "			}" +
 "			else {" +
-"				return (rom[(address - " + flashmemoryaddress + "- 1) >>> 1] | flash_ret_or) & 0xFF;" +
+"				return (state.rom[(address - " + flashmemoryaddress + "- 1) >>> 1] | state.flash_ret_or) & 0xFF;" +
 "			}" +
 "		}" +
 "	}" +
@@ -3825,7 +3930,7 @@ function build_memory_read_functions(suffix, flashmemoryaddress, flashmemorysize
 build_memory_read_functions("1", 0x400000, 0x200000); // 92+
 build_memory_read_functions("3", 0x200000, 0x200000); // 89
 build_memory_read_functions("8", 0x200000, 0x400000); // V200
-build_memory_read_functions("9", 0x800000, (large_flash_memory ? 0x800000 : 0x400000)); // 89T
+build_memory_read_functions("9", 0x800000, (state.large_flash_memory ? 0x800000 : 0x400000)); // 89T
 
 function rl(address)
 {
@@ -3840,13 +3945,13 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 	var memory_write_function =
 "ww_" + suffix + "_normal = function ww_" + suffix + "_normal(address, value)" +
 "{" +
-"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
+"	if ((address & 1) != 0) { state.address_error_address = address; state.address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
-"		ram[(address & 0x3FFFF) >>> 1] = value;" +
+"		state.ram[(address & 0x3FFFF) >>> 1] = value;" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" + // Flash write support.
-"		if ((pc < 0x40000) && !Protection_enabled) {" + // This write runs from RAM, with Protection disabled... chances are that we want to switch to the special mode.
+"		if ((state.pc < 0x40000) && !state.Protection_enabled) {" + // This write runs from RAM, with Protection disabled... chances are that we want to switch to the special mode.
 //"stdlib.console.log(\"Switch to special\");" +
 "			ww = ww_" + suffix + "_flashspecial;" + // Redefine functions
 "			rw = rw_" + suffix + "_flashspecial;" +
@@ -3868,10 +3973,10 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 "	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
 "		address &= 0x3FFFF;" +
 "		if ((address & 1) == 0) {" +
-"			ram[address >>> 1] = (ram[address >>> 1] & 0xFF) + (value * 256);" +
+"			state.ram[address >>> 1] = (state.ram[address >>> 1] & 0xFF) + (value * 256);" +
 "		}" +
 "		else {" +
-"			ram[address >>> 1] = (ram[address >>> 1] & 0xFF00) + value;" +
+"			state.ram[address >>> 1] = (state.ram[address >>> 1] & 0xFF00) + value;" +
 "		}" +
 "	}" +
 // Flash write bytes not implemented for now - does anyone use them ?
@@ -3884,50 +3989,50 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 	memory_write_function =
 "ww_" + suffix + "_flashspecial = function ww_" + suffix + "_flashspecial(address, value)" +
 "{" +
-"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
+"	if ((address & 1) != 0) { state.address_error_address = address; state.address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (address < " + ((suffix != "9") ? "0x200000" : "0x40000") + ") {" + // RAM and ghosts < 0x200000
-"		ram[(address & 0x3FFFF) >>> 1] = value;" +
+"		state.ram[(address & 0x3FFFF) >>> 1] = value;" +
 "	}" +
 "	else if (address >= " + flashmemoryaddress + " && address < " + (flashmemoryaddress + flashmemorysize) + ") {" +
-"		if (flash_write_ready) {" + // Write the value to Flash, if we're ready.
-"			rom[(address - " + flashmemoryaddress + ") >>> 1] &= value;" +
-"			flash_write_ready--;" +
-"			flash_ret_or = 4294967295;" +
+"		if (state.flash_write_ready) {" + // Write the value to Flash, if we're ready.
+"			state.rom[(address - " + flashmemoryaddress + ") >>> 1] &= value;" +
+"			state.flash_write_ready--;" +
+"			state.flash_ret_or = 4294967295;" +
 "		}" +
 "		else if (value == 0x5050) {" + // Clear status register
-"			flash_write_phase = 0x50;" +
+"			state.flash_write_phase = 0x50;" +
 "		}" +
 "		else if (value == 0x9090) {" + // Read identifier codes
-"			flash_write_phase = 0x90;" +
+"			state.flash_write_phase = 0x90;" +
 "		}" +
 "		else if (value == 0x1010) {" + // Byte write setup/confirm
-"			if (flash_write_phase == 0x50) {" +
-"				flash_write_ready = 1;" +
-"				flash_write_phase = 0x50;" +
+"			if (state.flash_write_phase == 0x50) {" +
+"				state.flash_write_ready = 1;" +
+"				state.flash_write_phase = 0x50;" +
 "			}" +
 "		}" +
 "		else if (value == 0x2020) {" + // Block erase setup/confirm
-"			if (flash_write_phase == 0x50) {" +
-"				flash_write_phase = 0x20;" +
+"			if (state.flash_write_phase == 0x50) {" +
+"				state.flash_write_phase = 0x20;" +
 "			}" +
 "		}" +
 "		else if (value == 0xD0D0) {" + // Confirm and block erase
-"			if (flash_write_phase == 0x20) {" +
-"				flash_write_phase = 0xd0;" +
-"				flash_ret_or = 4294967295;" +
+"			if (state.flash_write_phase == 0x20) {" +
+"				state.flash_write_phase = 0xd0;" +
+"				state.flash_ret_or = 4294967295;" +
 "				address &= 0xFF0000;" +
 "				address -= " + flashmemoryaddress + ";" +
 "				address >>>= 1;" +
 "				for (var i = 0; i < 65536/2; i++, address++) {" +
-"					rom[address] = 0xFFFF;" +
+"					state.rom[address] = 0xFFFF;" +
 "				}" +
 "			}" +
 "		}" +
 "		else if (value == 0xFFFF) {" + // read array/reset
-"			if (flash_write_phase == 0x50 || flash_write_phase == 0x90) {" +
-"				flash_write_ready = 0;" +
-"				flash_ret_or = 0;" +
+"			if (state.flash_write_phase == 0x50 || state.flash_write_phase == 0x90) {" +
+"				state.flash_write_ready = 0;" +
+"				state.flash_ret_or = 0;" +
 //"stdlib.console.log(\"Switch to normal\");" +
 "				ww = ww_" + suffix + "_normal;" + // Redefine functions
 "				rw = rw_" + suffix + "_normal;" +
@@ -3946,7 +4051,7 @@ function build_memory_write_functions(suffix, flashmemoryaddress, flashmemorysiz
 build_memory_write_functions("1", 0x400000, 0x200000); // 92+
 build_memory_write_functions("3", 0x200000, 0x200000); // 89
 build_memory_write_functions("8", 0x200000, 0x400000); // V200
-build_memory_write_functions("9", 0x800000, (large_flash_memory ? 0x800000 : 0x400000)); // 89T
+build_memory_write_functions("9", 0x800000, (state.large_flash_memory ? 0x800000 : 0x400000)); // 89T
 
 function wl(address, value)
 {
@@ -3969,19 +4074,19 @@ function build_movem_handlers() {
 // store_multiple
 	var movem_handler =
 "store_multiple = function store_multiple(address, mask, size) {" +
-"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
+"	if ((address & 1) != 0) { state.address_error_address = address; state.address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
 		movem_handler += "		if (mask & 1) {" +
-"			ww(address, d" + reg + ");" +
+"			ww(address, state.d" + reg + ");" +
 "			address += 2;" +
 "		}" +
 "		mask >>>= 1;";
 	}
 	for (reg = 0; reg <= 3; reg++) {
 		movem_handler += "		if (mask & 1) {" +
-"			ww(address, a" + reg + ");" +
+"			ww(address, state.a" + reg + ");" +
 "			address += 2;" +
 "		}" +
 "		mask >>>= 1;";
@@ -3989,7 +4094,7 @@ function build_movem_handlers() {
 	movem_handler += "if (!mask) return;";
 	for (reg = 4; reg <= 7; reg++) {
 		movem_handler += "		if (mask & 1) {" +
-"			ww(address, a" + reg + ");" +
+"			ww(address, state.a" + reg + ");" +
 "			address += 2;" +
 "		}" +
 "		mask >>>= 1;";
@@ -3998,14 +4103,14 @@ function build_movem_handlers() {
 "	else {";
 	for (reg = 0; reg <= 7; reg++) {
 		movem_handler += "		if (mask & 1) {" +
-"			wl(address, d" + reg + ");" +
+"			wl(address, state.d" + reg + ");" +
 "			address += 4;" +
 "		}" +
 "		mask >>>= 1;";
 	}
 	for (reg = 0; reg <= 3; reg++) {
 		movem_handler += "		if (mask & 1) {" +
-"			wl(address, a" + reg + ");" +
+"			wl(address, state.a" + reg + ");" +
 "			address += 4;" +
 "		}" +
 "		mask >>>= 1;";
@@ -4013,7 +4118,7 @@ function build_movem_handlers() {
 	movem_handler += "if (!mask) return;";
 	for (reg = 4; reg <= 7; reg++) {
 		movem_handler += "		if (mask & 1) {" +
-"			wl(address, a" + reg + ");" +
+"			wl(address, state.a" + reg + ");" +
 "			address += 4;" +
 "		}" +
 "		mask >>>= 1;";
@@ -4026,20 +4131,20 @@ function build_movem_handlers() {
 	movem_handler =
 "store_multiple_predec = function store_multiple_predec(address, mask, size)" +
 "{" +
-"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
+"	if ((address & 1) != 0) { state.address_error_address = address; state.address_error_access_type = 0; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 7; reg >= 0; reg--) {
 		movem_handler += "		if (mask & 1) {" +
 "			address -= 2;" +
-"			ww(address, a" + reg + ");" +
+"			ww(address, state.a" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
 	for (reg = 7; reg >= 4; reg--) {
 		movem_handler += "		if (mask & 1) {" +
 "			address -= 2;" +
-"			ww(address, d" + reg + ");" +
+"			ww(address, state.d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4047,7 +4152,7 @@ function build_movem_handlers() {
 	for (reg = 3; reg >= 0; reg--) {
 		movem_handler += "		if (mask & 1) {" +
 "			address -= 2;" +
-"			ww(address, d" + reg + ");" +
+"			ww(address, state.d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4056,14 +4161,14 @@ function build_movem_handlers() {
 	for (reg = 7; reg >= 0; reg--) {
 		movem_handler += "		if (mask & 1) {" +
 "			address -= 4;" +
-"			wl(address, a" + reg + ");" +
+"			wl(address, state.a" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
 	for (reg = 7; reg >= 4; reg--) {
 		movem_handler += "		if (mask & 1) {" +
 "			address -= 4;" +
-"			wl(address, d" + reg + ");" +
+"			wl(address, state.d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4071,7 +4176,7 @@ function build_movem_handlers() {
 	for (reg = 3; reg >= 0; reg--) {
 		movem_handler += "		if (mask & 1) {" +
 "			address -= 4;" +
-"			wl(address, d" + reg + ");" +
+"			wl(address, state.d" + reg + ");" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4084,14 +4189,14 @@ function build_movem_handlers() {
 	movem_handler =
 "load_multiple = function load_multiple(address, mask, size)" +
 "{" +
-"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 1; fire_cpu_exception(3); };" + // Address Error
+"	if ((address & 1) != 0) { state.address_error_address = address; state.address_error_access_type = 1; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
-"			d" + reg + "= value;" +
+"			state.d" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4099,7 +4204,7 @@ function build_movem_handlers() {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
-"			a" + reg + "= value;" +
+"			state.a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4108,7 +4213,7 @@ function build_movem_handlers() {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
-"			a" + reg + "= value;" +
+"			state.a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4118,7 +4223,7 @@ function build_movem_handlers() {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
-"			d" + reg + "= value;" +
+"			state.d" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4126,7 +4231,7 @@ function build_movem_handlers() {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
-"			a" + reg + "= value;" +
+"			state.a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4135,7 +4240,7 @@ function build_movem_handlers() {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
-"			a" + reg + "= value;" +
+"			state.a" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4147,14 +4252,14 @@ function build_movem_handlers() {
 	movem_handler =
 "load_multiple_postinc = function load_multiple_postinc(address, mask, size)" +
 "{" +
-"	if ((address & 1) != 0) { address_error_address = address; address_error_access_type = 1; fire_cpu_exception(3); };" + // Address Error
+"	if ((address & 1) != 0) { state.address_error_address = address; state.address_error_access_type = 1; fire_cpu_exception(3); };" + // Address Error
 "	address = address & 0xFFFFFE;" +
 "	if (size == 1) {";
 	for (reg = 0; reg <= 7; reg++) {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
-"			d" + reg + "= + value;" +
+"			state.d" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4162,7 +4267,7 @@ function build_movem_handlers() {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
-"			a" + reg + "= + value;" +
+"			state.a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4171,7 +4276,7 @@ function build_movem_handlers() {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = ewl(rw(address));" +
 "			address += 2;" +
-"			a" + reg + "= + value;" +
+"			state.a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4181,7 +4286,7 @@ function build_movem_handlers() {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
-"			d" + reg + "= value;" +
+"			state.d" + reg + "= value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4189,7 +4294,7 @@ function build_movem_handlers() {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
-"			a" + reg + "= + value;" +
+"			state.a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4198,7 +4303,7 @@ function build_movem_handlers() {
 		movem_handler += "		if (mask & 1) {" +
 "			var value = rl(address);" +
 "			address += 4;" +
-"			a" + reg + "= + value;" +
+"			state.a" + reg + "= + value;" +
 "		}" +
 "		mask >>>= 1;";
 	}
@@ -4236,7 +4341,7 @@ stdlib.console.log("18172\t" +n[18172]);*/
 
 function initemu()
 {
-	sr = 0;
+	state.sr = 0;
 	stdlib.console.log("JS TI-68k emulator by PatrickD, Lionel Debroux et. al starting");
 	if (!checkemu()) {
 		stdlib.console.log("Emulation checks failed");
@@ -4249,22 +4354,22 @@ function initemu()
 		return;
 	}
 
-	ui.setCalculatorModel(calculator_model);
-	link.setCalculatorModel(calculator_model);
+	ui.setCalculatorModel(state.calculator_model);
+	link.setCalculatorModel(state.calculator_model);
 	ui.initemu();
 
 	initialize_calculator();
-	main_interval_timer_id = stdlib.setInterval(emu_main_loop, main_interval_timer_interval);
+	main_interval_timer_id = stdlib.setInterval(emu_main_loop, state.main_interval_timer_interval);
 
-	for (var key = 0; key < 80; key++) keystatus[key] = 0;
+	for (var key = 0; key < 80; key++) state.keystatus[key] = 0;
 
 	ui.initkeyhandlers();
 };
 
 function setKey(keynumber, status)
 {
-	var prev = keystatus[keynumber];
-	keystatus[keynumber] = status;
+	//var prev = state.keystatus[keynumber];
+	state.keystatus[keynumber] = status;
 	// FIXME: this was simple, and used to be better than nothing... but it's wrong.
 	// After adding pending interrupt mechanism, keyboard handling works better if this interrupt is not triggered.
 	/*if (!prev && status) {
@@ -4275,13 +4380,13 @@ function setKey(keynumber, status)
 function setONKeyPressed()
 {
 	//stdlib.console.log("ON pressed");
-	port_60001A = 0x00;
+	state.port_60001A = 0x00;
 	raise_interrupt(6); // AUTO_INT_6
 }
 
 function setONKeyReleased()
 {
-	port_60001A = 0x02;
+	state.port_60001A = 0x02;
 	//stdlib.console.log("ON released");
 }
 
@@ -4290,20 +4395,20 @@ function setONKeyReleased()
 // In TIEmu, see src/core/images.c::ti68k_get_rom_infos() and src/core/hwpm.c::ti68k_get_hw_param_block().
 function detect_calculator_model()
 {
-	if (typeof(rom) !== "object") {
+	if (typeof(state.rom) !== "object") {
 		return false;
 	}
-	jmp_tbl = rom[(0x12088 + 0xC8) >>> 1] * 65536 + rom[((0x12088 + 0xC8) >>> 1) + 1]; // Jump table, if any
-	pedrom = (rom[(0x12088 + 0x32) >>> 1] == 0x524F); // PedroM has kernel type "RO", AMS and Punix have no kernel type.
-	punix = (jmp_tbl == 0); // Punix doesn't have an AMS-style jump table.
+	state.jmp_tbl = state.rom[(0x12088 + 0xC8) >>> 1] * 65536 + state.rom[((0x12088 + 0xC8) >>> 1) + 1]; // Jump table, if any
+	state.pedrom = (state.rom[(0x12088 + 0x32) >>> 1] == 0x524F); // PedroM has kernel type "RO", AMS and Punix have no kernel type.
+	state.punix = (state.jmp_tbl == 0); // Punix doesn't have an AMS-style jump table.
 	var OSsize;
 
-	switch (rom[0x12000 >>> 1]) {
+	switch (state.rom[0x12000 >>> 1]) {
 		case 0x800F: // Size on 4 bytes
 		{
-			OSsize = rom[0x12002 >>> 1] * 65536 + rom[0x12004 >>> 1];
-			if (rom[0x12006 >>> 1] == 0x8011) { // Calculator model
-				calculator_model = (rom[0x12008 >>> 1] & 0xFF00) >>> 8;
+			OSsize = state.rom[0x12002 >>> 1] * 65536 + state.rom[0x12004 >>> 1];
+			if (state.rom[0x12006 >>> 1] == 0x8011) { // Calculator model
+				state.calculator_model = (state.rom[0x12008 >>> 1] & 0xFF00) >>> 8;
 			}
 			else {
 				stdlib.console.log("Unhandled calculator model scheme or invalid data");
@@ -4313,9 +4418,9 @@ function detect_calculator_model()
 		}
 		case 0x800E: // Size on 2 bytes
 		{
-			OSsize = rom[0x12002 >>> 1];
-			if (rom[0x12004 >>> 1] == 0x8011) { // Calculator model
-				calculator_model = (rom[0x12006 >>> 1] & 0xFF00) >>> 8;
+			OSsize = state.rom[0x12002 >>> 1];
+			if (state.rom[0x12004 >>> 1] == 0x8011) { // Calculator model
+				state.calculator_model = (state.rom[0x12006 >>> 1] & 0xFF00) >>> 8;
 			}
 			else {
 				stdlib.console.log("Unhandled calculator model scheme or invalid data");
@@ -4331,68 +4436,68 @@ function detect_calculator_model()
 	}
 	//stdlib.console.log("OS size is " + OSsize + " bytes (+ header and signature)");
 
-	switch (calculator_model) {
-		case 1: ROM_base = 0x400000; FlashMemorySize = 0x200000; break; // 92+
-		case 3: ROM_base = 0x200000; FlashMemorySize = 0x200000; break; // 89
-		case 8: ROM_base = 0x200000; FlashMemorySize = 0x400000; break; // V200
-		case 9: ROM_base = 0x800000; FlashMemorySize = (large_flash_memory ? 0x800000 : 0x400000); break; // 89T
+	switch (state.calculator_model) {
+		case 1: state.ROM_base = 0x400000; state.FlashMemorySize = 0x200000; break; // 92+
+		case 3: state.ROM_base = 0x200000; state.FlashMemorySize = 0x200000; break; // 89
+		case 8: state.ROM_base = 0x200000; state.FlashMemorySize = 0x400000; break; // V200
+		case 9: state.ROM_base = 0x800000; state.FlashMemorySize = (state.large_flash_memory ? 0x800000 : 0x400000); break; // 89T
 		default: return false;
 	}
 
 	// Post-process hardware model from the information contained in HWPB, if any.
-	var hwpbaddress = rom[0x104 / 2] * 65536 + rom[0x106 / 2]; // Address of HWPB, if any.
-	if (hwpbaddress >= ROM_base && hwpbaddress <= ROM_base + FlashMemorySize) {
+	var hwpbaddress = state.rom[0x104 / 2] * 65536 + state.rom[0x106 / 2]; // Address of HWPB, if any.
+	if (hwpbaddress >= state.ROM_base && hwpbaddress <= state.ROM_base + state.FlashMemorySize) {
 		// There's a HWPB in this image.
-		var hwpboffset = (hwpbaddress - ROM_base) >>> 1;
-		var hwpbsize = rom[hwpboffset]; // Read size bytes.
+		var hwpboffset = (hwpbaddress - state.ROM_base) >>> 1;
+		var hwpbsize = state.rom[hwpboffset]; // Read size bytes.
 		//stdlib.console.log("hwpbaddress=" + to_hex(hwpbaddress, 6) + " hwpboffset=" + to_hex(hwpboffset, 6) + " hwpbsize=" + to_hex(hwpbsize, 4));
 		if (hwpbsize >= 6) {
 			// There's a hardware ID field in this HWPB.
-			calculator_model = rom[hwpboffset + 1] * 65536 + rom[hwpboffset + 2];
+			state.calculator_model = state.rom[hwpboffset + 1] * 65536 + state.rom[hwpboffset + 2];
 			//stdlib.console.log("calculator_model=" + calculator_model);
-			if (calculator_model == 8 && ROM_base == 0x400000) {
+			if (state.calculator_model == 8 && state.ROM_base == 0x400000) {
 				stdlib.console.log("Detected V200 ROM patched as 92+, forcing 92+ model");
-				calculator_model = 1; FlashMemorySize = 0x200000;
+				state.calculator_model = 1; state.FlashMemorySize = 0x200000;
 			}
-			else if (calculator_model == 9 && ROM_base == 0x200000) {
+			else if (state.calculator_model == 9 && state.ROM_base == 0x200000) {
 				stdlib.console.log("Detected 89T ROM patched as 89, forcing 89 model");
-				calculator_model = 3; FlashMemorySize = 0x200000;
+				state.calculator_model = 3; state.FlashMemorySize = 0x200000;
 			}
 		}
 
 		if (hwpbsize >= 0x18) {
 			// There's a gate array field in this HWPB.
-			hardware_model = rom[hwpboffset + 11] * 65536 + rom[hwpboffset + 12];
+			state.hardware_model = state.rom[hwpboffset + 11] * 65536 + state.rom[hwpboffset + 12];
 		}
 		else {
 			// HWPB is too short (shouldn't occur for V200 or 89T), use default value.
-			hardware_model = (calculator_model == 9) ? 3 : ((calculator_model == 8) ? 2 : 1); // Assume HW3 for 89T, HW2 for V200 (always correct), HW1 for 89 & 92+.
+			state.hardware_model = (state.calculator_model == 9) ? 3 : ((state.calculator_model == 8) ? 2 : 1); // Assume HW3 for 89T, HW2 for V200 (always correct), HW1 for 89 & 92+.
 		}
 	}
 	else {
 		// There's no HWPB in this image
-		hardware_model = (calculator_model == 9) ? 3 : ((calculator_model == 8) ? 2 : 1); // Assume HW3 for 89T, HW2 for V200 (always correct), HW1 for 89 & 92+.
+		state.hardware_model = (state.calculator_model == 9) ? 3 : ((state.calculator_model == 8) ? 2 : 1); // Assume HW3 for 89T, HW2 for V200 (always correct), HW1 for 89 & 92+.
 
 		// Create fake HWPB
 		stdlib.console.log("Creating fake HWPB");
-		rom[0x104 / 2] = ROM_base >>> 16; // Address of the HWPB
-		rom[0x106 / 2] = 0x0108;
-		rom[0x108 / 2] = 0x0018; // Size of the HWPB
-		rom[0x10A / 2] = 0x0000; // Hardware ID
-		rom[0x10C / 2] = calculator_model;
-		rom[0x10E / 2] = 0x0000; // Hardware revision
-		rom[0x110 / 2] = 0x0001;
-		rom[0x112 / 2] = 0x0000; // Boot major
-		rom[0x114 / 2] = 0x0001;
-		rom[0x116 / 2] = 0x0000; // Boot revision
-		rom[0x118 / 2] = 0x0001;
-		rom[0x11A / 2] = 0x0000; // Boot build
-		rom[0x11C / 2] = 0x0001;
-		rom[0x11E / 2] = 0x0000; // Gate array
-		rom[0x120 / 2] = hardware_model;
+		state.rom[0x104 / 2] = state.ROM_base >>> 16; // Address of the HWPB
+		state.rom[0x106 / 2] = 0x0108;
+		state.rom[0x108 / 2] = 0x0018; // Size of the HWPB
+		state.rom[0x10A / 2] = 0x0000; // Hardware ID
+		state.rom[0x10C / 2] = state.calculator_model;
+		state.rom[0x10E / 2] = 0x0000; // Hardware revision
+		state.rom[0x110 / 2] = 0x0001;
+		state.rom[0x112 / 2] = 0x0000; // Boot major
+		state.rom[0x114 / 2] = 0x0001;
+		state.rom[0x116 / 2] = 0x0000; // Boot revision
+		state.rom[0x118 / 2] = 0x0001;
+		state.rom[0x11A / 2] = 0x0000; // Boot build
+		state.rom[0x11C / 2] = 0x0001;
+		state.rom[0x11E / 2] = 0x0000; // Gate array
+		state.rom[0x120 / 2] = state.hardware_model;
 	}
 
-	stdlib.console.log("Detected a supported OS, calculator model is " + calculator_model + ", hardware model is " + hardware_model);
+	stdlib.console.log("Detected a supported OS, calculator model is " + state.calculator_model + ", hardware model is " + state.hardware_model);
 	return true;
 }
 
@@ -4407,27 +4512,27 @@ function initialize_calculator()
 
 function reset_calculator()
 {
-	if (erase_ram_upon_reset) {
+	if (state.erase_ram_upon_reset) {
 		for (var b = 0; b < 131072; b++) {
-			ram[b] = 0;
+			state.ram[b] = 0;
 		}
 	}
 
 	ui.reset();
 
-	for (var i = 0; i < 128; i++) ram[i] = rom[i + (0x12088 / 2)];
+	for (var i = 0; i < 128; i++) state.ram[i] = state.rom[i + (0x12088 / 2)];
 
 	// Redefine memory read / write functions
-	if (calculator_model == 1) { // 92+
+	if (state.calculator_model == 1) { // 92+
 		rb = rb_1_normal; rw = rw_1_normal; wb = wb_1_normal; ww = ww_1_normal;
 	}
-	else if (calculator_model == 3) { // 89
+	else if (state.calculator_model == 3) { // 89
 		rb = rb_3_normal; rw = rw_3_normal; wb = wb_3_normal; ww = ww_3_normal;
 	}
-	else if (calculator_model == 8) { // V200
+	else if (state.calculator_model == 8) { // V200
 		rb = rb_8_normal; rw = rw_8_normal; wb = wb_8_normal; ww = ww_8_normal;
 	}
-	else if (calculator_model == 9) { // 89T
+	else if (state.calculator_model == 9) { // 89T
 		rb = rb_9_normal; rw = rw_9_normal; wb = wb_9_normal; ww = ww_9_normal;
 	}
 	else {
@@ -4435,16 +4540,16 @@ function reset_calculator()
 	}
 
 	// Detect starting address.
-	var initial_ssp = rom[0] * 65536 + rom[1];
-	var initial_pc = rom[2] * 65536 + rom[3];
+	var initial_ssp = state.rom[0] * 65536 + state.rom[1];
+	var initial_pc = state.rom[2] * 65536 + state.rom[3];
 	if (   initial_ssp >= 0 && initial_ssp < 0x40000
-	    && initial_pc >= ROM_base && initial_pc < ROM_base + FlashMemorySize
-	    && rom[0x10000 >>> 1] == 0xFFF8) {
+	    && initial_pc >= state.ROM_base && initial_pc < state.ROM_base + state.FlashMemorySize
+	    && state.rom[0x10000 >>> 1] == 0xFFF8) {
 		stdlib.console.log("Detected reasonably valid initial SSP=" + to_hex(initial_ssp, 8) + ", PC=" + to_hex(initial_pc, 8) + " in boot code, and marker in certificate memory: will boot from boot code");
-		pc = initial_pc;
-		prev_pc = pc;
-		a7 = initial_ssp;
-		a8 = initial_ssp;
+		state.pc = initial_pc;
+		state.prev_pc = state.pc;
+		state.a7 = initial_ssp;
+		state.a8 = initial_ssp;
 
 		// Set marker in certificate memory, otherwise the boot code will display "Corrupt Certificate memory" and enter infinite loop.
 		/*if (rom[0x10000 >>> 1] == 0xFFFF) {
@@ -4453,133 +4558,137 @@ function reset_calculator()
 		}*/
 	}
 	else {
-		initial_ssp = rom[0x12088 >>> 1] * 65536 + rom[0x1208A >>> 1];
-		initial_pc = rom[0x1208C >>> 1] * 65536 + rom[0x1208E >>> 1];
-		if (initial_ssp >= 0 && initial_ssp < 0x40000 && initial_pc >= ROM_base && initial_pc < ROM_base + FlashMemorySize) {
+		initial_ssp = state.rom[0x12088 >>> 1] * 65536 + state.rom[0x1208A >>> 1];
+		initial_pc = state.rom[0x1208C >>> 1] * 65536 + state.rom[0x1208E >>> 1];
+		if (initial_ssp >= 0 && initial_ssp < 0x40000 && initial_pc >= state.ROM_base && initial_pc < state.ROM_base + state.FlashMemorySize) {
 			stdlib.console.log("Detected reasonably valid initial SSP=" + to_hex(initial_ssp, 8) + " and PC=" + to_hex(initial_pc, 8) + " in OS, will boot from there");
-			pc = initial_pc;
-			prev_pc = pc;
-			a7 = initial_ssp;
-			a8 = initial_ssp;
+			state.pc = initial_pc;
+			state.prev_pc = state.pc;
+			state.a7 = initial_ssp;
+			state.a8 = initial_ssp;
 		}
 		else {
 			stdlib.console.log("Detected no valid initial SSP and PC !");
 		}
 	}
 
-	sr = 0x2700;
+	state.sr = 0x2700;
 
-	cycle_count = 0;
+	state.cycle_count = 0;
 
 	link.reset_arrays();
 }
 
 function raise_interrupt(i)
 {
-	if (stopped)
+	if (state.stopped)
 	{
 		// these always resume
 		if (i == 6 || i == 7)
 		{
-			stdlib.console.log("Resuming from stop due to AUTO_INT_6 or AUTO_INT_7, wakemask=" + to_hex(wakemask, 2));
-			stopped = false;
+			stdlib.console.log("Resuming from stop due to AUTO_INT_6 or AUTO_INT_7, wakemask=" + to_hex(state.wakemask, 2));
+			state.stopped = false;
 			//tracecount = 30;
 		}
 		else
 		{
 			// these only resume if the right bit is set
-			if (wakemask & (1 << (i - 1)))
+			if (state.wakemask & (1 << (i - 1)))
 			{
 				//stdlib.console.log("Resuming from stop due to AUTO_INT_" + i + ", wakemask=" + to_hex(wakemask, 2));
-				stopped = false;
+				state.stopped = false;
 			}
 		}
 	}
 
-	pending_ints |= 1 << i;
+	state.pending_ints |= 1 << i;
 }
 
 function fire_cpu_exception(e)
 {
+	/*stdlib.console.log(e);
+	print_status();*/
 	// skip auto interrupt if current level too high
 	if (e >= 25 && e <= 30)
 	{
 		var interrupt_level = e - 24;
-		var current_level = (sr & 0x700) >> 8;
+		var current_level = (state.sr & 0x700) >> 8;
 		if (current_level >= interrupt_level) 
 		{
 			return;
 		}
 	}
 
-	var oldsr = sr;
-	update_sr(sr | 0x2000);
+	var oldsr = state.sr;
+	update_sr(state.sr | 0x2000);
 
-	a7 -= 4; // push pc on supervisor stack
-	wl(a7, pc);
-	a7 -= 2; // push sr on supervisor stack
-	ww(a7, oldsr);
-	pc = rl(e * 4); // load new PC from vector table
+	state.a7 -= 4; // push pc on supervisor stack
+	wl(state.a7, state.pc);
+	state.a7 -= 2; // push sr on supervisor stack
+	ww(state.a7, oldsr);
+	state.pc = rl(e * 4); // load new PC from vector table
 	// For address error and bus error, the stack frame is more complicated.
 	if (e == 2 || e == 3) {
-		a7 -= 2;
-		ww(a7, current_instruction); // Instruction register.
-		a7 -= 4;
-		wl(a7, address_error_address); // Access address
-		a7 -= 2;
-		var access_type = address_error_access_type << 4 + reading_instruction << 3;
+		state.a7 -= 2;
+		ww(state.a7, state.current_instruction); // Instruction register.
+		state.a7 -= 4;
+		wl(state.a7, state.address_error_address); // Access address
+		state.a7 -= 2;
+		var access_type = state.address_error_access_type << 4 + state.reading_instruction << 3;
 		// 0 0 1 User data
 		// 0 1 0 User program
 		// 1 0 1 Supervisor data
 		// 1 1 0 Supervisor program
 		if (oldsr & 0x2000) {
-			access_type |= 4;
+			state.address_error_access_type |= 4;
 		}
-		if (reading_instruction) {
-			access_type |= 2;
+		if (state.reading_instruction) {
+			state.address_error_access_type |= 2;
 		}
 		else {
-			access_type |= 1;
+			state.address_error_access_type |= 1;
 		}
-		ww(a7, access_type);
+		ww(state.a7, state.address_error_access_type);
+
+		console.log(to_hex(rw(state.a7), 4) + " " + to_hex(rw(state.a7+2), 4) + " " + to_hex(rw(state.a7+4), 4) + " " + to_hex(rw(state.a7+6), 4) + " " + to_hex(rw(state.a7+8), 4) + " " + to_hex(rw(state.a7+10), 4) + " " + to_hex(rw(state.a7+12), 4));
 	}
 
 	// set interrupt level for auto interrupt
 	if (e >= 25 && e <= 31) {
-		sr &= 0xF8FF;
+		state.sr &= 0xF8FF;
 		var new_level = e - 24;
-		pending_ints &= 255 - (1 << new_level);
-		sr += new_level * 256;
+		state.pending_ints &= 255 - (1 << new_level);
+		state.sr += new_level * 256;
 	}
 }
 
 // Timer handling was extracted out of main_loop to help profiling.
 function timer_interrupts()
 {
-	osc2_counter += 32; // That's supposed to be the correct value, but the AMS UI is annoying...
+	state.osc2_counter += 32; // That's supposed to be the correct value, but the AMS UI is annoying...
 
-	if (osc2_counter >= 0x1000000) osc2_counter -= 0x1000000;
+	if (state.osc2_counter >= 0x1000000) state.osc2_counter -= 0x1000000;
 
 	// check master interrupt control (bit 7, needs to be clear).
-	if ((interrupt_control & 0x80) == 0)
+	if ((state.interrupt_control & 0x80) == 0)
 	{
 		// Only if OSC2 enabled
-		if (interrupt_control & 2)
+		if (state.interrupt_control & 2)
 		{
 			// Trigger level 1 interrupt
-			if ((osc2_counter & 0x7FF) == 0)
+			if ((state.osc2_counter & 0x7FF) == 0)
 				raise_interrupt(1); // AUTO_INT_1
 
 			// Programmable timer
-			if (((osc2_counter % interrupt_rate) == 0) && (interrupt_control & 8))
+			if (((state.osc2_counter % state.interrupt_rate) == 0) && (state.interrupt_control & 8))
 			{
-				if (timer_current == 0)
-					timer_current = timer_min;
+				if (state.timer_current == 0)
+					state.timer_current = state.timer_min;
 				else
-					timer_current++;
-				if (timer_current >= 256)
+					state.timer_current++;
+				if (state.timer_current >= 256)
 				{
-					timer_current = 0;
+					state.timer_current = 0;
 					raise_interrupt(5); // AUTO_INT_5
 				}
 			}
@@ -4587,9 +4696,9 @@ function timer_interrupts()
 
 		// HW1: trigger level 3 interrupt if enabled and OSC2 enabled.
 		// HW2+: trigger level 3 interrupt if enabled, even if OSC2 stopped.
-		if (   (osc2_counter & 0x7FFFF) == 0
-		    && (interrupt_control & 4)
-		    && ((hardware_model == 1 && (interrupt_control & 2)) || (hardware_model > 1)))
+		if (   (state.osc2_counter & 0x7FFFF) == 0
+		    && (state.interrupt_control & 4)
+		    && ((state.hardware_model == 1 && (state.interrupt_control & 2)) || (state.hardware_model > 1)))
 		{
 			//stdlib.console.log("Triggering AUTO_INT_3");
 			raise_interrupt(3); // AUTO_INT_3
@@ -4599,24 +4708,32 @@ function timer_interrupts()
 
 function execute_instructions(number)
 {
+	var t = cpu.t;
+	var cycles = cpu.cycles;
 	for (var inner = 0; inner < number; inner++) {
-		prev_pc = pc;
-		reading_instruction = 0;
-		current_instruction = rw(pc);
-		reading_instruction = 1;
-		if (tracecount > 0) {
-			tracecount--;
-			if (overall > 0) {
-				overall--;
+		state.prev_pc = state.pc;
+		state.reading_instruction = 0;
+		state.current_instruction = rw(state.pc);
+		if (typeof(state.current_instruction) === "undefined") {
+			print_status();
+			stdlib.console.log(to_hex(state.pc, 9));
+			stdlib.clearInterval(main_interval_timer_id);
+			throw "e";
+		}
+		state.reading_instruction = 1;
+		if (state.tracecount > 0) {
+			state.tracecount--;
+			if (state.overall > 0) {
+				state.overall--;
 				print_status();
 			}
 		}
 		//if (pc == 0x48d6) tracecount = 20;
-		pc += 2;
+		state.pc += 2;
 		//try {
-			cycle_count += cycles[current_instruction];
-			t[current_instruction]();
-		if (stopped == true) {
+			state.cycle_count += cycles[state.current_instruction];
+			t[state.current_instruction]();
+		if (state.stopped == true) {
 			return;
 		}
 		/*}
@@ -4643,13 +4760,13 @@ function execute_instructions(number)
 		}*/
 
 		// Raise highest level pending interrupt.
-		if (pending_ints) {
+		if (state.pending_ints) {
 			var mask = 0x80;
 			for (var level = 7; level != 0; level--) {
-				if (pending_ints & mask) {
-					if ((level > (sr & 0x700) >> 8) || (level == 7)) {
+				if (state.pending_ints & mask) {
+					if ((level > (state.sr & 0x700) >> 8) || (level == 7)) {
 						fire_cpu_exception(level + 24);
-						pending_ints &= 255 - (1 << level);
+						state.pending_ints &= 255 - (1 << level);
 					}
 				}
 				mask >>= 1;
@@ -4660,16 +4777,16 @@ function execute_instructions(number)
 
 /*function execute_one_instruction()
 {
-	prev_pc = pc;
-	current_instruction = rw(pc);
-	pc += 2;
-	cycle_count += cycles[current_instruction];
-	t[current_instruction]();
+	state.prev_pc = state.pc;
+	state.current_instruction = rw(state.pc);
+	state.pc += 2;
+	state.cycle_count += cycles[state.current_instruction];
+	t[state.current_instruction]();
 }*/
 
 function emu_main_loop()
 {
-	if (unhandled_count >= 10) return;
+	if (state.unhandled_count >= 10) return;
 
 	var starttime = (new Date).getTime();
 	var started = false;
@@ -4677,12 +4794,12 @@ function emu_main_loop()
 	// The cost of exception handling is noticeable...
 	//try {
 		// The LCD refreshes every 8192 OSC2 cycles (by default)
-		for (var outer = 0; outer < screen_height * 2 /*&& unhandled_count < 10*/; outer++)
+		for (var outer = 0; outer < state.screen_height * 2 /*&& unhandled_count < 10*/; outer++)
 		{
 			// Assume we can run 2 instructions per OSC2 cycle, so 64 instructions between programmable interrupt counts (every 32 cycles).
 			// We get about 744khz OSC2 rate here, which comes out to around 1.49 million instructions per second, 
 			// which is fairly reasonable depending on your instruction mix.
-			if (!stopped)
+			if (!state.stopped)
 			{
 				//try {
 					execute_instructions(64);
@@ -4726,24 +4843,24 @@ function emu_main_loop()
 		}
 	}*/
 
-	if (hardware_model == 1) {
-		ui.draw_screen(((lcd_address_high << 8) + lcd_address_low) << (3 - 1), ram);
+	if (state.hardware_model == 1) {
+		ui.draw_screen(((state.lcd_address_high << 8) + state.lcd_address_low) << (3 - 1), state.ram);
 	}
 	else {
-		ui.draw_screen(lcd_address >>> 1, ram);
+		ui.draw_screen(state.lcd_address >>> 1, state.ram);
 		// Toggle FS bit
 	}
 	toggle_framesync();
 
 	var endtime = (new Date).getTime();
 
-	total_time += (endtime - starttime);
-	frames_counted++;
+	state.total_time += (endtime - starttime);
+	state.frames_counted++;
 
-	if (frames_counted == 1000)
+	if (state.frames_counted == 1000)
 	{
-		ui.set_title("Average milliseconds for the last 1000 frames is " + (total_time/1000));
-		total_time = frames_counted = 0;
+		ui.set_title("Average milliseconds for the last 1000 frames is " + (state.total_time/1000));
+		state.total_time = state.frames_counted = 0;
 	}
 
 	if (newromready)
@@ -4773,7 +4890,7 @@ function handle_newromready()
 		rom = new Uint16Array(inputrom.byteLength / 2);
 		for (var x = 0; x < inputrom.byteLength; x += 2)
 		{
-			rom[x / 2] = buf[x] * 256 + buf[x + 1];
+			state.rom[x / 2] = buf[x] * 256 + buf[x + 1];
 		}
 		initemu();
 	}
@@ -4795,23 +4912,23 @@ function handle_newromready()
 		}
 		stdlib.console.log("Offset = " + start);
 
-		rom = new Uint16Array(0x800000 / 2); // Allocate an array of maximum size (0x800000 due to experimental large memory support for 89T);
+		state.rom = new Uint16Array(0x800000 / 2); // Allocate an array of maximum size (0x800000 due to experimental large memory support for 89T);
 		var offset = 0;
 		for (offset = 0; offset < 0x12000 / 2; offset++) {
-			rom[offset] = 5120;  // 0x1400
+			state.rom[offset] = 5120;  // 0x1400
 		}
 
 		for (var x = start; x < inputrom.byteLength; x += 2)
 		{
-			rom[offset] = buf[x] * 256 + buf[x + 1];
+			state.rom[offset] = buf[x] * 256 + buf[x + 1];
 			offset++;
 		}
-		while (offset < rom.length) {
-			rom[offset] = 0xFFFF;
+		while (offset < state.rom.length) {
+			state.rom[offset] = 0xFFFF;
 			offset++;
 		}
 		initemu();
-		rom = rom.subarray(0, FlashMemorySize / 2); // Reduce array size if possible.
+		state.rom = state.rom.subarray(0, state.FlashMemorySize / 2); // Reduce array size if possible.
 		//overall = 150; tracecount = 50;
 	}
 }
@@ -4891,14 +5008,14 @@ function loadrom(infile)
 	{
 		stdlib.console.log("Loading as plain ROM");
 		var reader = new FileReader();
-		reader.onload = function() { newromready = reader; unhandled_count = 0; handle_newromready(); };
+		reader.onload = function() { newromready = reader; state.unhandled_count = 0; handle_newromready(); };
 		reader.readAsArrayBuffer(infile);
 	}
 	if (infile.size >= 1024 && infile.size < 0x400000 && (extension == ".tib" || extension == ".9xu" || extension == ".89u" || extension == ".v2u"))
 	{
 		stdlib.console.log("Starting to load as TIB / OS upgrade");
 		var reader = new FileReader();
-		reader.onload = function() { newromready = reader; unhandled_count = 0; handle_newromready(); };
+		reader.onload = function() { newromready = reader; state.unhandled_count = 0; handle_newromready(); };
 		reader.readAsArrayBuffer(infile);
 	}
 	// tilp: MIME types definition.
@@ -4928,7 +5045,7 @@ function loadrom(infile)
 	       )) {
 		stdlib.console.log("Starting to load as variable");
 		var reader = new FileReader();
-		reader.onload = function() { newfileready = reader; unhandled_count = 0; handle_newfileready(); };
+		reader.onload = function() { newfileready = reader; state.unhandled_count = 0; handle_newfileready(); };
 		reader.readAsArrayBuffer(infile);
 	}
 	if (   infile.size >= 80
@@ -4937,7 +5054,7 @@ function loadrom(infile)
 	       )) {
 		stdlib.console.log("Starting to load as Flash variable");
 		var reader = new FileReader();
-		reader.onload = function() { newflashfileready = reader; unhandled_count = 0; handle_newflashfileready(); };
+		reader.onload = function() { newflashfileready = reader; state.unhandled_count = 0; handle_newflashfileready(); };
 		reader.readAsArrayBuffer(infile);
 	}
 }
@@ -5024,50 +5141,50 @@ function check_subl() {
 	var result;
 
 	result = subl(0x12345678, 0x12345678);
-	if (result != 0x0 || sr != 4) {
-		stdlib.console.log("subl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x0 || state.sr != 4) {
+		stdlib.console.log("subl 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0x1234567, 0x12345678);
-	if (result != 0x11111111 || sr != 0) {
-		stdlib.console.log("subl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x11111111 || state.sr != 0) {
+		stdlib.console.log("subl 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0x23456789, 0x12345678);
-	if (result != 0xEEEEEEEF || sr != 0x19) {
-		stdlib.console.log("subl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xEEEEEEEF || state.sr != 0x19) {
+		stdlib.console.log("subl 2 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0x12345678, 0xFF000000);
-	if (result != 0xECCBA988 || sr != 0x08) {
-		stdlib.console.log("subl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xECCBA988 || state.sr != 0x08) {
+		stdlib.console.log("subl 3 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0xFF000000, 0x12345678);
-	if (result != 0x13345678 || sr != 0x11) {
-		stdlib.console.log("subl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x13345678 || state.sr != 0x11) {
+		stdlib.console.log("subl 4 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0x7FFFFFFF, 0x7FFFFFFF);
-	if (result != 0 || sr != 4) {
-		stdlib.console.log("subl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0 || state.sr != 4) {
+		stdlib.console.log("subl 5 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0x7FFFFFFF, 0xFF000000);
-	if (result != 0x7F000001 || sr != 0x02) {
-		stdlib.console.log("subl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x7F000001 || state.sr != 0x02) {
+		stdlib.console.log("subl 6 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = subl(0xFF000018, 0xFF000000);
-	if (result != 0xFFFFFFE8 || sr != 0x19) {
-		stdlib.console.log("subl 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xFFFFFFE8 || state.sr != 0x19) {
+		stdlib.console.log("subl 7 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5077,57 +5194,57 @@ function check_subl() {
 function check_cmpl() {
 	var result;
 
-	sr = 0;
+	state.sr = 0;
 
 	result = cmpl(0x12345678, 0x12345678);
-	if (result != 0x0 || sr != 4) {
-		stdlib.console.log("cmpl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x0 || state.sr != 4) {
+		stdlib.console.log("cmpl 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = cmpl(0x1234567, 0x12345678);
-	if (result != 0x11111111 || sr != 0) {
-		stdlib.console.log("cmpl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x11111111 || state.sr != 0) {
+		stdlib.console.log("cmpl 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = cmpl(0x23456789, 0x12345678);
-	if (result != 0xEEEEEEEF || sr != 0x09) {
-		stdlib.console.log("cmpl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xEEEEEEEF || state.sr != 0x09) {
+		stdlib.console.log("cmpl 2 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0x10; // Force X to 1, so as to check that subsequent cmp don't modify it.
+	state.sr = 0x10; // Force X to 1, so as to check that subsequent cmp don't modify it.
 
 	result = cmpl(0x12345678, 0xFF000000);
-	if (result != 0xECCBA988 || sr != 0x18) {
-		stdlib.console.log("cmpl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xECCBA988 || state.sr != 0x18) {
+		stdlib.console.log("cmpl 3 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = cmpl(0xFF000000, 0x12345678);
-	if (result != 0x13345678 || sr != 0x11) {
-		stdlib.console.log("cmpl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x13345678 || state.sr != 0x11) {
+		stdlib.console.log("cmpl 4 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = cmpl(0x7FFFFFFF, 0xFF000000);
-	if (result != 0x7F000001 || sr != 0x12) {
-		stdlib.console.log("cmpl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x7F000001 || state.sr != 0x12) {
+		stdlib.console.log("cmpl 5 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0; // Force X back to 0.
+	state.sr = 0; // Force X back to 0.
 
 	result = cmpl(0xFF000018, 0xFF000000);
-	if (result != 0xFFFFFFE8 || sr != 0x9) {
-		stdlib.console.log("cmpl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xFFFFFFE8 || state.sr != 0x9) {
+		stdlib.console.log("cmpl 6 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = cmpl(0xFF000000, 0x320);
-	if (sr != 0x1) {
-		stdlib.console.log("cmpl 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (state.sr != 0x1) {
+		stdlib.console.log("cmpl 7 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5138,44 +5255,44 @@ function check_addl() {
 	var result;
 
 	result = addl(0x12345678, 0x12345678);
-	if (result != 0x2468ACF0 || sr != 0) {
-		stdlib.console.log("addl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x2468ACF0 || state.sr != 0) {
+		stdlib.console.log("addl 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0x1234567, 0x12345678);
-	if (result != 0x13579BDF || sr != 0) {
-		stdlib.console.log("addl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x13579BDF || state.sr != 0) {
+		stdlib.console.log("addl 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0x23456789, 0x12345678);
-	if (result != 0x3579BE01 || sr != 0) {
-		stdlib.console.log("addl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x3579BE01 || state.sr != 0) {
+		stdlib.console.log("addl 2 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0x12345678, 0xFF000000);
-	if (result != 0x11345678 || sr != 0x11) {
-		stdlib.console.log("addl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x11345678 || state.sr != 0x11) {
+		stdlib.console.log("addl 3 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0x7FFFFFFF, 0x7FFFFFFF);
-	if (result != 0xFFFFFFFE || sr != 0xA) {
-		stdlib.console.log("addl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xFFFFFFFE || state.sr != 0xA) {
+		stdlib.console.log("addl 4 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0x7FFFFFFF, 0xFF000000);
-	if (result != 0x7EFFFFFF || sr != 0x11) {
-		stdlib.console.log("addl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x7EFFFFFF || state.sr != 0x11) {
+		stdlib.console.log("addl 5 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = addl(0xFF000018, 0xFF000000);
-	if (result != 0xFE000018 || sr != 0x19) {
-		stdlib.console.log("addl 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xFE000018 || state.sr != 0x19) {
+		stdlib.console.log("addl 6 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5185,62 +5302,62 @@ function check_addl() {
 function check_abcd() {
 	var result;
 
-	sr = 4;
+	state.sr = 4;
 
 	result = abcd(0x00, 0x00);
-	if (result != 0x0 || sr != 4) { // Z should be unchanged.
-		stdlib.console.log("abcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x0 || state.sr != 4) { // Z should be unchanged.
+		stdlib.console.log("abcd 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 
 	result = abcd(0x00, 0x00);
-	if (result != 0x0 || sr != 0) { // Z should be unchanged.
-		stdlib.console.log("abcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x0 || state.sr != 0) { // Z should be unchanged.
+		stdlib.console.log("abcd 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = abcd(0x00, 0x01);
-	if (result != 0x1 || sr != 0) { // Z should be clear
-		stdlib.console.log("abcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x1 || state.sr != 0) { // Z should be clear
+		stdlib.console.log("abcd 2 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 4;
+	state.sr = 4;
 
 	result = abcd(0x01, 0x01);
-	if (result != 0x2 || sr != 0) {
-		stdlib.console.log("abcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x2 || state.sr != 0) {
+		stdlib.console.log("abcd 3 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 4;
+	state.sr = 4;
 
 	result = abcd(0x01, 0x09);
-	if (result != 0x10 || sr != 0) {
-		stdlib.console.log("abcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x10 || state.sr != 0) {
+		stdlib.console.log("abcd 4 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 12; // N + Z
+	state.sr = 12; // N + Z
 
 	result = abcd(0x01, 0x99);
-	if (result != 0x00 || sr != 0x15) { // X and C set, Z unchanged
-		stdlib.console.log("abcd 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00 || state.sr != 0x15) { // X and C set, Z unchanged
+		stdlib.console.log("abcd 5 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0x11; // X, C
+	state.sr = 0x11; // X, C
 	result = abcd(0x00, 0x99);
-	if (result != 0x00 || sr != 0x11) { // The carry should remain
-		stdlib.console.log("abcd 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00 || state.sr != 0x11) { // The carry should remain
+		stdlib.console.log("abcd 6 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = abcd(0x00, 0x99);
-	if (result != 0x00 || sr != 0x11) { // The carry should remain
-		stdlib.console.log("abcd 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00 || state.sr != 0x11) { // The carry should remain
+		stdlib.console.log("abcd 7 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5250,39 +5367,39 @@ function check_abcd() {
 function check_sbcd() {
 	var result;
 
-	sr = 4;
+	state.sr = 4;
 
 	result = sbcd(0x00, 0x00);
-	if (result != 0x0 || sr != 4) { // Z should be unchanged
-		stdlib.console.log("sbcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x0 || state.sr != 4) { // Z should be unchanged
+		stdlib.console.log("sbcd 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 
 	result = sbcd(0x00, 0x00);
-	if (result != 0x0 || sr != 0) { // Z should be unchanged
-		stdlib.console.log("sbcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x0 || state.sr != 0) { // Z should be unchanged
+		stdlib.console.log("sbcd 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = sbcd(0x00, 0x01);
-	if (result != 0x99 || (sr & 0x15) != 0x11) { // There was a borrow.
-		stdlib.console.log("sbcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x99 || (state.sr & 0x15) != 0x11) { // There was a borrow.
+		stdlib.console.log("sbcd 2 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = sbcd(0x01, 0x01);
-	if (result != 0x99 || (sr & 0x15) != 0x11) { // There was a borrow.
-		stdlib.console.log("sbcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x99 || (state.sr & 0x15) != 0x11) { // There was a borrow.
+		stdlib.console.log("sbcd 3 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 
 	result = sbcd(0x01, 0x01);
-	if (result != 0x0 || sr != 0x0) { // There was no borrow.
-		stdlib.console.log("sbcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x0 || state.sr != 0x0) { // There was no borrow.
+		stdlib.console.log("sbcd 4 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5292,67 +5409,67 @@ function check_sbcd() {
 function check_nbcd() {
 	var result;
 
-	sr = 4;
+	state.sr = 4;
 
 	result = nbcd(0x00);
-	if (result != 0x0 || sr != 4) { // Z should be unchanged
-		stdlib.console.log("nbcd 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x0 || state.sr != 4) { // Z should be unchanged
+		stdlib.console.log("nbcd 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 
 	result = nbcd(0x01);
-	if (result != 0x99 || (sr & 0x15) != 0x11) { // X, C but not Z
-		stdlib.console.log("nbcd 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x99 || (state.sr & 0x15) != 0x11) { // X, C but not Z
+		stdlib.console.log("nbcd 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = nbcd(0x02);
-	if (result != 0x97 || (sr & 0x15) != 0x11) { // X, C but not Z
-		stdlib.console.log("nbcd 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x97 || (state.sr & 0x15) != 0x11) { // X, C but not Z
+		stdlib.console.log("nbcd 2 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 	result = nbcd(0x09);
-	if (result != 0x91 || (sr & 0x15) != 0x11) { // X, C but not Z
-		stdlib.console.log("nbcd 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x91 || (state.sr & 0x15) != 0x11) { // X, C but not Z
+		stdlib.console.log("nbcd 3 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 	result = nbcd(0x0A);
-	if (result != 0x90 || (sr & 0x15) != 0x11) { // X, C but not Z
-		stdlib.console.log("nbcd 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x90 || (state.sr & 0x15) != 0x11) { // X, C but not Z
+		stdlib.console.log("nbcd 4 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 	result = nbcd(0x0F);
-	if (result != 0x8B || (sr & 0x15) != 0x11) { // X, C but not Z
-		stdlib.console.log("nbcd 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x8B || (state.sr & 0x15) != 0x11) { // X, C but not Z
+		stdlib.console.log("nbcd 5 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 	result = nbcd(0x10);
-	if (result != 0x90 || (sr & 0x15) != 0x11) { // X, N, C but not Z
-		stdlib.console.log("nbcd 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x90 || (state.sr & 0x15) != 0x11) { // X, N, C but not Z
+		stdlib.console.log("nbcd 6 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 	result = nbcd(0x1F); // This one is used by HW3Patch as an anti-VTI check, but it does not trip this emulator ;)
-	if (result != 0x7B || (sr & 0x15) != 0x11) { // X, N, C but not Z
-		stdlib.console.log("nbcd 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x7B || (state.sr & 0x15) != 0x11) { // X, N, C but not Z
+		stdlib.console.log("nbcd 7 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 	result = nbcd(0x11);
-	if (result != 0x89 || (sr & 0x15) != 0x11) { // X, N, C but not Z
-		stdlib.console.log("nbcd 8 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x89 || (state.sr & 0x15) != 0x11) { // X, N, C but not Z
+		stdlib.console.log("nbcd 8 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5379,65 +5496,65 @@ function check_muls()
 {
 	var result;
 
-	sr = 0;
+	state.sr = 0;
 
 	result = muls(0x0, 0x0);
-	if (result != 0 || sr != 4) {
-		stdlib.console.log("muls 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0 || state.sr != 4) {
+		stdlib.console.log("muls 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0x0, 0x1);
-	if (result != 0 || sr != 4) {
-		stdlib.console.log("muls 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0 || state.sr != 4) {
+		stdlib.console.log("muls 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0x1, 0x0);
-	if (result != 0 || sr != 4) {
-		stdlib.console.log("muls 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0 || state.sr != 4) {
+		stdlib.console.log("muls 2 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0x1, 0x1);
-	if (result != 1 || sr != 0) {
-		stdlib.console.log("muls 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 1 || state.sr != 0) {
+		stdlib.console.log("muls 3 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0x1, 0x10001);
-	if (result != 1 || sr != 0) {
-		stdlib.console.log("muls 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 1 || state.sr != 0) {
+		stdlib.console.log("muls 4 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0x10001, 0x10001);
-	if (result != 1 || sr != 0) {
-		stdlib.console.log("muls 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 1 || state.sr != 0) {
+		stdlib.console.log("muls 5 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = muls(0xFFFF, 0xFFFF);
-	if (result != 0x00000001 || sr != 0) {
-		stdlib.console.log("muls 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+	if (result != 0x00000001 || state.sr != 0) {
+		stdlib.console.log("muls 6 " + to_hex(state.sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = muls(0xFFFF, 0x7FFF);
-	if (result != 0xFFFF8001 || sr != 8) {
-		stdlib.console.log("muls 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+	if (result != 0xFFFF8001 || state.sr != 8) {
+		stdlib.console.log("muls 7 " + to_hex(state.sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = muls(0x7FFF, 0x7FFF);
-	if (result != 0x3FFF0001 || sr != 0) {
-		stdlib.console.log("muls 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+	if (result != 0x3FFF0001 || state.sr != 0) {
+		stdlib.console.log("muls 8 " + to_hex(state.sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = muls(0x7FFF, 0xFFFF);
-	if (result != 0xFFFF8001 || sr != 8) {
-		stdlib.console.log("muls 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+	if (result != 0xFFFF8001 || state.sr != 8) {
+		stdlib.console.log("muls 9 " + to_hex(state.sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
@@ -5448,65 +5565,65 @@ function check_mulu()
 {
 	var result;
 
-	sr = 0;
+	state.sr = 0;
 
 	result = mulu(0x0, 0x0);
-	if (result != 0 || sr != 4) {
-		stdlib.console.log("mulu 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0 || state.sr != 4) {
+		stdlib.console.log("mulu 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0x0, 0x1);
-	if (result != 0 || sr != 4) {
-		stdlib.console.log("mulu 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0 || state.sr != 4) {
+		stdlib.console.log("mulu 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0x1, 0x0);
-	if (result != 0 || sr != 4) {
-		stdlib.console.log("mulu 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0 || state.sr != 4) {
+		stdlib.console.log("mulu 2 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0x1, 0x1);
-	if (result != 1 || sr != 0) {
-		stdlib.console.log("mulu 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 1 || state.sr != 0) {
+		stdlib.console.log("mulu 3 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0x1, 0x10001);
-	if (result != 1 || sr != 0) {
-		stdlib.console.log("mulu 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 1 || state.sr != 0) {
+		stdlib.console.log("mulu 4 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0x10001, 0x10001);
-	if (result != 1 || sr != 0) {
-		stdlib.console.log("mulu 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 1 || state.sr != 0) {
+		stdlib.console.log("mulu 5 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = mulu(0xFFFF, 0xFFFF);
-	if (result != 0xFFFE0001 || sr != 8) {
-		stdlib.console.log("mulu 6 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+	if (result != 0xFFFE0001 || state.sr != 8) {
+		stdlib.console.log("mulu 6 " + to_hex(state.sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = mulu(0xFFFF, 0x7FFF);
-	if (result != 0x7FFE8001 || sr != 0) {
-		stdlib.console.log("mulu 7 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+	if (result != 0x7FFE8001 || state.sr != 0) {
+		stdlib.console.log("mulu 7 " + to_hex(state.sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = mulu(0x7FFF, 0x7FFF);
-	if (result != 0x3FFF0001 || sr != 0) {
-		stdlib.console.log("mulu 8 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+	if (result != 0x3FFF0001 || state.sr != 0) {
+		stdlib.console.log("mulu 8 " + to_hex(state.sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
 	result = mulu(0x7FFF, 0xFFFF);
-	if (result != 0x7FFE8001 || sr != 0) {
-		stdlib.console.log("mulu 9 " + to_hex(sr, 4) + " " + to_hex2(result, 16));
+	if (result != 0x7FFE8001 || state.sr != 0) {
+		stdlib.console.log("mulu 9 " + to_hex(state.sr, 4) + " " + to_hex2(result, 16));
 		return false;
 	}
 
@@ -5516,46 +5633,46 @@ function check_mulu()
 function check_divu() {
 	var result;
 
-	sr = 0;
+	state.sr = 0;
 	result = divu(0x10, 0x12345678);
-	if (result != 0x12345678 || (sr & 3) != 2) { // N undefined when V.
-		stdlib.console.log("divu 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x12345678 || (state.sr & 3) != 2) { // N undefined when V.
+		stdlib.console.log("divu 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0x10, 0xFF000000);
-	if (result != 0xFF000000 || (sr & 3) != 2) { // N undefined when V.
-		stdlib.console.log("divu 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xFF000000 || (state.sr & 3) != 2) { // N undefined when V.
+		stdlib.console.log("divu 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0xCCCCFFFF, 0xFF000000);
-	if (result != 0xFF00FF00 || sr != 0x8) {
-		stdlib.console.log("divu 2 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xFF00FF00 || state.sr != 0x8) {
+		stdlib.console.log("divu 2 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0x1, 0x10000);
-	if (result != 0x10000 || (sr & 3) != 2) { // N undefined when V.
-		stdlib.console.log("divu 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x10000 || (state.sr & 3) != 2) { // N undefined when V.
+		stdlib.console.log("divu 3 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0x10, 0x10000);
-	if (result != 0x1000 || sr != 0) {
-		stdlib.console.log("divu 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x1000 || state.sr != 0) {
+		stdlib.console.log("divu 4 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0x10001, 0x10);
-	if (result != 0x00000010 || sr != 0) {
-		stdlib.console.log("divu 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00000010 || state.sr != 0) {
+		stdlib.console.log("divu 5 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divu(0x10100, 0x10);
-	if (result != 0x00100000 || sr != 4) {
-		stdlib.console.log("divu 6 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00100000 || state.sr != 4) {
+		stdlib.console.log("divu 6 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5566,70 +5683,70 @@ function check_divs()
 {
 	var result;
 
-	sr = 0;
+	state.sr = 0;
 	result = divs(0x10, 0x12345678);
-	if (result != 0x12345678 || (sr & 3) != 2) { // N undefined when V.
-		stdlib.console.log("divs 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x12345678 || (state.sr & 3) != 2) { // N undefined when V.
+		stdlib.console.log("divs 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0x10, 0xFF000000);
-	if (result != 0xFF000000 || (sr & 3) != 2) { // N undefined when V.
-		stdlib.console.log("divs 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xFF000000 || (state.sr & 3) != 2) { // N undefined when V.
+		stdlib.console.log("divs 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0xCCCCFFFF, 0x7F000000);
-	if (result != 0x7F000000 || (sr & 3) != 2) { // N undefined when V.
-		stdlib.console.log("divs 2 " + to_hex2(result, 9) + " " + to_hex2(0x7F000000, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x7F000000 || (state.sr & 3) != 2) { // N undefined when V.
+		stdlib.console.log("divs 2 " + to_hex2(result, 9) + " " + to_hex2(0x7F000000, 9) + " " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0xCCCCFFFF, 0xFF000000);
-	if (result != 0xFF000000 || (sr & 3) != 2) {
-		stdlib.console.log("divs 3 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0xFF000000 || (state.sr & 3) != 2) {
+		stdlib.console.log("divs 3 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0xCCCC7FFF, 0x7F000000);
-	if (result != 0x7F000000 || (sr & 3) != 2) {
-		stdlib.console.log("divs 4 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x7F000000 || (state.sr & 3) != 2) {
+		stdlib.console.log("divs 4 " + to_hex2(result, 9) + " " + to_hex2(0xFF00FF00, 9) + " " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0xCCCC7FFF, 0x7E000000);
-	if (result != 0x7E000000 || (sr & 3) != 2) { // N undefined when V.
-		stdlib.console.log("divs 5 " + to_hex2(result, 9) + " " + to_hex2(0x7E000000, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x7E000000 || (state.sr & 3) != 2) { // N undefined when V.
+		stdlib.console.log("divs 5 " + to_hex2(result, 9) + " " + to_hex2(0x7E000000, 9) + " " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0xCCCC7FFF, 0x3F000000);
-	if (result != 0x7E007E00 || sr != 0) {
-		stdlib.console.log("divs 6 " + to_hex2(result, 9) + " " + to_hex2(0x7E007E00, 9) + " " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x7E007E00 || state.sr != 0) {
+		stdlib.console.log("divs 6 " + to_hex2(result, 9) + " " + to_hex2(0x7E007E00, 9) + " " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0x1, 0x10000);
-	if (result != 0x10000 || (sr & 3) != 2) {
-		stdlib.console.log("divs 7 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x10000 || (state.sr & 3) != 2) {
+		stdlib.console.log("divs 7 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0x10, 0x10000);
-	if (result != 0x1000 || sr != 0) {
-		stdlib.console.log("divs 8 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x1000 || state.sr != 0) {
+		stdlib.console.log("divs 8 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0x10001, 0x10);
-	if (result != 0x00000010 || sr != 0) {
-		stdlib.console.log("divs 9 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00000010 || state.sr != 0) {
+		stdlib.console.log("divs 9 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = divs(0x10100, 0x10);
-	if (result != 0x00100000 || sr != 4) {
-		stdlib.console.log("divs 10 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00100000 || state.sr != 4) {
+		stdlib.console.log("divs 10 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5640,11 +5757,11 @@ function check_lsl()
 {
 	var result;
 
-	sr = 0;
+	state.sr = 0;
 
 	result = lsl(0x80000000, 1, 2);
-	if (result != 0x00000000 || sr != 0x15) {
-		stdlib.console.log("lsl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00000000 || state.sr != 0x15) {
+		stdlib.console.log("lsl 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5655,11 +5772,11 @@ function check_asl()
 {
 	var result;
 
-	sr = 0;
+	state.sr = 0;
 
 	result = asl(0x80000000, 1, 2);
-	if (result != 0x00000000 || sr != 0x17) {
-		stdlib.console.log("asl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00000000 || state.sr != 0x17) {
+		stdlib.console.log("asl 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5697,24 +5814,24 @@ function check_rol()
 {
 	var result;
 
-	sr = 0;
+	state.sr = 0;
 	result = rol(0x80000000, 1, 2);
-	if (result != 0x00000001 || sr != 0x1) {
-		stdlib.console.log("rol 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00000001 || state.sr != 0x1) {
+		stdlib.console.log("rol 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 	result = rol(0x8000, 1, 1);
-	if (result != 0x0001 || sr != 0x1) {
-		stdlib.console.log("rol 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x0001 || state.sr != 0x1) {
+		stdlib.console.log("rol 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 	result = rol(0x80, 1, 0);
-	if (result != 0x01 || sr != 0x1) {
-		stdlib.console.log("rol 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x01 || state.sr != 0x1) {
+		stdlib.console.log("rol 2 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5734,42 +5851,42 @@ function check_roxl()
 {
 	var result;
 
-	sr = 0;
+	state.sr = 0;
 	result = roxl(0x80000000, 1, 2);
-	if (result != 0x00000000 || sr != 0x15) {
-		stdlib.console.log("roxl 0 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00000000 || state.sr != 0x15) {
+		stdlib.console.log("roxl 0 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = roxl(0x80000000, 1, 2);
-	if (result != 0x00000001 || sr != 0x11) {
-		stdlib.console.log("roxl 1 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00000001 || state.sr != 0x11) {
+		stdlib.console.log("roxl 1 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 	result = roxl(0x8000, 1, 1);
-	if (result != 0x0000 || sr != 0x15) {
-		stdlib.console.log("roxl 2 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x0000 || state.sr != 0x15) {
+		stdlib.console.log("roxl 2 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = roxl(0x8000, 1, 1);
-	if (result != 0x0001 || sr != 0x11) {
-		stdlib.console.log("roxl 3 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x0001 || state.sr != 0x11) {
+		stdlib.console.log("roxl 3 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
-	sr = 0;
+	state.sr = 0;
 	result = roxl(0x80, 1, 0);
-	if (result != 0x00 || sr != 0x15) {
-		stdlib.console.log("roxl 4 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x00 || state.sr != 0x15) {
+		stdlib.console.log("roxl 4 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
 	result = roxl(0x80, 1, 0);
-	if (result != 0x01 || sr != 0x11) {
-		stdlib.console.log("roxl 5 " + to_hex(sr, 4) + " " + to_hex(result, 16));
+	if (result != 0x01 || state.sr != 0x11) {
+		stdlib.console.log("roxl 5 " + to_hex(state.sr, 4) + " " + to_hex(result, 16));
 		return false;
 	}
 
@@ -5810,7 +5927,7 @@ function checkemu()
 };
 
 function setRom(newrom) {
-	rom = newrom;
+	state.rom = newrom;
 }
 
 function setReset(newreset) {
@@ -5825,51 +5942,52 @@ function setLink(newlink) {
 	link = newlink;
 }
 
-function get_d0() { return d0; }
-function set_d0(value) { d0 = value&4294967295; }
-function get_d1() { return d1; }
-function set_d1(value) { d1 = value&4294967295; }
-function get_d2() { return d2; }
-function set_d2(value) { d2 = value&4294967295; }
-function get_d3() { return d3; }
-function set_d3(value) { d3 = value&4294967295; }
-function get_d4() { return d4; }
-function set_d4(value) { d4 = value&4294967295; }
-function get_d5() { return d5; }
-function set_d5(value) { d5 = value&4294967295; }
-function get_d6() { return d6; }
-function set_d6(value) { d6 = value&4294967295; }
-function get_d7() { return d7; }
-function set_d7(value) { d7 = value&4294967295; }
+function get_d0() { return state.d0; }
+function set_d0(value) { state.d0 = value&4294967295; }
+function get_d1() { return state.d1; }
+function set_d1(value) { state.d1 = value&4294967295; }
+function get_d2() { return state.d2; }
+function set_d2(value) { state.d2 = value&4294967295; }
+function get_d3() { return state.d3; }
+function set_d3(value) { state.d3 = value&4294967295; }
+function get_d4() { return state.d4; }
+function set_d4(value) { state.d4 = value&4294967295; }
+function get_d5() { return state.d5; }
+function set_d5(value) { state.d5 = value&4294967295; }
+function get_d6() { return state.d6; }
+function set_d6(value) { state.d6 = value&4294967295; }
+function get_d7() { return state.d7; }
+function set_d7(value) { state.d7 = value&4294967295; }
 
-function get_a0() { return a0; }
-function set_a0(value) { a0 = value&4294967295; }
-function get_a1() { return a1; }
-function set_a1(value) { a1 = value&4294967295; }
-function get_a2() { return a2; }
-function set_a2(value) { a2 = value&4294967295; }
-function get_a3() { return a3; }
-function set_a3(value) { a3 = value&4294967295; }
-function get_a4() { return a4; }
-function set_a4(value) { a4 = value&4294967295; }
-function get_a5() { return a5; }
-function set_a5(value) { a5 = value&4294967295; }
-function get_a6() { return a6; }
-function set_a6(value) { a6 = value&4294967295; }
-function get_a7() { return a7; }
-function set_a7(value) { a7 = value&4294967295; }
-function get_a8() { return a8; }
-function set_a8(value) { a8 = value&4294967295; }
+function get_a0() { return state.a0; }
+function set_a0(value) { state.a0 = value&4294967295; }
+function get_a1() { return state.a1; }
+function set_a1(value) { state.a1 = value&4294967295; }
+function get_a2() { return state.a2; }
+function set_a2(value) { state.a2 = value&4294967295; }
+function get_a3() { return state.a3; }
+function set_a3(value) { state.a3 = value&4294967295; }
+function get_a4() { return state.a4; }
+function set_a4(value) { state.a4 = value&4294967295; }
+function get_a5() { return state.a5; }
+function set_a5(value) { state.a5 = value&4294967295; }
+function get_a6() { return state.a6; }
+function set_a6(value) { state.a6 = value&4294967295; }
+function get_a7() { return state.a7; }
+function set_a7(value) { state.a7 = value&4294967295; }
+function get_a8() { return state.a8; }
+function set_a8(value) { state.a8 = value&4294967295; }
 
-function get_sr() { return sr; }
-function set_sr(value) { sr = value&65535; }
-function get_pc() { return pc; }
-function set_pc(value) { pc = value&4294967295; }
+function get_sr() { return state.sr; }
+function set_sr(value) { state.sr = value&65535; }
+function get_pc() { return state.pc; }
+function set_pc(value) { state.pc = value&4294967295; }
 
-function get_rom() { return rom; }
-function get_ram() { return ram; }
-function get_t() { return t; }
-function get_n() { return n; }
+function get_rom() { return state.rom; }
+function get_ram() { return state.ram; }
+function get_t() { return cpu.t; }
+function get_n() { return cpu.n; }
+function get_cycles() { return cpu.cycles; }
 
 function get_rb() { return rb; }
 function get_rw() { return rw; }
@@ -5915,14 +6033,14 @@ function setNewfileready(newnewfileready) { newfileready = newnewfileready; }
 function get_newflashfileready() { return newflashfileready; }
 function setNewflashfileready(newnewflashfileready) { newflashfileready = newnewflashfileready; }
 
-function set_erase_ram_upon_reset(value) { erase_ram_upon_reset = value; }
+function set_erase_ram_upon_reset(value) { state.erase_ram_upon_reset = value; }
 
-function get_stopped() { return stopped; }
-function get_hardware_model() { return hardware_model; }
-function get_calculator_model() { return calculator_model; }
-function get_jmp_tbl() { return jmp_tbl; }
-function get_ROM_base() { return ROM_base; }
-function get_FlashMemorySize() { return FlashMemorySize; }
+function get_stopped() { return state.stopped; }
+function get_hardware_model() { return state.hardware_model; }
+function get_calculator_model() { return state.calculator_model; }
+function get_jmp_tbl() { return state.jmp_tbl; }
+function get_ROM_base() { return state.ROM_base; }
+function get_FlashMemorySize() { return state.FlashMemorySize; }
 
 function pause_emulator()
 {
@@ -5932,31 +6050,31 @@ function pause_emulator()
 
 function increase_emulator_speed()
 {
-	if (main_interval_timer_interval > 1) {
-		main_interval_timer_interval--;
-		stdlib.console.log("Setting main timer interval to " + main_interval_timer_interval + " ms.");
+	if (state.main_interval_timer_interval > 1) {
+		state.main_interval_timer_interval--;
+		stdlib.console.log("Setting main timer interval to " + state.main_interval_timer_interval + " ms.");
 		stdlib.clearInterval(main_interval_timer_id);
-		main_interval_timer_id = stdlib.setInterval(emu_main_loop, main_interval_timer_interval);
+		main_interval_timer_id = stdlib.setInterval(emu_main_loop, state.main_interval_timer_interval);
 	}
 }
 
 function decrease_emulator_speed()
 {
-	main_interval_timer_interval++;
-	stdlib.console.log("Setting main timer interval to " + main_interval_timer_interval + " ms.");
+	state.main_interval_timer_interval++;
+	stdlib.console.log("Setting main timer interval to " + state.main_interval_timer_interval + " ms.");
 	stdlib.clearInterval(main_interval_timer_id);
-	main_interval_timer_id = stdlib.setInterval(emu_main_loop, main_interval_timer_interval);
+	main_interval_timer_id = stdlib.setInterval(emu_main_loop, state.main_interval_timer_interval);
 }
 
 function resume_emulator()
 {
 	// Is that enough ?
-	main_interval_timer_id = stdlib.setInterval(emu_main_loop, main_interval_timer_interval);
+	main_interval_timer_id = stdlib.setInterval(emu_main_loop, state.main_interval_timer_interval);
 }
 
 function toggle_framesync()
 {
-	port_70001D ^= 0x80;
+	state.port_70001D ^= 0x80;
 }
 
 function apiversion()
@@ -6021,6 +6139,7 @@ return {
 	ram : get_ram,
 	t : get_t,
 	n : get_n,
+	cycles : get_cycles,
 
 	rb : get_rb,
 	rw : get_rw,
@@ -6068,7 +6187,11 @@ return {
 	ROM_base : get_ROM_base,
 	FlashMemorySize : get_FlashMemorySize,
 
-	toggle_framesync : toggle_framesync
+	toggle_framesync : toggle_framesync,
+
+	_save_state : _save_state,
+	_restore_state : _restore_state
+
 };
 
 }
@@ -6097,6 +6220,25 @@ var link_dirlist_curidx = 0;
 
 var link_pending_keys = new Array();
 var link_interval_timer_id = 0;
+
+// -------------------- Variables above this line should be saved and restored --------------------
+
+function _save_state()
+{
+	var emustate = new Object();
+	return emustate;
+}
+
+function _restore_state(linkstate)
+{
+	if (typeof(linkstate) === "object") {
+		stdlib.clearInterval(link_interval_timer_id);
+		// TODO
+	}
+	else {
+		stdlib.console.log("Refusing to restore state from something not an object / from an object without the expected sub-objects");
+	}
+}
 
 function setUI(newui)
 {
@@ -6826,7 +6968,7 @@ function process_recv_CNTEOT(x)
 					    || (name != "regeq" && name != "regcoef")) {
 						// Record entry.
 						var newvar = new Object();
-						newvar.name = name;
+						newvar.name = link_dirlist_folders[link_dirlist_curidx] + "\\" + name;
 						newvar.type = type;
 						newvar.attr = attr;
 						newvar.size = size;
@@ -7095,7 +7237,11 @@ return {
 
 	get_link_config : get_link_config,
 	set_link_config : set_link_config,
-	set_reset_upon_ack_with_len : set_reset_upon_ack_with_len
+	set_reset_upon_ack_with_len : set_reset_upon_ack_with_len,
+
+	_save_state : _save_state,
+	_restore_state : _restore_state
+
 };
 
 }
@@ -7137,6 +7283,24 @@ var elementid_speedup = 'speedup';
 var elementid_slowdown = 'slowdown';
 var elementid_romfile = 'romfile';
 var elementid_downloadfile = 'downloadfile';
+
+// -------------------- Variables above this line should be saved and restored --------------------
+
+function _save_state()
+{
+	var emustate = new Object();
+	return emustate;
+}
+
+function _restore_state(linkstate)
+{
+	if (typeof(linkstate) === "object") {
+		// TODO
+	}
+	else {
+		stdlib.console.log("Refusing to restore state from something not an object / from an object without the expected sub-objects");
+	}
+}
 
 function draw_calcscreen_89_89T(address, ram)
 {
@@ -8421,7 +8585,7 @@ function getFileData(blob)
 
 function set_colors_according_to_contrast()
 {
-	if (emu.hardware_model == 1) {
+	if (emu.hardware_model() == 1) {
 		// TODO: modify both black_color and white_color.
 		black_color = white_color - 5 * contrast;
 	}
@@ -8546,7 +8710,11 @@ return {
 
 	set_frames_for_averaging : set_frames_for_averaging,
 	set_white_color : set_white_color,
-	set_black_color : set_black_color
+	set_black_color : set_black_color,
+
+	_save_state : _save_state,
+	_restore_state : _restore_state
+
 };
 
 }
