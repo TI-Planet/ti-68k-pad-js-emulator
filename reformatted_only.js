@@ -8335,23 +8335,21 @@ function TI68kEmulatorUIModule(stdlib) {
         var oldimg = document.getElementById(elementid_calcimg);
         var newimg = document.createElement('img');
         newimg.setAttribute('id', elementid_calcimg);
-        newimg.setAttribute('src', 'Ti-92plus.png');
+        newimg.setAttribute('src', 'Ti-92plus.jpg');
         newimg.setAttribute('usemap', '#' + elementid_calcmap);
-
-        // some mods. by adriweb
-        //newimg.setAttribute('style', 'position:absolute;top:0px;left:0px;z-index:0');
+        newimg.setAttribute('style', 'position:absolute;top:0px;left:0px;z-index:0');
 
         oldimg.parentNode.appendChild(newimg);
         newimg.parentNode.removeChild(oldimg);
 
         // Move canvas.
         var screen = document.getElementById(elementid_screen);
-        ////screen.setAttribute('style', 'position:absolute;top:49px;left:205px;z-index:1');
+        screen.setAttribute('style', 'position:absolute;top:49px;left:205px;z-index:1');
         screen.setAttribute('width', '480');
         screen.setAttribute('height', '256');
 
         var textandbuttons = document.getElementById(elementid_textandbuttons);
-        ////textandbuttons.setAttribute('style', 'position:relative;top:578px');
+        textandbuttons.setAttribute('style', 'position:relative;top:578px');
 
         // Scaling radio buttons
         document.getElementById(elementid_smallskin).checked = false;
@@ -8459,20 +8457,19 @@ function TI68kEmulatorUIModule(stdlib) {
         newimg.setAttribute('id', elementid_calcimg);
         newimg.setAttribute('src', 'ti92p_skinmap.gif');
         newimg.setAttribute('usemap', '#' + elementid_calcmap);
-        //newimg.setAttribute('style', 'position:absolute;top:0px;left:0px;z-index:0');
-        newimg.setAttribute('style', oldimg.getAttribute('style'));
+        newimg.setAttribute('style', 'position:absolute;top:0px;left:0px;z-index:0');
 
         oldimg.parentNode.appendChild(newimg);
         newimg.parentNode.removeChild(oldimg);
 
         // Move canvas.
         var screen = document.getElementById(elementid_screen);
-        //screen.setAttribute('style', 'position:relative;top:27px;left:180px;z-index:1');
+        screen.setAttribute('style', 'position:relative;top:27px;left:180px;z-index:1');
         screen.setAttribute('width', '240');
         screen.setAttribute('height', '128');
 
         var textandbuttons = document.getElementById(elementid_textandbuttons);
-        //textandbuttons.setAttribute('style', 'position:relative;top:200px');
+        textandbuttons.setAttribute('style', 'position:relative;top:200px');
 
         // Scaling radio buttons
         document.getElementById(elementid_smallskin).checked = true;
@@ -8586,20 +8583,19 @@ function TI68kEmulatorUIModule(stdlib) {
         newimg.setAttribute('id', elementid_calcimg);
         newimg.setAttribute('src', 'ti89_skinmap.gif');
         newimg.setAttribute('usemap', '#' + elementid_calcmap);
-        //newimg.setAttribute('style', 'position:absolute;top:0px;left:0px;z-index:0');
-        newimg.setAttribute('style', oldimg.getAttribute('style'));
+        newimg.setAttribute('style', 'position:absolute;top:0px;left:0px;z-index:0');
 
         oldimg.parentNode.appendChild(newimg);
         newimg.parentNode.removeChild(oldimg);
 
         // Move canvas.
         var screen = document.getElementById(elementid_screen);
-        //screen.setAttribute('style', 'position:relative;top:36px;left:29px;z-index:1');
+        screen.setAttribute('style', 'position:relative;top:36px;left:29px;z-index:1');
         screen.setAttribute('width', '160');
         screen.setAttribute('height', '100');
 
         var textandbuttons = document.getElementById(elementid_textandbuttons);
-        //textandbuttons.setAttribute('style', 'position:relative;top:310px');
+        textandbuttons.setAttribute('style', 'position:relative;top:310px');
 
         // Scaling radio buttons
         document.getElementById(elementid_smallskin).checked = true;
@@ -8687,20 +8683,19 @@ function TI68kEmulatorUIModule(stdlib) {
         newimg.setAttribute('id', elementid_calcimg);
         newimg.setAttribute('src', 'tiv200_skinmap.gif');
         newimg.setAttribute('usemap', '#' + elementid_calcmap);
-        //newimg.setAttribute('style', 'position:absolute;top:0px;left:0px;z-index:0');
-        newimg.setAttribute('style', oldimg.getAttribute('style'));
+        newimg.setAttribute('style', 'position:absolute;top:0px;left:0px;z-index:0');
 
         oldimg.parentNode.appendChild(newimg);
         newimg.parentNode.removeChild(oldimg);
 
         // Move canvas.
         var screen = document.getElementById(elementid_screen);
-        //screen.setAttribute('style', 'position:relative;top:34px;left:70px;z-index:1');
+        screen.setAttribute('style', 'position:relative;top:34px;left:70px;z-index:1');
         screen.setAttribute('width', '240');
         screen.setAttribute('height', '128');
 
         var textandbuttons = document.getElementById(elementid_textandbuttons);
-        //textandbuttons.setAttribute('style', 'position:relative;top:310px');
+        textandbuttons.setAttribute('style', 'position:relative;top:310px');
 
         // Scaling radio buttons
         document.getElementById(elementid_smallskin).checked = true;
@@ -8814,20 +8809,19 @@ function TI68kEmulatorUIModule(stdlib) {
         newimg.setAttribute('id', elementid_calcimg);
         newimg.setAttribute('src', 'ti89t_skinmap.gif');
         newimg.setAttribute('usemap', '#' + elementid_calcmap);
-        //newimg.setAttribute('style', 'position:absolute;top:0px;left:0px;z-index:0');
-        newimg.setAttribute('style', oldimg.getAttribute('style'));
+        newimg.setAttribute('style', 'position:absolute;top:0px;left:0px;z-index:0');
 
         oldimg.parentNode.appendChild(newimg);
         newimg.parentNode.removeChild(oldimg);
 
         // Move canvas.
         var screen = document.getElementById(elementid_screen);
-        //screen.setAttribute('style', 'position:relative;top:52px;left:33px;z-index:1');
+        screen.setAttribute('style', 'position:relative;top:52px;left:33px;z-index:1');
         screen.setAttribute('width', '160');
         screen.setAttribute('height', '100');
 
         var textandbuttons = document.getElementById(elementid_textandbuttons);
-        //textandbuttons.setAttribute('style', 'position:relative;top:390px');
+        textandbuttons.setAttribute('style', 'position:relative;top:390px');
 
         // Scaling radio buttons
         document.getElementById(elementid_smallskin).checked = true;
@@ -9277,10 +9271,4 @@ function TI68kEmulatorUIModule(stdlib) {
 
     };
 
-}
-
-// to put somewhere probably more appropriate...
-function updateSkinZoom(val) {
-    var div = document.getElementById("calccontainer");
-    div.setAttribute("style", "zoom:"+val+"; -moz-transform: scale("+val+");")
 }
