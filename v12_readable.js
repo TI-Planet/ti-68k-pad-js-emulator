@@ -554,6 +554,8 @@ Changelog from PatrickD's version / work log
 	  (debrouxl 2014/03/09)
 	* fix ROM / OS upgrade loading, several occurrences of bare rom (instead of state.rom) remained.
 	  (debrouxl 2014/03/19)
+	* fix keypad 7 key mapping for 89/89T.
+	  (debrouxl 2014/04/27)
 
 Achievements:
 	* on 2013/07/30, this emulator uncovered a nearly 6-year-old bug in the alternate grayscale routine for ExtGraph (gray.o). An invalid optimization in a HW1-only code path was added to ExtGraph around 2007/08/13.
@@ -7644,7 +7646,7 @@ function handle_keys_89_89T(event)
 		case 52: emu.setKey(34, value); break; // 4
 		case 100: emu.setKey(34, value); break; // 4 (keypad)
 		case 55: emu.setKey(35, value); break; // 7
-		case 101: emu.setKey(35, value); break; // 7 (keypad)
+		case 103: emu.setKey(35, value); break; // 7 (keypad)
 		// No binding for ( (too inconsistent across browsers)
 		case 89: emu.setKey(37, value); break; // Y
 		// No binding for MODE
