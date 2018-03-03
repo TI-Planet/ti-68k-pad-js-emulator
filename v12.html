@@ -36,10 +36,61 @@
         // Here, you could call a bunch of set_elementid_* functions on ui, e.g. set_elementid_calcimg(), to link your document's element IDs with the script.
         // But that's optional if you use the same element IDs as the ones in this reference HTML page.
         // You can also call set_display_no_rom_loaded() on UI if you don't like alert() as a way to tell the user that no ROM / OS upgrade is loaded.
+
+        function sendKey(key)
+        {
+            if (key === '(' || key === ')') {
+                emu.setKey((key === '(') ? 37 : 38, 1);
+            } else {
+                var e = new Event("keydown");
+                e.key     = key.toUpperCase();
+                e.keyCode = e.key.charCodeAt(0);
+                e.which   = e.keyCode;
+                document.dispatchEvent(e);
+            }
+            setTimeout(function () {
+                if (key === '(' || key === ')') {
+                    emu.setKey((key === '(') ? 37 : 38, 0);
+                } else {
+                    var e = new Event("keyup");
+                    e.key     = key.toUpperCase();
+                    e.keyCode = e.key.charCodeAt(0);
+                    e.which   = e.keyCode;
+                    document.dispatchEvent(e);
+                }
+                //console.log("sent key: " + key);
+            }, 100);
+        }
+
+        function handlekeys()
+        {
+            var toType = document.location.hash.substr(1);
+
+            //toType = toType.replace(/([()])/g, '↑$1↓');
+
+            if (toType.length > 0)
+            {
+                console.log("string to type: " + toType);
+
+                setTimeout(function() {
+                    for (var i=0, delay=0; i < toType.length; delay+=250, i++)
+                    {
+                        (function(char, delay) {
+                            setTimeout(function() { sendKey(char); }, delay);
+                        })(toType[i], delay);
+                    }
+                }, 5000);
+
+                // Enter at the end
+                setTimeout(function () { emu.setKey(73, 1); }, 5000 + toType.length * 350 + 50);
+                setTimeout(function () { emu.setKey(73, 0); }, 5000 + toType.length * 350 + 50 + 100);
+            }
+
+        }
     </script>
 </head>
 
-<body class="bootstrap" onload="emu.initemu()">
+<body class="bootstrap" onload="emu.initemu(); handlekeys();">
 <h2>Javascript TI-89 / TI-92+ / TI-V200 / TI-89T emulator (beta version 12) by Patrick Davidson &amp; Lionel Debroux</h2>
 
 <div class="container page-wrap" id="mainContent">
