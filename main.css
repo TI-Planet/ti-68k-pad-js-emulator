@@ -29,8 +29,9 @@ h2 {
 
 #calcimg {
     position: relative;
-    top: 0px;
-    left: 0px
+    top: 0;
+    left: 0;
+    user-select: none;
 }
 
 #textandbuttons div.wrapper {
@@ -84,11 +85,11 @@ input[type="range"]:after, input[type="range"]:before {
     top: 1em;
 }
 input[type="range"]:before {
-    left:0em;
+    left:0;
     content: attr(min);
 }
 input[type="range"]:after {
-    right: 0em;
+    right: 0;
     content: attr(max);
 }
 
