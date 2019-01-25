@@ -9074,7 +9074,9 @@ function TI68kEmulatorUIModule(stdlib) {
 
     function loadrom() {
         var infile = document.getElementById(elementid_romfile).files[0];
-        emu.loadrom(infile);
+        if (infile) {
+            emu.loadrom(infile);
+        }
     }
 
     function set_title(title) {
