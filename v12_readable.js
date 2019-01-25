@@ -7416,6 +7416,7 @@ function TI68kEmulatorUIModule(stdlib) {
     var elementid_speedup = 'speedup';
     var elementid_slowdown = 'slowdown';
     var elementid_romfile = 'romfile';
+    var elementid_file = 'file';
     var elementid_downloadfile = 'downloadfile';
 
 // -------------------- Variables above this line should be saved and restored --------------------
@@ -9079,6 +9080,13 @@ function TI68kEmulatorUIModule(stdlib) {
         }
     }
 
+    function loadfile()  {
+        var infile = document.getElementById(elementid_file).files[0];
+        if (infile) {
+            emu.loadrom(infile); // this function will load any file actually
+        }
+    }
+
     function set_title(title) {
         document.title = title;
     }
@@ -9219,6 +9227,10 @@ function TI68kEmulatorUIModule(stdlib) {
         elementid_romfile = romfile;
     }
 
+    function set_elementid_file(file) {
+        elementid_file = file;
+    }
+
     function set_elementid_downloadfile(downloadfile) {
         elementid_downloadfile = downloadfile;
     }
@@ -9232,6 +9244,7 @@ function TI68kEmulatorUIModule(stdlib) {
         setSkin: setSkin,
         getPNG: getPNG,
         loadrom: loadrom,
+        loadfile: loadfile,
         pngButtons: pngButtons,
         pause_emulator: pause_emulator,
         resume_emulator: resume_emulator,
@@ -9268,6 +9281,7 @@ function TI68kEmulatorUIModule(stdlib) {
         set_elementid_speedup: set_elementid_speedup,
         set_elementid_slowdown: set_elementid_slowdown,
         set_elementid_romfile: set_elementid_romfile,
+        set_elementid_file: set_elementid_file,
         set_display_no_rom_loaded: set_display_no_rom_loaded,
 
         set_frames_for_averaging: set_frames_for_averaging,
