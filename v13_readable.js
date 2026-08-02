@@ -1,5 +1,5 @@
 /**
- * JavaScript TI-68k (89, 92+, V200, 89T) graphing calculator emulator
+ * JavaScript TI-68k (89, 92, 92+, V200, 89T) graphing calculator emulator
  *
  * Copyright (C) 2011-2013 Patrick "PatrickD" Davidson (v1-v11) - http://www.ocf.berkeley.edu/~pad/emu/
  * Copyright (C) 2012-2014 Lionel Debroux (v11-v12) - http://tiplanet.org
@@ -3358,7 +3358,9 @@ function TI68kEmulatorCoreModule(stdlib) {
         switch (reg) {
             case 0x600000: // 0x600000
             {
-                return 0x04;
+                // Bit 2 reports that battery voltage is above the programmed
+                // threshold. On the TI-92, bit 5 is the low contrast bit.
+                return ((state.calculator_model == 0) ? (state.port_600000 & 0x20) : 0) | 0x04;
             }
 
             case 0x600001: // 0x600001
@@ -3464,7 +3466,10 @@ function TI68kEmulatorCoreModule(stdlib) {
         switch (reg) {
             case 0x600000: // 0x600000
             {
-                //port_600000 = value;
+                if (state.calculator_model == 0) {
+                    state.port_600000 = value;
+                    ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_600000, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
+                }
                 break;
             }
 
@@ -3595,7 +3600,7 @@ function TI68kEmulatorCoreModule(stdlib) {
             {
                 state.port_60001C = value;
                 //stdlib.console.log("Setting 60001C to " + to_hex(value, 2));
-                ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
+                ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_600000, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
                 break;
             }
 
@@ -3603,7 +3608,7 @@ function TI68kEmulatorCoreModule(stdlib) {
             {
                 state.port_60001D = value;
                 //stdlib.console.log("Setting 60001D to " + to_hex(value, 2));
-                ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
+                ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_600000, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
                 break;
             }
 
@@ -3660,7 +3665,7 @@ function TI68kEmulatorCoreModule(stdlib) {
             {
                 state.port_70001D = value;
                 //stdlib.console.log("Setting 70001D to " + to_hex(value, 2));
-                ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
+                ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_600000, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
                 break;
             }
 
@@ -3668,7 +3673,7 @@ function TI68kEmulatorCoreModule(stdlib) {
             {
                 state.port_70001F = value;
                 //stdlib.console.log("Setting 70001F to " + to_hex(value, 2));
-                ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
+                ui.set_screen_enabled_and_contrast(state.calculator_model, state.hardware_model, state.port_600000, state.port_60001C, state.port_60001D, state.port_70001D, state.port_70001F);
                 break;
             }
 
@@ -3831,6 +3836,44 @@ function TI68kEmulatorCoreModule(stdlib) {
     build_memory_read_functions("8", 0x200000, 0x400000); // V200
     build_memory_read_functions("9", 0x800000, (state.large_flash_memory ? 0x800000 : 0x400000)); // 89T
 
+    // The original TI-92 uses mask ROM rather than Flash. Depending on the ROM
+    // module, its 1 or 2 MB image is based at 0x200000 or 0x400000 and mirrored
+    // throughout a 2 MB address window.
+    function rw_0_normal(address) {
+        if ((address & 1) != 0) {
+            state.address_error_address = address;
+            state.address_error_access_type = 1;
+            fire_cpu_exception(3);
+        }
+        address &= 0xFFFFFE;
+        if (address < 0x200000) {
+            return state.ram[(address & 0x3FFFE) >>> 1];
+        }
+        else if (address >= state.ROM_base && address < state.ROM_base + 0x200000) {
+            return state.rom[((address - state.ROM_base) & (state.rom.byteLength - 1)) >>> 1];
+        }
+        else if (address >= 0x600000 && address < 0x800000) {
+            return read_hreg(address) * 256 + read_hreg(address + 1);
+        }
+        return 0x1400;
+    }
+
+    function rb_0_normal(address) {
+        address &= 0xFFFFFF;
+        if (address < 0x200000) {
+            address &= 0x3FFFF;
+            return (address & 1) ? (state.ram[address >>> 1] & 0xFF) : (state.ram[address >>> 1] >>> 8);
+        }
+        else if (address >= state.ROM_base && address < state.ROM_base + 0x200000) {
+            var offset = (address - state.ROM_base) & (state.rom.byteLength - 1);
+            return (offset & 1) ? (state.rom[offset >>> 1] & 0xFF) : (state.rom[offset >>> 1] >>> 8);
+        }
+        else if (address >= 0x600000 && address < 0x800000) {
+            return read_hreg(address);
+        }
+        return (address & 1) ? 0 : 0x14;
+    }
+
     function rl(address) {
         var high_word = rw(address);
         var low_word = rw(address + 2);
@@ -3949,6 +3992,40 @@ function TI68kEmulatorCoreModule(stdlib) {
     build_memory_write_functions("3", 0x200000, 0x200000); // 89
     build_memory_write_functions("8", 0x200000, 0x400000); // V200
     build_memory_write_functions("9", 0x800000, (state.large_flash_memory ? 0x800000 : 0x400000)); // 89T
+
+    function ww_0_normal(address, value) {
+        if ((address & 1) != 0) {
+            state.address_error_address = address;
+            state.address_error_access_type = 0;
+            fire_cpu_exception(3);
+        }
+        address &= 0xFFFFFE;
+        if (address < 0x200000) {
+            state.ram[(address & 0x3FFFF) >>> 1] = value;
+        }
+        else if (address >= 0x600000 && address < 0x800000) {
+            write_hreg(address, (value >>> 8) & 0xFF);
+            write_hreg(address + 1, value & 0xFF);
+        }
+        // Writes to the TI-92 mask ROM are ignored.
+    }
+
+    function wb_0_normal(address, value) {
+        address &= 0xFFFFFF;
+        if (address < 0x200000) {
+            address &= 0x3FFFF;
+            if ((address & 1) == 0) {
+                state.ram[address >>> 1] = (state.ram[address >>> 1] & 0xFF) + ((value & 0xFF) * 256);
+            }
+            else {
+                state.ram[address >>> 1] = (state.ram[address >>> 1] & 0xFF00) + (value & 0xFF);
+            }
+        }
+        else if (address >= 0x600000 && address < 0x800000) {
+            write_hreg(address, value & 0xFF);
+        }
+        // Writes to the TI-92 mask ROM are ignored.
+    }
 
     function wl(address, value) {
         ww(address, value >>> 16);
@@ -4297,6 +4374,27 @@ function TI68kEmulatorCoreModule(stdlib) {
         if (typeof(state.rom) !== "object") {
             return false;
         }
+
+        // TIEmu's ROM detection distinguishes the original TI-92 mask ROM from
+        // Flash models with the low nibble of byte 0x65. Byte 5 contains the ROM
+        // base (0x20 or 0x40). Classic images have no Flash OS header or HWPB.
+        var rom_size_bytes = state.rom.byteLength || state.rom.length * 2;
+        var rom_base_byte = state.rom[2] & 0xFF;
+        var rom_type_byte = state.rom[0x64 >>> 1] & 0xFF;
+        if ((rom_size_bytes == 0x100000 || rom_size_bytes == 0x200000)
+            && (rom_type_byte & 0x0F) != 0
+            && ((rom_base_byte & 0xF0) == 0x20 || (rom_base_byte & 0xF0) == 0x40)) {
+            state.calculator_model = 0; // Original TI-92 (mask ROM)
+            state.hardware_model = 1;
+            state.ROM_base = (rom_base_byte & 0xF0) << 16;
+            state.FlashMemorySize = rom_size_bytes;
+            state.jmp_tbl = 0;
+            state.pedrom = false;
+            state.punix = false;
+            stdlib.console.log("Detected a TI-92 mask ROM, base is " + to_hex(state.ROM_base, 6) + ", size is " + rom_size_bytes + " bytes");
+            return true;
+        }
+
         state.jmp_tbl = state.rom[(0x12088 + 0xC8) >>> 1] * 65536 + state.rom[((0x12088 + 0xC8) >>> 1) + 1]; // Jump table, if any
         state.pedrom = (state.rom[(0x12088 + 0x32) >>> 1] == 0x524F); // PedroM has kernel type "RO", AMS and Punix have no kernel type.
         state.punix = (state.jmp_tbl == 0); // Punix doesn't have an AMS-style jump table.
@@ -4432,10 +4530,18 @@ function TI68kEmulatorCoreModule(stdlib) {
 
         ui.reset();
 
-        for (var i = 0; i < 128; i++) state.ram[i] = state.rom[i + (0x12088 / 2)];
+        if (state.calculator_model != 0) {
+            for (var i = 0; i < 128; i++) state.ram[i] = state.rom[i + (0x12088 / 2)];
+        }
 
         // Redefine memory read / write functions
-        if (state.calculator_model == 1) { // 92+
+        if (state.calculator_model == 0) { // 92
+            rb = rb_0_normal;
+            rw = rw_0_normal;
+            wb = wb_0_normal;
+            ww = ww_0_normal;
+        }
+        else if (state.calculator_model == 1) { // 92+
             rb = rb_1_normal;
             rw = rw_1_normal;
             wb = wb_1_normal;
@@ -4466,7 +4572,16 @@ function TI68kEmulatorCoreModule(stdlib) {
         // Detect starting address.
         var initial_ssp = state.rom[0] * 65536 + state.rom[1];
         var initial_pc = state.rom[2] * 65536 + state.rom[3];
-        if (initial_ssp >= 0 && initial_ssp < 0x40000
+        if (state.calculator_model == 0
+            && initial_ssp >= 0 && initial_ssp < 0x40000
+            && initial_pc >= state.ROM_base && initial_pc < state.ROM_base + state.FlashMemorySize) {
+            stdlib.console.log("Using TI-92 reset vectors, SSP=" + to_hex(initial_ssp, 8) + ", PC=" + to_hex(initial_pc, 8));
+            state.pc = initial_pc;
+            state.prev_pc = state.pc;
+            state.a7 = initial_ssp;
+            state.a8 = initial_ssp;
+        }
+        else if (initial_ssp >= 0 && initial_ssp < 0x40000
             && initial_pc >= state.ROM_base && initial_pc < state.ROM_base + state.FlashMemorySize
             && state.rom[0x10000 >>> 1] == 0xFFF8) {
             stdlib.console.log("Detected reasonably valid initial SSP=" + to_hex(initial_ssp, 8) + ", PC=" + to_hex(initial_pc, 8) + " in boot code, and marker in certificate memory: will boot from boot code");
@@ -4785,9 +4900,9 @@ function TI68kEmulatorCoreModule(stdlib) {
         var inputrom = newromready.result;
         newromready = false;
         var buf = new Uint8Array(inputrom);
-        if (inputrom.byteLength == 0x200000 || inputrom.byteLength == 0x400000) {
+        if (inputrom.byteLength == 0x100000 || inputrom.byteLength == 0x200000 || inputrom.byteLength == 0x400000) {
             stdlib.console.log("Processing plain ROM image");
-            rom = new Uint16Array(inputrom.byteLength / 2);
+            state.rom = new Uint16Array(inputrom.byteLength / 2);
             for (var x = 0; x < inputrom.byteLength; x += 2) {
                 state.rom[x / 2] = buf[x] * 256 + buf[x + 1];
             }
@@ -4892,7 +5007,7 @@ function TI68kEmulatorCoreModule(stdlib) {
     function loadrom(infile) {
         stdlib.console.log("starting to read file " + infile.name);
         var extension = infile.name.toLowerCase().substr(-4);
-        if ((infile.size == 0x200000 || infile.size == 0x400000) && extension == ".rom") {
+        if ((infile.size == 0x100000 || infile.size == 0x200000 || infile.size == 0x400000) && extension == ".rom") {
             stdlib.console.log("Loading as plain ROM");
             var reader = new FileReader();
             reader.onload = function () {
@@ -6028,6 +6143,22 @@ function TI68kEmulatorCoreModule(stdlib) {
         return wl;
     }
 
+    function get_rb_0_normal() {
+        return rb_0_normal;
+    }
+
+    function get_rw_0_normal() {
+        return rw_0_normal;
+    }
+
+    function get_wb_0_normal() {
+        return wb_0_normal;
+    }
+
+    function get_ww_0_normal() {
+        return ww_0_normal;
+    }
+
     function get_rb_1_normal() {
         return rb_1_normal;
     }
@@ -6284,6 +6415,11 @@ function TI68kEmulatorCoreModule(stdlib) {
         ww: get_ww,
         wl: get_wl,
 
+        rb_0_normal: get_rb_0_normal,
+        rw_0_normal: get_rw_0_normal,
+        wb_0_normal: get_wb_0_normal,
+        ww_0_normal: get_ww_0_normal,
+
         rb_1_normal: get_rb_1_normal,
         rb_1_flashspecial: get_rb_1_flashspecial,
         rw_1_normal: get_rw_1_normal,
@@ -6447,9 +6583,17 @@ function TI68kEmulatorLinkModule(stdlib) {
         stdlib.console.log(dump);
     }
 
+    function pc_link_id() {
+        return (calculator_model == 0) ? 0x09 : 0x08; // PC_TI92 or PC_TI92p
+    }
+
+    function is_calculator_link_id(value) {
+        return value == 0x89 || value == 0x88 || value == 0x98; // TI92, TI92p/V200, TI89/TI89t
+    }
+
     function ti89_send_ACK() {
-        //                PC_TI92p  CMD_ACK
-        link_incoming_queue.push(8, 0x56, 0, 0);
+        //                PC_TI92*  CMD_ACK
+        link_incoming_queue.push(pc_link_id(), 0x56, 0, 0);
     }
 
     function ti89_recv_ACK() {
@@ -6457,8 +6601,8 @@ function TI68kEmulatorLinkModule(stdlib) {
     }
 
     function ti89_send_CTS() {
-        //                PC_TI92p  CMD_CTS
-        link_incoming_queue.push(8, 0x09, 0, 0); // CTS packet
+        //                PC_TI92*  CMD_CTS
+        link_incoming_queue.push(pc_link_id(), 0x09, 0, 0); // CTS packet
     }
 
     function ti89_recv_CTS() {
@@ -6466,8 +6610,8 @@ function TI68kEmulatorLinkModule(stdlib) {
     }
 
     function ti89_send_CNT() {
-        //                PC_TI92p  CMD_CNT
-        link_incoming_queue.push(8, 0x78, 0, 0);
+        //                PC_TI92*  CMD_CNT
+        link_incoming_queue.push(pc_link_id(), 0x78, 0, 0);
     }
 
     function ti89_recv_CNT() {
@@ -6475,20 +6619,20 @@ function TI68kEmulatorLinkModule(stdlib) {
     }
 
     function ti89_send_EOT() {
-        //                PC_TI92p  CMD_EOT
-        link_incoming_queue.push(8, 0x92, 0, 0);
+        //                PC_TI92*  CMD_EOT
+        link_incoming_queue.push(pc_link_id(), 0x92, 0, 0);
     }
 
     function ti89_send_KEY(keycode) {
-        //                PC_TI92p  CMD_KEY
-        link_incoming_queue.push(8, 0x87); // key header
+        //                PC_TI92*  CMD_KEY
+        link_incoming_queue.push(pc_link_id(), 0x87); // key header
         link_incoming_queue.push(keycode & 0xFF); // key code, little endian
         link_incoming_queue.push((keycode >>> 8) & 0xFF);
     }
 
     function ti89_send_XDP(data_section_len, chunk_len, buf, offset, write_both_checksum_and_length) {
-        //                PC_TI92p  CMD_XDP
-        link_incoming_queue.push(8, 0x15);
+        //                PC_TI92*  CMD_XDP
+        link_incoming_queue.push(pc_link_id(), 0x15);
 
         var data_checksum = 0;
 
@@ -6517,7 +6661,7 @@ function TI68kEmulatorLinkModule(stdlib) {
     function ti89_send_REQ(length, varname, vartype) {
         // libticalcs: dbus_send (target + cmd), called by ti89_send_REQ.
         //                PC_TI92p  CMD_REQ
-        link_incoming_queue.push(8, 0xA2); // standard variable header
+        link_incoming_queue.push(pc_link_id(), 0xA2); // standard variable header
 
         // If varname is a string, let's convert it into an array of numbers.
         if (typeof(varname) == "string") {
@@ -6554,7 +6698,7 @@ function TI68kEmulatorLinkModule(stdlib) {
     function ti89_send_RTS(length, varname, vartype) {
         // libticalcs: dbus_send (target + cmd), called by ti89_send_RTS.
         //                PC_TI92p  CMD_RTS
-        link_incoming_queue.push(8, 0xC9); // standard variable header
+        link_incoming_queue.push(pc_link_id(), 0xC9); // standard variable header
 
         var header_len = varname.length + 6 + 1;
 
@@ -6780,7 +6924,8 @@ function TI68kEmulatorLinkModule(stdlib) {
     function link_magic_number() {
         if (link_recv_vartype >= 35) return "**TIFL**"; // (OS) FlashApp (Certificate)
 
-        if (calculator_model == 1 || calculator_model == 9) return "**TI89**";
+        if (calculator_model == 0) return "**TI92**";
+        else if (calculator_model == 3 || calculator_model == 9) return "**TI89**";
         else return "**TI92P*";
     }
 
@@ -7097,10 +7242,7 @@ function TI68kEmulatorLinkModule(stdlib) {
             if (link_incoming_queue[0] == 'WAIT_ACK') {
                 //stdlib.console.log("Begin WAIT_ACK, outgoing queue length:", link_outgoing_queue.length);
                 for (var x = 0; x + 4 <= link_outgoing_queue.length; x++) {
-                    //                                TI92p_PC / V200_PC                  CMD_ACK
-                    if ((link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x + 1] == 0x56)
-                        //                                TI89_PC / TI89t_PC                  CMD_ACK
-                        || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x + 1] == 0x56)) {
+                    if (is_calculator_link_id(link_outgoing_queue[x]) && link_outgoing_queue[x + 1] == 0x56) {
                         // libticalcs: ti89_recv_ACK indicates that length can be nonzero for failure
                         // FIXME: better error handling !
                         if (/*reset_upon_ack_with_len
@@ -7124,10 +7266,7 @@ function TI68kEmulatorLinkModule(stdlib) {
             else if (link_incoming_queue[0] == 'WAIT_CTS') {
                 //stdlib.console.log("Begin WAIT_CTS, outgoing queue length:", link_outgoing_queue.length);
                 for (var x = 0; x + 4 <= link_outgoing_queue.length; x++) {
-                    //                                TI92p_PC / V200_PC                  CMD_CTS
-                    if ((link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x + 1] == 0x09)
-                        //                                TI89_PC / TI89t_PC                  CMD_CTS
-                        || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x + 1] == 0x09)) {
+                    if (is_calculator_link_id(link_outgoing_queue[x]) && link_outgoing_queue[x + 1] == 0x09) {
                         // libticalcs: ti89_recv_CTS indicates that length can be nonzero for failure
                         // FIXME: better error handling !
                         if (link_outgoing_queue[x + 2] != 0 || link_outgoing_queue[x + 3] != 0) {
@@ -7150,10 +7289,7 @@ function TI68kEmulatorLinkModule(stdlib) {
                 // WIP
                 //stdlib.console.log("Begin WAIT_VAR, outgoing queue length:", link_outgoing_queue.length);
                 for (var x = 0; x + 4 <= link_outgoing_queue.length; x++) {
-                    //                                TI92p_PC / V200_PC                  CMD_VAR
-                    if ((link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x + 1] == 0x06)
-                        //                                TI89_PC / TI89t_PC                  CMD_VAR
-                        || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x + 1] == 0x06)) {
+                    if (is_calculator_link_id(link_outgoing_queue[x]) && link_outgoing_queue[x + 1] == 0x06) {
                         // TODO: error handling
                         var length = link_outgoing_queue[x + 2] + link_outgoing_queue[x + 3] * 256;
                         dump_outgoing_queue("WAIT_VAR Before: ");
@@ -7165,10 +7301,7 @@ function TI68kEmulatorLinkModule(stdlib) {
 
                         dump_outgoing_queue("After: ");
                     }
-                    //                                  TI92p_PC / V200_PC                  CMD_EOT
-                    else if ((link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x + 1] == 0x92)
-                        //                                  TI89_PC / TI89t_PC                  CMD_EOT
-                        || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x + 1] == 0x92)) {
+                    else if (is_calculator_link_id(link_outgoing_queue[x]) && link_outgoing_queue[x + 1] == 0x92) {
                         // For implementation of non-silent receive.
                         // TODO: error handling
                         process_recv_CNTEOT(x);
@@ -7181,10 +7314,7 @@ function TI68kEmulatorLinkModule(stdlib) {
                 // WIP
                 //stdlib.console.log("Begin WAIT_XDP, outgoing queue length:", link_outgoing_queue.length);
                 for (var x = 0; x + 4 <= link_outgoing_queue.length; x++) {
-                    //                                TI92p_PC / V200_PC                  CMD_XDP
-                    if ((link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x + 1] == 0x15)
-                        //                                TI89_PC / TI89t_PC                  CMD_XDP
-                        || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x + 1] == 0x15)) {
+                    if (is_calculator_link_id(link_outgoing_queue[x]) && link_outgoing_queue[x + 1] == 0x15) {
                         // TODO: error handling
                         process_recv_XDP(x);
                     }
@@ -7195,14 +7325,8 @@ function TI68kEmulatorLinkModule(stdlib) {
                 // WIP
                 //stdlib.console.log("Begin WAIT_CNT, outgoing queue length:", link_outgoing_queue.length);
                 for (var x = 0; x + 4 <= link_outgoing_queue.length; x++) {
-                    //                                TI92p_PC / V200_PC                  CMD_CNT
-                    if ((link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x + 1] == 0x78)
-                        //                                TI89_PC / TI89t_PC                  CMD_CNT
-                        || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x + 1] == 0x78)
-                        //                                TI92p_PC / V200_PC                  CMD_EOT
-                        || (link_outgoing_queue[x] == 0x88 && link_outgoing_queue[x + 1] == 0x92)
-                        //                                TI89_PC / TI89t_PC                  CMD_EOT
-                        || (link_outgoing_queue[x] == 0x98 && link_outgoing_queue[x + 1] == 0x92)) {
+                    if (is_calculator_link_id(link_outgoing_queue[x])
+                        && (link_outgoing_queue[x + 1] == 0x78 || link_outgoing_queue[x + 1] == 0x92)) {
                         // TODO: error handling
                         process_recv_CNTEOT(x);
                     }
@@ -7214,7 +7338,7 @@ function TI68kEmulatorLinkModule(stdlib) {
 
 // libtifiles: types89.c
     function buildFileExtensionFromVartype() {
-        var prefix = (calculator_model == 1 || calculator_model == 9) ? ".89" : ((calculator_model == 8) ? ".v2" : ".9x");
+        var prefix = (calculator_model == 0) ? ".92" : ((calculator_model == 3 || calculator_model == 9) ? ".89" : ((calculator_model == 8) ? ".v2" : ".9x"));
         var suffix = "";
         switch (link_recv_vartype) {
             case 0:
@@ -8347,7 +8471,7 @@ function TI68kEmulatorUIModule(stdlib) {
 
         // Move canvas.
         var screen = document.getElementById(elementid_screen);
-        ////screen.setAttribute('style', 'position:absolute;top:49px;left:205px;z-index:1');
+        screen.setAttribute('style', 'position:absolute;top:49px;left:205px;z-index:1');
         screen.setAttribute('width', '480');
         screen.setAttribute('height', '256');
 
@@ -8468,7 +8592,7 @@ function TI68kEmulatorUIModule(stdlib) {
 
         // Move canvas.
         var screen = document.getElementById(elementid_screen);
-        //screen.setAttribute('style', 'position:relative;top:27px;left:180px;z-index:1');
+        screen.setAttribute('style', 'position:absolute;top:27px;left:180px;z-index:1');
         screen.setAttribute('width', '240');
         screen.setAttribute('height', '128');
 
@@ -8595,7 +8719,7 @@ function TI68kEmulatorUIModule(stdlib) {
 
         // Move canvas.
         var screen = document.getElementById(elementid_screen);
-        //screen.setAttribute('style', 'position:relative;top:36px;left:29px;z-index:1');
+        screen.setAttribute('style', 'position:absolute;top:36px;left:29px;z-index:1');
         screen.setAttribute('width', '160');
         screen.setAttribute('height', '100');
 
@@ -8696,7 +8820,7 @@ function TI68kEmulatorUIModule(stdlib) {
 
         // Move canvas.
         var screen = document.getElementById(elementid_screen);
-        //screen.setAttribute('style', 'position:relative;top:34px;left:70px;z-index:1');
+        screen.setAttribute('style', 'position:absolute;top:34px;left:70px;z-index:1');
         screen.setAttribute('width', '240');
         screen.setAttribute('height', '128');
 
@@ -8823,7 +8947,7 @@ function TI68kEmulatorUIModule(stdlib) {
 
         // Move canvas.
         var screen = document.getElementById(elementid_screen);
-        //screen.setAttribute('style', 'position:relative;top:52px;left:33px;z-index:1');
+        screen.setAttribute('style', 'position:absolute;top:52px;left:33px;z-index:1');
         screen.setAttribute('width', '160');
         screen.setAttribute('height', '100');
 
@@ -8911,6 +9035,10 @@ function TI68kEmulatorUIModule(stdlib) {
         calculator_model = model;
         if (screen_scaling_ratio == 1) {
             switch (model) {
+                case 0:
+                    set_skin = set_small_92p_skin;
+                    draw_calcscreen = draw_calcscreen_92P_V200;
+                    break;
                 case 1:
                     set_skin = set_small_92p_skin;
                     draw_calcscreen = draw_calcscreen_92P_V200;
@@ -8933,6 +9061,10 @@ function TI68kEmulatorUIModule(stdlib) {
         }
         else {
             switch (model) {
+                case 0:
+                    set_skin = set_large_92p_skin;
+                    draw_calcscreen = draw_calcscreen_92P_V200;
+                    break;
                 case 1:
                     set_skin = set_large_92p_skin;
                     draw_calcscreen = draw_calcscreen_92P_V200;
@@ -9111,7 +9243,7 @@ function TI68kEmulatorUIModule(stdlib) {
         }
     }
 
-    function set_screen_enabled_and_contrast(calculator_model, hardware_model, port_60001C, port_60001D, port_70001D, port_70001F) {
+    function set_screen_enabled_and_contrast(calculator_model, hardware_model, port_600000, port_60001C, port_60001D, port_70001D, port_70001F) {
         //stdlib.console.log(emu.to_hex(port_60001D, 2));
         if (hardware_model == 1) {
             var new_screen_enabled = ((port_60001D & 0x10) == 0x00) || ((port_60001C & 0x3C) != 0x3C); // Bit 4 of 60001D clear, or not all bits set in LCD RS frequency.
@@ -9119,8 +9251,13 @@ function TI68kEmulatorUIModule(stdlib) {
                 stdlib.console.log("Changing screen state: " + new_screen_enabled + "\tpc=" + emu.to_hex(emu.pc(), 6) + "\thardware_model=" + hardware_model + "\t60001C=" + emu.to_hex(port_60001C, 2) + "\t60001D=" + emu.to_hex(port_60001D, 2) + "\t70001D=" + emu.to_hex(port_70001D, 2) + "\t70001F=" + emu.to_hex(port_70001F, 2));
             }
             screen_enabled = new_screen_enabled;
-            // LCD contrast level on 4 bits
-            port_60001D &= 0x0F;
+            // LCD contrast level on 4 bits, plus the TI-92 low contrast bit.
+            if (calculator_model == 0) {
+                port_60001D = ((port_60001D & 0x0F) << 1) | ((port_600000 >>> 5) & 1);
+            }
+            else {
+                port_60001D &= 0x0F;
+            }
             if (calculator_model == 1 || calculator_model == 8) { // 92+ & V200
                 port_60001D = 0x10 - port_60001D;
             }
