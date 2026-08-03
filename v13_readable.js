@@ -44,7 +44,7 @@
  ----
  Core
  ----
- * check build_* functions against M68000PRM. Two errors wrt. address registers have already been found (and ~600 instructions which should have been illegal made so), chances are that there are more problems.
+ * check build_* functions against M68000PRM. Three errors wrt. address registers have already been found (and ~700 instructions which should have been illegal made so), chances are that there are more problems.
  * partially implemented semi-infrequent processor instructions:
  * TAS: implemented - not checked.
  * lsl(), asl(), lsr(), asr(), rol(), ror(), roxl() and roxr() should be generated, optimized, and probably have the "size" argument constant-propagated.
@@ -76,6 +76,7 @@
  * libtifiles, files9x.c::ti9x_file_read_backup(): there's some metadata before the content, the content part is read as a whole;
  * libticalcs, calc_89.c::send_backup(): a rather thin wrapper over send_var().
  * add linking support for receiving multiple files in a row, especially for the purposes of non-silent linking.
+ * temporarily speed up emulation during linking ?
 
  -------
  UI part
@@ -96,8 +97,8 @@
  * Ptr2Hd implementation;
  * traverse the VAT - see core/ti_sw/var.c in TIEmu.
  * add ROM_CALL table in an external file in JSON format, and have ROM_CALL() handle string arguments (for returning the address of a ROM_CALL). Maybe 3 tables inside the object wrapping ROM_CALL table access: one sorted by ROM_CALL number, one sorted by name, one sorted by address. That way, we could use binary search in all situations;
+ * breakpoints, though those kill emulation speed when enabled.
  * etc.
- Breakpoints are going to kill emulation speed :(
 
  ----------
  Test suite
@@ -123,7 +124,7 @@
  - 600001 (for RAM interleaving and vector table protection). Proper emulation of that would make emulation slower due to extra checks in memory write functions...
  - 600018 not fully handled: battery checker bits. Don't care on emulator.
  - 600012 (for LCD logical width), 60001C (LCD row sync frequency): largely useless, though they provide a way to detect the screen being turned off.
- - R/W 700000-700007, 700008-70000F, 700012: RAM execution protection, ghost of RAM execution protection, and Flash execution protection. Emulating these harmful things would make everything slower.
+ - R/W 700000-700007, 700008-70000F, 700012: RAM execution protection, ghost of RAM execution protection, and Flash execution protection. Emulating these harmful things that users usually disable would make everything slower, due to JS interpreters failing (*Monkey slightly, V8 thoroughly) at optimizing switches.
  - 700011 "something to do with link port transfer speed". Nobody uses that.
  - R/W 700014 (RTC with extra slow incrementation) - useless for practical purposes, though easy to implement.
  - R/W 70001D battery checker bits
@@ -552,6 +553,14 @@
  (debrouxl 2014/03/09)
  * move t[], n[] and cycles[] to new inner "cpu" object. Speed impact seems within the noise.
  (debrouxl 2014/03/09)
+ * fix ROM / OS upgrade loading, several occurrences of bare rom (instead of state.rom) remained.
+ (debrouxl 2014/03/19)
+ * fix keypad 7 key mapping for 89/89T.
+ (debrouxl 2014/04/27)
+ * fix move to ccr, which is always a word operation. This is the root cause of the issue reported by John Burnette: .1^.1 ~ 1.258925 instead of the expected ~ .794328. Other powers of 10 were wrong as well.
+ While at it, switch the remaining occurrences of state.sr += to state.sr |=.
+ The debugging methods used to pinpoint the issue are left commented below.
+ (debrouxl 2020/12/29-30)
 
 
  Achievements:
@@ -562,7 +571,7 @@
  * showing that asl instead of lsl in DrawGrayBuffer_RPLC and DrawGrayBuffer_TRANW (used by demo13) doesn't yield the same graphical glitch, so asl() was probably free from the bug previously in lsl();
  * however, using roxl instead of rol in the same routines yields far more graphical glitches than expected (and than on TIEmu), so roxl was buggy as well.
  Fixing these instructions fixed both some non-deterministic floating-point computations (and therefore graphing) and ellipse drawing in AMS, see an entry from 2013/08/04.
- * on 2014/02/16, this emulator uncovered a 8+-year-old bug in TIEmu's emulation of Flash memory, namely the Identifier Codes (0x90) command. The bug probably went unnoticed because nobody bothered to execute the 89T HW4 boot code in TIEmu.
+ * on 2014/02/16, this emulator uncovered a 8+-year-old bug in TIEmu's emulation of Flash memory, namely the Identifier Codes (0x90) command. The bug probably went unnoticed because nobody bothered to execute the 89T HW4 boot code in TIEmu ?
  The 89T HW4 boot code uses the following sequence: write 0x90, read word from 800000, read word from 800002, write 0xFF.
  The 89T OS uses another sequence: write 0x90, read word from 800000, read word from 800002, write 0x50, write 0xFF.
  The code added by Kevin Kofler to flash.c on 2005/05/26, and modified no later than 2006/10/12, supported only the second, more commonly used variant.
@@ -1238,12 +1247,12 @@ function TI68kEmulatorCoreModule(stdlib) {
         var result = complement + minuend;
         var maskedresult = result >= 0x10000 ? result - 0x10000 : result;
         state.sr &= 0xFFE0;
-        if (maskedresult == 0) state.sr += 4; // zero flag
-        if (result & 0x8000) state.sr += 8; // negative flag
+        if (maskedresult == 0) state.sr |= 4; // zero flag
+        if (result & 0x8000) state.sr |= 8; // negative flag
         if (maskedresult < 0) maskedresult += 0x10000;
-        if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) state.sr += 2; // overflow flag
-        if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) state.sr += 2; // overflow flag
-        if (subtrahend > minuend) state.sr += 0x11; // carry and overflow
+        if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) state.sr |= 2; // overflow flag
+        if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) state.sr |= 2; // overflow flag
+        if (subtrahend > minuend) state.sr |= 0x11; // carry and overflow
         return maskedresult;
     }
 
@@ -1254,12 +1263,12 @@ function TI68kEmulatorCoreModule(stdlib) {
         var result = complement + minuend;
         var maskedresult = result >= 0x10000 ? result - 0x10000 : result;
         state.sr &= 0xFFF0;
-        if (maskedresult == 0) state.sr += 4; // zero flag
-        if (result & 0x8000) state.sr += 8; // negative flag
+        if (maskedresult == 0) state.sr |= 4; // zero flag
+        if (result & 0x8000) state.sr |= 8; // negative flag
         if (maskedresult < 0) maskedresult += 0x10000;
-        if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) state.sr += 2; // overflow flag
-        if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) state.sr += 2; // overflow flag
-        if (subtrahend > minuend) state.sr += 1; // carry and overflow
+        if (complement < 0x8000 && minuend < 0x8000 && maskedresult >= 0x8000) state.sr |= 2; // overflow flag
+        if (complement >= 0x8000 && minuend >= 0x8000 && maskedresult < 0x8000) state.sr |= 2; // overflow flag
+        if (subtrahend > minuend) state.sr |= 1; // carry and overflow
         return maskedresult;
     }
 
@@ -1269,11 +1278,11 @@ function TI68kEmulatorCoreModule(stdlib) {
         var result = x + y;
         var maskedresult = result & 0xFFFF;
         state.sr &= 0xFFE0;
-        if (maskedresult == 0) state.sr += 4; // zero flag
-        if (result & 0x8000) state.sr += 8; // negative flag
-        if (result != maskedresult) state.sr += 0x11; // carry and overflow
-        if (y < 0x8000 && x < 0x8000 && maskedresult >= 0x8000) state.sr += 2; // overflow flag
-        if (y >= 0x8000 && x >= 0x8000 && maskedresult < 0x8000) state.sr += 2; // overflow flag
+        if (maskedresult == 0) state.sr |= 4; // zero flag
+        if (result & 0x8000) state.sr |= 8; // negative flag
+        if (result != maskedresult) state.sr |= 0x11; // carry and overflow
+        if (y < 0x8000 && x < 0x8000 && maskedresult >= 0x8000) state.sr |= 2; // overflow flag
+        if (y >= 0x8000 && x >= 0x8000 && maskedresult < 0x8000) state.sr |= 2; // overflow flag
         return maskedresult;
     }
 
@@ -1284,12 +1293,12 @@ function TI68kEmulatorCoreModule(stdlib) {
         var result = complement + minuend;
         var maskedresult = result >= 0x100 ? result - 0x100 : result;
         state.sr &= 0xFFE0;
-        if (maskedresult == 0) state.sr += 4; // zero flag
-        if (result & 0x80) state.sr += 8; // negative flag
+        if (maskedresult == 0) state.sr |= 4; // zero flag
+        if (result & 0x80) state.sr |= 8; // negative flag
         if (maskedresult < 0) maskedresult += 0x100;
-        if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) state.sr += 2; // overflow flag
-        if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) state.sr += 2; // overflow flag
-        if (subtrahend > minuend) state.sr += 0x11; // carry and overflow
+        if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) state.sr |= 2; // overflow flag
+        if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) state.sr |= 2; // overflow flag
+        if (subtrahend > minuend) state.sr |= 0x11; // carry and overflow
         return maskedresult;
     }
 
@@ -1300,12 +1309,12 @@ function TI68kEmulatorCoreModule(stdlib) {
         var result = complement + minuend;
         var maskedresult = result >= 0x100 ? result - 0x100 : result;
         state.sr &= 0xFFF0;
-        if (maskedresult == 0) state.sr += 4; // zero flag
-        if (result & 0x80) state.sr += 8; // negative flag
+        if (maskedresult == 0) state.sr |= 4; // zero flag
+        if (result & 0x80) state.sr |= 8; // negative flag
         if (maskedresult < 0) maskedresult += 0x100;
-        if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) state.sr += 2; // overflow flag
-        if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) state.sr += 2; // overflow flag
-        if (subtrahend > minuend) state.sr += 1; // carry and overflow
+        if (complement < 0x80 && minuend < 0x80 && maskedresult >= 0x80) state.sr |= 2; // overflow flag
+        if (complement >= 0x80 && minuend >= 0x80 && maskedresult < 0x80) state.sr |= 2; // overflow flag
+        if (subtrahend > minuend) state.sr |= 1; // carry and overflow
         return maskedresult;
     }
 
@@ -1315,11 +1324,11 @@ function TI68kEmulatorCoreModule(stdlib) {
         var result = x + y;
         var maskedresult = result & 0xFF;
         state.sr &= 0xFFE0;
-        if (maskedresult == 0) state.sr += 4; // zero flag
-        if (result & 0x80) state.sr += 8; // negative flag
-        if (result != maskedresult) state.sr += 0x11; // carry and overflow
-        if (y < 0x80 && x < 0x80 && maskedresult >= 0x80) state.sr += 2; // overflow flag
-        if (y >= 0x80 && x >= 0x80 && maskedresult < 0x80) state.sr += 2; // overflow flag
+        if (maskedresult == 0) state.sr |= 4; // zero flag
+        if (result & 0x80) state.sr |= 8; // negative flag
+        if (result != maskedresult) state.sr |= 0x11; // carry and overflow
+        if (y < 0x80 && x < 0x80 && maskedresult >= 0x80) state.sr |= 2; // overflow flag
+        if (y >= 0x80 && x >= 0x80 && maskedresult < 0x80) state.sr |= 2; // overflow flag
         return maskedresult;
     }
 
@@ -1328,12 +1337,12 @@ function TI68kEmulatorCoreModule(stdlib) {
         var result = complement + minuend;
         var maskedresult = result >= 4294967296 ? result - 4294967296 : result;
         state.sr &= 0xFFE0;
-        if (maskedresult == 0) state.sr += 4; // zero flag
-        if (result & 2147483648) state.sr += 8; // negative flag
+        if (maskedresult == 0) state.sr |= 4; // zero flag
+        if (result & 2147483648) state.sr |= 8; // negative flag
         if (maskedresult < 0) maskedresult += 4294967296;
-        if (complement < 2147483648 && minuend < 2147483648 && maskedresult >= 2147483648) state.sr += 2; // overflow flag
-        if (complement >= 2147483648 && minuend >= 2147483648 && maskedresult < 2147483648) state.sr += 2; // overflow flag
-        if (subtrahend > minuend) state.sr += 0x11; // carry and overflow
+        if (complement < 2147483648 && minuend < 2147483648 && maskedresult >= 2147483648) state.sr |= 2; // overflow flag
+        if (complement >= 2147483648 && minuend >= 2147483648 && maskedresult < 2147483648) state.sr |= 2; // overflow flag
+        if (subtrahend > minuend) state.sr |= 0x11; // carry and overflow
         return maskedresult;
     }
 
@@ -1342,12 +1351,12 @@ function TI68kEmulatorCoreModule(stdlib) {
         var result = complement + minuend;
         var maskedresult = result >= 4294967296 ? result - 4294967296 : result;
         state.sr &= 0xFFF0;
-        if (maskedresult == 0) state.sr += 4; // zero flag
-        if (result & 2147483648) state.sr += 8; // negative flag
+        if (maskedresult == 0) state.sr |= 4; // zero flag
+        if (result & 2147483648) state.sr |= 8; // negative flag
         if (maskedresult < 0) maskedresult += 4294967296;
-        if (complement < 2147483648 && minuend < 2147483648 && maskedresult >= 2147483648) state.sr += 2; // overflow flag
-        if (complement >= 2147483648 && minuend >= 2147483648 && maskedresult < 2147483648) state.sr += 2; // overflow flag
-        if (subtrahend > minuend) state.sr += 1; // carry and overflow
+        if (complement < 2147483648 && minuend < 2147483648 && maskedresult >= 2147483648) state.sr |= 2; // overflow flag
+        if (complement >= 2147483648 && minuend >= 2147483648 && maskedresult < 2147483648) state.sr |= 2; // overflow flag
+        if (subtrahend > minuend) state.sr |= 1; // carry and overflow
         return maskedresult;
     }
 
@@ -1355,12 +1364,12 @@ function TI68kEmulatorCoreModule(stdlib) {
         var result = x + y;
         var maskedresult = result >= 4294967296 ? result - 4294967296 : result;
         state.sr &= 0xFFE0;
-        if (maskedresult == 0) state.sr += 4; // zero flag
-        if (result & 2147483648) state.sr += 8; // negative flag
-        if (result != maskedresult) state.sr += 0x11; // carry and overflow
+        if (maskedresult == 0) state.sr |= 4; // zero flag
+        if (result & 2147483648) state.sr |= 8; // negative flag
+        if (result != maskedresult) state.sr |= 0x11; // carry and overflow
         if (maskedresult < 0) maskedresult += 4294967296;
-        if (x < 2147483648 && y < 2147483648 && maskedresult >= 2147483648) state.sr += 2; // overflow flag
-        if (x >= 2147483648 && y >= 2147483648 && maskedresult < 2147483648) state.sr += 2; // overflow flag
+        if (x < 2147483648 && y < 2147483648 && maskedresult >= 2147483648) state.sr |= 2; // overflow flag
+        if (x >= 2147483648 && y >= 2147483648 && maskedresult < 2147483648) state.sr |= 2; // overflow flag
         return maskedresult;
     }
 
@@ -1588,11 +1597,11 @@ function TI68kEmulatorCoreModule(stdlib) {
         var maskedresult = result >= overflow ? result - overflow : result;
         state.sr &= 0xFFE0; // clear condition flags
         if (result == 0) state.sr |= 4; // set zero flag
-        if (result & neg) state.sr += 8; // negative flag
-        if (result != maskedresult) state.sr += 0x11; // carry and overflow
+        if (result & neg) state.sr |= 8; // negative flag
+        if (result != maskedresult) state.sr |= 0x11; // carry and overflow
         if (maskedresult < 0) maskedresult += overflow;
-        if (x < neg && y < neg && maskedresult >= neg) state.sr += 2; // overflow flag
-        if (x >= neg && y >= neg && maskedresult < neg) state.sr += 2; // overflow flag
+        if (x < neg && y < neg && maskedresult >= neg) state.sr |= 2; // overflow flag
+        if (x >= neg && y >= neg && maskedresult < neg) state.sr |= 2; // overflow flag
         return maskedresult;
     }
 
@@ -1864,7 +1873,7 @@ function TI68kEmulatorCoreModule(stdlib) {
             x >>>= 1;
             if (state.sr & 0x10) x = x + neg; // shift 1 in if X was set
             state.sr = state.sr & 0xFFE0; // clear all user condition flags including X
-            if (out) state.sr += 0x10; // set X if bit shifted out was set
+            if (out) state.sr |= 0x10; // set X if bit shifted out was set
         }
         x &= overflow - 1;
         if (x & neg) state.sr |= 0x9 // negative flag and carry flag
@@ -2227,10 +2236,10 @@ function TI68kEmulatorCoreModule(stdlib) {
 // generate code to set condition flags based on a value
     function set_condition_flags_data(size, s) {
         var code = "state.sr &= 65520;" // clear negative, zero, overflow, carry
-        code += "if(" + s + "==0) state.sr += 4;" // set zero flag
-        if (size == 0) return code + "if(" + s + "&128) state.sr += 8;" // set negative flag
-        if (size == 1) return code + "if(" + s + "&32768) state.sr += 8;" // set negative flag
-        if (size == 2) return code + "if(" + s + "&2147483648) state.sr += 8;" // set negative flag
+        code += "if(" + s + "==0) state.sr |= 4;" // set zero flag
+        if (size == 0) return code + "if(" + s + "&128) state.sr |= 8;" // set negative flag
+        if (size == 1) return code + "if(" + s + "&32768) state.sr |= 8;" // set negative flag
+        if (size == 2) return code + "if(" + s + "&2147483648) state.sr |= 8;" // set negative flag
     }
 
 // generate code to write the data to the effective a specified by mode and reg of size size
@@ -3127,12 +3136,13 @@ function TI68kEmulatorCoreModule(stdlib) {
                 if (valid_source(srcmode, srcreg) && srcmode != MODE_AREG) {
                     var opcode = 0x46C0 + (srcmode << 3) + srcreg;
                     var iname = "MOVE " + amode_name(srcmode, srcreg, 1) + ",SR"
-                    var cost = 12 + effective_address_calculation_time(srcmode, srcreg, 0);
+                    var cost = 12 + effective_address_calculation_time(srcmode, srcreg, 1);
                     insert_inst2(opcode, "if(state.sr&0x2000==0)fire_cpu_exception(8);" + amode_read(srcmode, srcreg, 1, true) + "update_sr(s);", iname, cost)
 
+                    // Unlike ANDI to CCR, EORI to CCR and ORI to CCR, move to CCR is always a word operation, as stated in M68000PRM.
                     opcode = 0x44C0 + (srcmode << 3) + srcreg;
-                    iname = "MOVE " + amode_name(srcmode, srcreg, 0) + ",CCR"
-                    insert_inst2(opcode, amode_read(srcmode, srcreg, 0, true) + "state.sr = (state.sr&0xFF00) + s;", iname, cost)
+                    iname = "MOVE " + amode_name(srcmode, srcreg, 1) + ",CCR"
+                    insert_inst2(opcode, amode_read(srcmode, srcreg, 1, true) + "state.sr = (state.sr&0xFF00) + (s&0x1F);", iname, cost)
                 }
                 if (valid_dest(srcmode, srcreg) && srcmode != MODE_AREG) {
                     var opcode = 0x40C0 + (srcmode << 3) + srcreg;
@@ -4614,6 +4624,10 @@ function TI68kEmulatorCoreModule(stdlib) {
         state.sr = 0x2700;
 
         state.cycle_count = 0;
+        state.tracing = 0;
+
+        //stdlib.console.log(cpu.t[0x40E7]); // MOVE from SR
+        //stdlib.console.log(cpu.t[0x44DF]); // MOVE to CCR
 
         link.reset_arrays();
     }
@@ -4689,7 +4703,7 @@ function TI68kEmulatorCoreModule(stdlib) {
             state.sr &= 0xF8FF;
             var new_level = e - 24;
             state.pending_ints &= 255 - (1 << new_level);
-            state.sr += new_level * 256;
+            state.sr |= new_level * 256;
         }
     }
 
@@ -4753,6 +4767,40 @@ function TI68kEmulatorCoreModule(stdlib) {
                 }
             }
             //if (pc == 0x48d6) tracecount = 20;
+            /*if (state.pc == 0x82016e) { // _bcd_math on 89T AMS 3.10.
+                var thislocaloutput = 'prevPC: ' + to_hex(rl(state.a7), 8) + ' FP0: ';
+                for (var i = 0; i < 10; i++) {
+                    thislocaloutput = thislocaloutput + to_hex(rb(0x5F12 + i), 2); // __AMS_FP0 on 89T AMS 3.10.
+                }
+                thislocaloutput = thislocaloutput + ' FP1: ';
+                for (var i = 0; i < 10; i++) {
+                    thislocaloutput = thislocaloutput + to_hex(rb(0x5F1E + i), 2); // __AMS_FP1 on 89T AMS 3.10.
+                }
+                stdlib.console.log(thislocaloutput);
+            }*/
+            /*if (state.pc == 0x957B54) { // __pow_core entry on 89T AMS 3.10.
+                state.tracing = 1;
+            }
+            if (state.pc == 0x8948BA) { // __pow_core exit on 89T AMS 3.10.
+                state.tracing = 0;
+            }
+            if (state.pc == 0x8238CC || state.pc == 0x82391C) {
+                stdlib.console.log(to_hex(state.sr, 4));
+            }
+            if (state.tracing) {
+                if (state.current_instruction == 0x4E75) { // RTS
+                    var thislocaloutput = 'PC: ' + to_hex(state.pc, 8) + ' FP0: ';
+                    for (var i = 0; i < 12; i++) {
+                        thislocaloutput = thislocaloutput + to_hex(rb(0x5F10 + i), 2); // __AMS_FP0 - 2 on 89T AMS 3.10.
+                    }
+                    thislocaloutput = thislocaloutput + ' FP1: ';
+                    for (var i = 0; i < 12; i++) {
+                        thislocaloutput = thislocaloutput + to_hex(rb(0x5F1C + i), 2); // __AMS_FP1 - 2 on 89T AMS 3.10.
+                    }
+                    stdlib.console.log(thislocaloutput);
+                }
+            }*/
+
             state.pc += 2;
             //try {
             state.cycle_count += cycles[state.current_instruction];
@@ -8009,7 +8057,7 @@ function TI68kEmulatorUIModule(stdlib) {
             case 55:
                 emu.setKey(35, value);
                 break; // 7
-            case 101:
+            case 103:
                 emu.setKey(35, value);
                 break; // 7 (keypad)
             // No binding for ( (too inconsistent across browsers)
@@ -9251,8 +9299,8 @@ function TI68kEmulatorUIModule(stdlib) {
                 stdlib.console.log("Changing screen state: " + new_screen_enabled + "\tpc=" + emu.to_hex(emu.pc(), 6) + "\thardware_model=" + hardware_model + "\t60001C=" + emu.to_hex(port_60001C, 2) + "\t60001D=" + emu.to_hex(port_60001D, 2) + "\t70001D=" + emu.to_hex(port_70001D, 2) + "\t70001F=" + emu.to_hex(port_70001F, 2));
             }
             screen_enabled = new_screen_enabled;
-            // LCD contrast level on 4 bits, plus the TI-92 low contrast bit.
-            if (calculator_model == 0) {
+            // LCD contrast level on 4 bits
+            if (calculator_model == 0) { // Original TI-92: bit 0 is port 600000 bit 5.
                 port_60001D = ((port_60001D & 0x0F) << 1) | ((port_600000 >>> 5) & 1);
             }
             else {
